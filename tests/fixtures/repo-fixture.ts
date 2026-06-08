@@ -42,7 +42,13 @@ export async function createRepoFixture(): Promise<RepoFixture> {
   await writeFile(join(root, "vendor", "submodule", ".git"), "gitdir: ../.git/modules/vendor/submodule\n");
   await writeFile(join(root, "vendor", "submodule", "README.md"), "# submodule\n");
   await writeFile(join(outside, "secret.txt"), "outside secret\n");
-  await symlink(join(outside, "secret.txt"), join(root, "linked-secret.txt"));
+  try {
+    await symlink(join(outside, "secret.txt"), join(root, "linked-secret.txt"));
+  } catch (error) {
+    if (!(error && typeof error === "object" && "code" in error && error.code === "EPERM")) {
+      throw error;
+    }
+  }
 
   return { root, outside };
 }

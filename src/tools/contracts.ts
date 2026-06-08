@@ -1,7 +1,8 @@
 import type { z } from "zod";
+import { AgentRunnerStatusInputSchema, AgentRunnerStatusResultSchema, RunLiveTailInputSchema, RunLiveTailResultSchema } from "../contracts/agent-runner.contract.js";
 import { ChangePlanInputSchema, ChangePlanResultSchema } from "../contracts/change-plan.contract.js";
 import { CleanupPathsInputSchema, CleanupPathsResultSchema } from "../contracts/cleanup.contract.js";
-import { CodexReviewInputSchema, CodexReviewResultSchema, CodexTaskInputSchema, CodexTaskResultSchema, CodexTaskWriteInputSchema, CodexTaskWriteResultSchema } from "../contracts/codex-task.contract.js";
+import { CodexReviewInputSchema, CodexReviewResultSchema, CodexRunAndWaitInputSchema, CodexRunAndWaitResultSchema, CodexTaskInputSchema, CodexTaskResultSchema, CodexTaskWriteInputSchema, CodexTaskWriteResultSchema } from "../contracts/codex-task.contract.js";
 import { DecisionLogInputSchema, DecisionLogResultSchema } from "../contracts/decision.contract.js";
 import { FetchFileInputSchema, FileContentSchema, ReadManyInputSchema, ReadManyResultSchema } from "../contracts/file.contract.js";
 import { GitCommitInputSchema, GitCommitResultSchema, GitRecoverInputSchema, GitRecoverResultSchema, GitRestorePathsInputSchema, GitRestorePathsResultSchema, GitStageCommitInputSchema, GitStageCommitResultSchema, GitStageInputSchema, GitStageResultSchema, GitUnstageInputSchema, GitUnstageResultSchema } from "../contracts/git-operations.contract.js";
@@ -17,10 +18,15 @@ import { PlanReviewInputSchema, PlanReviewResultSchema } from "../contracts/revi
 import { SearchInputSchema, SearchResponseSchema } from "../contracts/search.contract.js";
 import { TaskInventoryInputSchema, TaskInventoryResultSchema } from "../contracts/task.contract.js";
 import { RepoTreeResultSchema } from "../contracts/tree.contract.js";
+import { VisionRouteInputSchema, VisionRouteResultSchema } from "../contracts/vision-route.contract.js";
 import { WriteChangesInputSchema, WriteChangesResultSchema, WriteFileInputSchema, WriteFileResultSchema } from "../contracts/write.contract.js";
 
 export type ToolName =
   | "repo_list_roots"
+  | "agent_runner_status"
+  | "repo_runner_status"
+  | "repo_run_live_tail"
+  | "repo_vision_routes"
   | "repo_policy_explain"
   | "repo_last_write"
   | "repo_tree"
@@ -49,6 +55,7 @@ export type ToolName =
   | "repo_prepare_codex_task"
   | "repo_write_codex_task"
   | "repo_codex_review"
+  | "codex_run_and_wait"
   | "repo_write_file"
   | "repo_write_changes"
   | "repo_write_handoff";
@@ -62,6 +69,22 @@ export const toolContracts = {
   repo_list_roots: {
     input: RepoInputSchema.omit({ repo_id: true }),
     output: RepoListResultSchema
+  },
+  agent_runner_status: {
+    input: AgentRunnerStatusInputSchema,
+    output: AgentRunnerStatusResultSchema
+  },
+  repo_runner_status: {
+    input: AgentRunnerStatusInputSchema,
+    output: AgentRunnerStatusResultSchema
+  },
+  repo_run_live_tail: {
+    input: RunLiveTailInputSchema,
+    output: RunLiveTailResultSchema
+  },
+  repo_vision_routes: {
+    input: VisionRouteInputSchema,
+    output: VisionRouteResultSchema
   },
   repo_policy_explain: {
     input: PolicyExplainInputSchema,
@@ -174,6 +197,10 @@ export const toolContracts = {
   repo_codex_review: {
     input: CodexReviewInputSchema,
     output: CodexReviewResultSchema
+  },
+  codex_run_and_wait: {
+    input: CodexRunAndWaitInputSchema,
+    output: CodexRunAndWaitResultSchema
   },
   repo_write_file: {
     input: WriteFileInputSchema,

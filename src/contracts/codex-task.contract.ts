@@ -4,6 +4,21 @@ import { RepoInputSchema } from "./repo.contract.js";
 
 const NonEmptyStringSchema = z.string().min(1);
 const RepoPathListSchema = z.array(z.string().min(1)).default([]);
+const InputAssetSchema = z.object({
+  filename: z.string().min(1).max(160).describe("Original asset filename. Must be a filename only, not a path."),
+  mime_type: z.string().refine((value) => ["image/png", "image/jpeg", "image/webp"].includes(value), "Unsupported input asset MIME type.").describe("Allowed image MIME type."),
+  content_base64: z.string().min(1).describe("Base64-encoded image bytes. Never echoed in result summaries."),
+  description: z.string().min(1).max(500).optional().describe("Optional human-readable asset description.")
+});
+const InputAssetMetadataSchema = z.object({
+  filename: z.string(),
+  original_filename: z.string(),
+  mime_type: z.enum(["image/png", "image/jpeg", "image/webp"]),
+  path: z.string(),
+  size_bytes: z.number().int().nonnegative(),
+  sha256: z.string(),
+  description: z.string().optional()
+});
 const CodexRunIdSchema = z.string()
   .regex(/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z-[a-z0-9][a-z0-9-]{0,79}$/)
   .describe("Stable repo-local Codex run id. Generated when omitted.");
@@ -19,6 +34,7 @@ export const CodexTaskInputSchema = RepoInputSchema.extend({
     include: z.array(z.string().min(1)).default([]),
     exclude: z.array(z.string().min(1)).default([])
   }).optional().describe("Explicit implementation boundaries."),
+  input_assets: z.array(InputAssetSchema).default([]).describe("Repo-local input assets to write under this run's inputs folder."),
   acceptance_criteria: z.array(z.string().min(1)).default([]).describe("Criteria Codex should satisfy before finishing."),
   verification_commands: z.array(z.string().min(1)).default([]).describe("Commands Codex should run when feasible and report in RESULT.md."),
   run_id: CodexRunIdSchema.optional()
@@ -38,18 +54,48 @@ export const CodexTaskResultSchema = z.object({
   manifest_path: z.string(),
   prompt_markdown: z.string(),
   codex_user_prompt: z.string(),
+  input_assets: z.array(InputAssetMetadataSchema),
   next_steps: z.array(z.string()),
   warnings: z.array(z.string())
 });
 
-export const CodexTaskWriteResultSchema = CodexTaskResultSchema.extend({
+export const CodexTaskWriteResultSchema = z.object({
+  ok: z.literal(true),
+  repo_id: z.string(),
+  run_id: CodexRunIdSchema,
+  prompt_path: z.string(),
+  result_path: z.string(),
+  manifest_path: z.string(),
+  input_assets: z.array(InputAssetMetadataSchema),
   dry_run: z.boolean(),
-  written_paths: z.array(z.string())
+  written_paths: z.array(z.string()),
+  queued_status: z.enum(["queued", "dry_run"]),
+  receipt: z.object({
+    run_id: CodexRunIdSchema,
+    queued: z.boolean(),
+    status: z.enum(["queued", "dry_run"]),
+    prompt_path: z.string(),
+    result_path: z.string(),
+    manifest_path: z.string(),
+    written_paths: z.array(z.string())
+  }),
+  operation_receipt: z.object({}).passthrough().optional(),
+  next_steps: z.array(z.string()),
+  warnings: z.array(z.string())
 });
 
 export const CodexReviewInputSchema = RepoInputSchema.extend({
   run_id: CodexRunIdSchema.describe("Codex run id under .chatgpt/codex-runs."),
   max_files: z.number().int().positive().optional().describe("Maximum git diff files to summarize.")
+});
+
+export const CodexRunAndWaitInputSchema = RepoInputSchema.extend({
+  run_id: CodexRunIdSchema.describe("Existing repo-local Codex run id under .chatgpt/codex-runs."),
+  timeout_seconds: z.number().positive().max(3600).default(600).describe("Maximum seconds to wait for RESULT.md after launching one Codex process."),
+  dry_run: z.boolean().default(false).describe("Preview the launch command and paths without starting Codex or creating a lock."),
+  review_only: z.boolean().default(false).describe("Only return existing RESULT.md or pending state; never start Codex."),
+  recover_stale_lock: z.boolean().default(false).describe("When true, remove a lock only after it is classified stale; active locks are never removed."),
+  stale_lock_seconds: z.number().positive().max(86400).default(600).describe("Minimum lock age in seconds before a lock without a live process can be treated as stale.")
 });
 
 export const CodexParsedResultSchema = z.object({
@@ -77,6 +123,26 @@ export const CodexReviewResultSchema = z.object({
   warnings: z.array(z.string())
 });
 
+export const CodexRunAndWaitResultSchema = z.object({
+  ok: z.literal(true),
+  repo_id: z.string(),
+  run_id: CodexRunIdSchema,
+  status: z.enum(["missing_prompt", "existing_result", "dry_run", "locked", "stale_lock", "completed", "failed", "timed_out"]),
+  prompt_path: z.string(),
+  result_path: z.string(),
+  result_text: z.string(),
+  stdout_tail: z.string(),
+  stderr_tail: z.string(),
+  elapsed_seconds: z.number(),
+  blockers: z.array(z.string()),
+  timed_out: z.boolean(),
+  launched: z.boolean(),
+  command: z.array(z.string()),
+  lock_path: z.string(),
+  lock_state: z.enum(["none", "active", "stale", "recovered"]),
+  warnings: z.array(z.string())
+});
+
 export type CodexTask = z.output<typeof CodexTaskInputSchema>;
 export type CodexTaskInput = z.input<typeof CodexTaskInputSchema>;
 export type CodexTaskWrite = z.output<typeof CodexTaskWriteInputSchema>;
@@ -86,3 +152,5 @@ export type CodexTaskWriteResult = z.infer<typeof CodexTaskWriteResultSchema>;
 export type CodexReviewInput = z.infer<typeof CodexReviewInputSchema>;
 export type CodexParsedResult = z.infer<typeof CodexParsedResultSchema>;
 export type CodexReviewResult = z.infer<typeof CodexReviewResultSchema>;
+export type CodexRunAndWaitInput = z.input<typeof CodexRunAndWaitInputSchema>;
+export type CodexRunAndWaitResult = z.infer<typeof CodexRunAndWaitResultSchema>;

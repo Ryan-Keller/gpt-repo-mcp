@@ -4,8 +4,31 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { RootRegistry } from "./services/root-registry.js";
 import { createMcpServer } from "./register.js";
+import { toolCatalog } from "./tools/catalog.js";
+import { buildToolCatalogDiagnostic } from "./runtime/tool-catalog-diagnostic.js";
 import type { RuntimeContext } from "./runtime/context.js";
-import { buildMcpRoutePatterns, isAuthorizedMcpPath, sanitizeMcpRouteForAudit } from "./runtime/mcp-routes.js";
+import {
+  authorizeBridgeRequest,
+  buildBridgeAuthConfig,
+  buildPublicSafeHealth,
+  getToolAccessTier,
+  type AccessTier,
+  type BridgeAuthorizationDecision
+} from "./runtime/access-control.js";
+import { appendBridgeSecurityEvent, type BridgeSecurityEventType } from "./runtime/bridge-security-events.js";
+import {
+  getConnectorDiagnostics,
+  initializeConnectorDiagnostics,
+  recordConnectorRequestOutcome,
+  recordConnectorSessionClosed
+} from "./runtime/connector-session.js";
+import { BridgeRuntimeDiagnostics, sessionFingerprint } from "./runtime/session-observability.js";
+import {
+  buildMcpRoutePatterns,
+  isAuthorizedMcpPath,
+  isPublicTokenMcpPath,
+  sanitizeMcpRouteForAudit
+} from "./runtime/mcp-routes.js";
 import {
   createRequestId,
   requestAudit,
@@ -16,11 +39,103 @@ import {
 const port = Number(process.env.PORT ?? 8787);
 const configPath = process.env.GPT_REPO_CONFIG ?? process.env.REPO_READER_CONFIG;
 const publicPathToken = process.env.GPT_REPO_PUBLIC_PATH_TOKEN ?? process.env.REPO_READER_PUBLIC_PATH_TOKEN;
+const authToken = process.env.BRIDGE_AUTH_TOKEN ?? process.env.GPT_REPO_AUTH_TOKEN ?? process.env.REPO_READER_AUTH_TOKEN;
+const allowPathTokenConnectorAuth = process.env.BRIDGE_ALLOW_PATH_TOKEN_CONNECTOR_AUTH ??
+  process.env.GPT_REPO_ALLOW_PATH_TOKEN_CONNECTOR_AUTH;
 
 const registry = configPath
   ? await RootRegistry.fromFile(configPath)
   : await RootRegistry.fromConfig({ repos: [], limits: {} });
-const context: RuntimeContext = { registry };
+const startedAt = new Date().toISOString();
+const toolNames = toolCatalog.map((tool) => tool.name).sort();
+const buildTimestamp = process.env.GPT_REPO_BUILD_TIMESTAMP ?? startedAt;
+const initialDiagnostic = buildToolCatalogDiagnostic({ startedAt, buildTimestamp, toolCatalog });
+const diagnostics = new BridgeRuntimeDiagnostics({ startedAt, buildTimestamp, transportType: "streamable_http" });
+const context: RuntimeContext = { registry, diagnostics };
+const authConfig = buildBridgeAuthConfig({
+  authToken,
+  publicPathToken,
+  publicMode: process.env.BRIDGE_PUBLIC_MODE ?? process.env.GPT_REPO_PUBLIC_MODE,
+  allowPathTokenConnectorAuth
+});
+initializeConnectorDiagnostics({
+  server_started_at: startedAt,
+  tool_catalog_hash: initialDiagnostic.tool_catalog_hash,
+  contract_schema_version: "2026-06-07-public-security-v1",
+  auth_status: authConfig.tokenConfigured
+    ? "configured"
+    : authConfig.publicExposure
+      ? "missing_public_mode"
+      : "local_dev_unauthenticated"
+});
+
+if (authConfig.warning) {
+  console.error(JSON.stringify({
+    level: "audit",
+    event: "auth_missing",
+    severity: "warning",
+    reason: authConfig.warning,
+    suggested_next_action: "set_BRIDGE_AUTH_TOKEN_and_configure_connector_header"
+  }));
+  await appendBridgeSecurityEvent(registry, {
+    event_type: "auth_missing",
+    severity: "warning",
+    caller_classification: "unknown",
+    operation: "server_startup",
+    allowed: false,
+    reason: authConfig.warning,
+    suggested_next_action: "set_BRIDGE_AUTH_TOKEN_and_configure_connector_header"
+  });
+}
+
+if (authConfig.allowPathTokenConnectorAuth) {
+  console.error(JSON.stringify({
+    level: "audit",
+    event: "path_token_connector_auth_enabled",
+    severity: "warning",
+    reason: "Public path token is accepted as connector authentication for headerless connector compatibility.",
+    suggested_next_action: "treat_the_full_connector_url_as_a_secret_and_prefer_BRIDGE_AUTH_TOKEN_headers_when_available"
+  }));
+  await appendBridgeSecurityEvent(registry, {
+    event_type: "path_token_connector_auth_enabled",
+    severity: "warning",
+    caller_classification: "local",
+    operation: "server_startup",
+    allowed: true,
+    reason: "Path-token connector auth compatibility mode enabled for headerless connector support.",
+    suggested_next_action: "treat_the_full_connector_url_as_a_secret_and_prefer_BRIDGE_AUTH_TOKEN_headers_when_available"
+  });
+}
+
+await appendBridgeSecurityEvent(registry, {
+  event_type: "bridge_restarted",
+  severity: "info",
+  caller_classification: "local",
+  operation: "server_startup",
+  allowed: true,
+  reason: "GPT Repo MCP process started",
+  evidence: {
+    bridge_process_id: process.pid,
+    bridge_started_at: startedAt,
+    tool_catalog_generation: initialDiagnostic.tool_catalog_hash
+  },
+  suggested_next_action: "if ChatGPT reports Session terminated, compare bridge_started_at and tool_catalog_generation with the previous repo_list_roots response"
+});
+await appendBridgeSecurityEvent(registry, {
+  event_type: "tool_catalog_refreshed",
+  severity: "info",
+  caller_classification: "local",
+  operation: "tool_catalog_load",
+  allowed: true,
+  reason: "Tool catalog loaded for this bridge process",
+  evidence: {
+    bridge_process_id: process.pid,
+    bridge_started_at: startedAt,
+    tool_catalog_generation: initialDiagnostic.tool_catalog_hash,
+    tool_count: toolNames.length
+  },
+  suggested_next_action: "refresh connector cache or start a new MCP session if ChatGPT still sees an older tool surface"
+});
 
 const app = express();
 app.use(express.json({ limit: "2mb" }));
@@ -28,8 +143,32 @@ app.use(express.json({ limit: "2mb" }));
 const transports: Record<string, StreamableHTTPServerTransport> = {};
 const mcpRoutePatterns = buildMcpRoutePatterns(publicPathToken);
 
-app.get("/health", (_req, res) => {
-  res.json({ ok: true, name: "gpt-repo-mcp" });
+app.get("/health", async (req, res) => {
+  const decision = authorizeHttpRequest(req, "GET /health detail", "authenticated_read");
+  if (!decision.allowed) {
+    await recordSecurityDecision(decision, "sensitive_status_redacted", "warning");
+    res.json(buildPublicSafeHealth({
+      status: authConfig.warning ? "locked" : "ok",
+      authenticationRequired: authConfig.authRequired
+    }));
+    return;
+  }
+  await recordSecurityDecision({
+    ...decision,
+    operation: "GET /health"
+  }, "auth_allowed", "info");
+  res.json(buildDetailedHealth());
+});
+
+app.get("/tool-catalog", async (req, res) => {
+  const decision = authorizeHttpRequest(req, "GET /tool-catalog", "authenticated_read");
+  if (!decision.allowed) {
+    await recordSecurityDecision(decision, "auth_denied", "warning");
+    res.status(decision.http_status).json(deniedStatus(decision));
+    return;
+  }
+  await recordSecurityDecision(decision, "auth_allowed", "info");
+  res.json(buildToolCatalogDiagnostic({ startedAt, buildTimestamp, toolCatalog }));
 });
 
 function createMcpRequestContext(req: Request): RequestTelemetryContext {
@@ -44,6 +183,7 @@ function createMcpRequestContext(req: Request): RequestTelemetryContext {
     http_method: req.method,
     route: sanitizeMcpRouteForAudit(req.path),
     mcp_session: typeof req.headers["mcp-session-id"] === "string" ? "present" : "missing",
+    session_fingerprint: sessionFingerprint(typeof req.headers["mcp-session-id"] === "string" ? req.headers["mcp-session-id"] : undefined),
     mcp_method: method,
     mcp_tool: tool
   };
@@ -51,6 +191,12 @@ function createMcpRequestContext(req: Request): RequestTelemetryContext {
 
 function attachMcpRequestAuditing(res: Response, context: RequestTelemetryContext, startedAt: number): void {
   res.on("finish", () => {
+    recordConnectorRequestOutcome({
+      ok: res.statusCode < 400,
+      tool: context.mcp_tool ?? context.mcp_method,
+      error_kind: res.statusCode < 400 ? undefined : connectorErrorKind(res.statusCode, context),
+      occurred_at: new Date().toISOString()
+    });
     requestAudit({
       event: "mcp_request_finish",
       request_id: context.request_id,
@@ -73,10 +219,115 @@ function rejectUnauthorizedMcpPath(req: Request, res: Response): boolean {
   return true;
 }
 
+function buildDetailedHealth() {
+  const diagnostic = buildToolCatalogDiagnostic({ startedAt, buildTimestamp, toolCatalog });
+  return {
+    ok: true,
+    name: "gpt-repo-mcp",
+    started_at: startedAt,
+    build_timestamp: buildTimestamp,
+    tool_count: toolNames.length,
+    tool_catalog_hash: diagnostic.tool_catalog_hash,
+    codex_tools: toolNames.filter((name) => name.includes("codex")),
+    required_tools: diagnostic.required_tools,
+    authentication_required: authConfig.authRequired,
+    auth_status: authConfig.tokenConfigured ? "configured" : authConfig.publicExposure ? "missing_public_mode" : "local_dev_unauthenticated",
+    path_token_connector_auth: authConfig.allowPathTokenConnectorAuth ? "enabled" : "disabled",
+    connector: getConnectorDiagnostics()
+  };
+}
+
+function authorizeHttpRequest(req: Request, operation: string, accessTier: AccessTier): BridgeAuthorizationDecision {
+  return authorizeBridgeRequest({
+    config: authConfig,
+    accessTier,
+    operation,
+    headers: req.headers,
+    remoteAddress: req.ip || req.socket.remoteAddress,
+    publicPathTokenAuthenticated: isPublicTokenMcpPath(req.path, publicPathToken)
+  });
+}
+
+async function recordSecurityDecision(
+  decision: BridgeAuthorizationDecision,
+  eventType: BridgeSecurityEventType,
+  severity: "info" | "warning" | "error"
+): Promise<void> {
+  await appendBridgeSecurityEvent(registry, {
+    event_type: eventType,
+    severity,
+    caller_classification: decision.caller_classification,
+    operation: decision.operation,
+    allowed: decision.allowed,
+    reason: decision.reason,
+    suggested_next_action: decision.suggested_next_action
+  });
+}
+
+function deniedStatus(decision: BridgeAuthorizationDecision) {
+  return {
+    ok: false,
+    error: {
+      code: decision.reason,
+      message: decision.reason === "auth_not_configured_for_public_mode"
+        ? "Bridge authentication is not configured for public/tunnel mode."
+        : "Authentication required.",
+      retryable: true
+    },
+    authentication_required: true,
+    suggested_next_action: decision.suggested_next_action
+  };
+}
+
+function connectorErrorKind(statusCode: number, context: RequestTelemetryContext): string {
+  if (statusCode === 401 || statusCode === 403 || statusCode === 503) {
+    return "auth_denied";
+  }
+  if (statusCode === 400 && context.mcp_session === "missing") {
+    return "missing_mcp_session";
+  }
+  if (statusCode === 400) {
+    return "invalid_mcp_session";
+  }
+  if (statusCode === 408 || statusCode === 504) {
+    return "request_timeout";
+  }
+  return "transport_or_request_error";
+}
+
+async function rejectUnauthorizedBridgeAccess(req: Request, res: Response, context: RequestTelemetryContext): Promise<boolean> {
+  const operation = context.mcp_tool ?? context.mcp_method ?? "mcp_request";
+  const accessTier = getToolAccessTier(context.mcp_tool);
+  const decision = authorizeHttpRequest(req, operation, accessTier);
+  if (decision.allowed) {
+    if (accessTier === "privileged_write" || accessTier === "dangerous_git") {
+      await recordSecurityDecision(decision, "privileged_action_allowed", "info");
+    }
+    return false;
+  }
+  await recordSecurityDecision(
+    decision,
+    accessTier === "privileged_write" || accessTier === "dangerous_git" ? "privileged_action_denied" : "auth_denied",
+    "warning"
+  );
+  recordConnectorRequestOutcome({
+    ok: false,
+    tool: operation,
+    error_kind: "auth_denied",
+    occurred_at: new Date().toISOString()
+  });
+  res.status(decision.http_status).json({
+    jsonrpc: "2.0",
+    error: { code: -32001, message: "Authentication required" },
+    id: null
+  });
+  return true;
+}
+
 app.post(mcpRoutePatterns, async (req: Request, res: Response) => {
   const requestContext = createMcpRequestContext(req);
-  const startedAt = Date.now();
-  attachMcpRequestAuditing(res, requestContext, startedAt);
+  const requestStartedAt = Date.now();
+  attachMcpRequestAuditing(res, requestContext, requestStartedAt);
 
   return withRequestTelemetry(requestContext, async () => {
     requestAudit({
@@ -90,6 +341,9 @@ app.post(mcpRoutePatterns, async (req: Request, res: Response) => {
     });
 
     if (rejectUnauthorizedMcpPath(req, res)) {
+      return;
+    }
+    if (await rejectUnauthorizedBridgeAccess(req, res, requestContext)) {
       return;
     }
 
@@ -112,12 +366,40 @@ app.post(mcpRoutePatterns, async (req: Request, res: Response) => {
           if (closedSessionId) {
             delete transports[closedSessionId];
           }
+          recordConnectorSessionClosed({ reason: "session_terminated" });
+          void appendBridgeSecurityEvent(registry, {
+            event_type: "connector_session_terminated",
+            severity: "warning",
+            caller_classification: "connector",
+            operation: "mcp_transport",
+            allowed: false,
+            reason: "MCP transport session closed",
+            suggested_next_action: "refresh connector, re-open chat, validate tool catalog, then retry compact status call"
+          });
         };
         await createMcpServer(context).connect(transport);
       } else {
+        const errorCode = -32000;
+        await appendBridgeSecurityEvent(registry, {
+          event_type: isInitializeRequest(req.body) ? "invalid_json_rpc_request" : "tool_session_terminated",
+          severity: "warning",
+          caller_classification: "connector",
+          operation: requestContext.mcp_tool ?? requestContext.mcp_method ?? "mcp_post",
+          allowed: false,
+          reason: "Bad Request: no valid MCP session",
+          evidence: {
+            request_id: requestContext.request_id,
+            mcp_session: requestContext.mcp_session ?? "missing",
+            session_fingerprint: requestContext.session_fingerprint ?? "",
+            json_rpc_error_code: errorCode,
+            bridge_process_id: process.pid,
+            bridge_started_at: startedAt
+          },
+          suggested_next_action: "retry repo_list_roots in a fresh MCP session; if repeated, restart the connector"
+        });
         res.status(400).json({
           jsonrpc: "2.0",
-          error: { code: -32000, message: "Bad Request: no valid MCP session" },
+          error: { code: errorCode, message: "Bad Request: no valid MCP session" },
           id: null
         });
         return;
@@ -125,12 +407,29 @@ app.post(mcpRoutePatterns, async (req: Request, res: Response) => {
 
       await transport.handleRequest(req, res, req.body);
     } catch {
+      await appendBridgeSecurityEvent(registry, {
+        event_type: "unknown_tool_session_failure",
+        severity: "error",
+        caller_classification: "connector",
+        operation: requestContext.mcp_tool ?? requestContext.mcp_method ?? "mcp_post",
+        allowed: false,
+        reason: "MCP POST request failed inside bridge request handling",
+        evidence: {
+          request_id: requestContext.request_id,
+          mcp_session: requestContext.mcp_session ?? "missing",
+          session_fingerprint: requestContext.session_fingerprint ?? "",
+          json_rpc_error_code: -32603,
+          bridge_process_id: process.pid,
+          bridge_started_at: startedAt
+        },
+        suggested_next_action: "check bridge /health, retry repo_list_roots in a fresh MCP session, and inspect recent bridge events before blaming the runner"
+      });
       requestAudit({
         event: "mcp_request_error",
         request_id: requestContext.request_id,
         http_method: requestContext.http_method ?? "POST",
         route: requestContext.route ?? "/mcp",
-        duration_ms: Date.now() - startedAt,
+        duration_ms: Date.now() - requestStartedAt,
         mcp_session: requestContext.mcp_session,
         mcp_method: requestContext.mcp_method,
         mcp_tool: requestContext.mcp_tool
@@ -148,8 +447,8 @@ app.post(mcpRoutePatterns, async (req: Request, res: Response) => {
 
 app.get(mcpRoutePatterns, async (req: Request, res: Response) => {
   const requestContext = createMcpRequestContext(req);
-  const startedAt = Date.now();
-  attachMcpRequestAuditing(res, requestContext, startedAt);
+  const requestStartedAt = Date.now();
+  attachMcpRequestAuditing(res, requestContext, requestStartedAt);
 
   return withRequestTelemetry(requestContext, async () => {
     requestAudit({
@@ -165,21 +464,64 @@ app.get(mcpRoutePatterns, async (req: Request, res: Response) => {
     if (rejectUnauthorizedMcpPath(req, res)) {
       return;
     }
+    if (await rejectUnauthorizedBridgeAccess(req, res, requestContext)) {
+      return;
+    }
 
     try {
       const sessionId = req.headers["mcp-session-id"];
       if (typeof sessionId !== "string" || !transports[sessionId]) {
+        await appendBridgeSecurityEvent(registry, {
+          event_type: "tool_session_terminated",
+          severity: "warning",
+          caller_classification: "connector",
+          operation: "mcp_get_stream",
+          allowed: false,
+          reason: "Invalid or missing MCP session id",
+          evidence: {
+            request_id: requestContext.request_id,
+            mcp_session: requestContext.mcp_session ?? "missing",
+            session_fingerprint: requestContext.session_fingerprint ?? "",
+            status_code: 400,
+            bridge_process_id: process.pid,
+            bridge_started_at: startedAt
+          },
+          suggested_next_action: "retry repo_list_roots in a fresh MCP session; if repeated, restart the connector"
+        });
+        recordConnectorRequestOutcome({
+          ok: false,
+          tool: requestContext.mcp_method,
+          error_kind: "invalid_mcp_session",
+          occurred_at: new Date().toISOString()
+        });
         res.status(400).send("Invalid or missing MCP session id");
         return;
       }
       await transports[sessionId].handleRequest(req, res);
     } catch {
+      await appendBridgeSecurityEvent(registry, {
+        event_type: "transport_disconnect",
+        severity: "error",
+        caller_classification: "connector",
+        operation: "mcp_get_stream",
+        allowed: false,
+        reason: "MCP GET stream request failed during transport handling",
+        evidence: {
+          request_id: requestContext.request_id,
+          mcp_session: requestContext.mcp_session ?? "missing",
+          session_fingerprint: requestContext.session_fingerprint ?? "",
+          status_code: 500,
+          bridge_process_id: process.pid,
+          bridge_started_at: startedAt
+        },
+        suggested_next_action: "retry once, then check bridge /health and connector network/session state"
+      });
       requestAudit({
         event: "mcp_request_error",
         request_id: requestContext.request_id,
         http_method: requestContext.http_method ?? "GET",
         route: requestContext.route ?? "/mcp",
-        duration_ms: Date.now() - startedAt,
+        duration_ms: Date.now() - requestStartedAt,
         mcp_session: requestContext.mcp_session,
         mcp_method: requestContext.mcp_method,
         mcp_tool: requestContext.mcp_tool
@@ -193,8 +535,8 @@ app.get(mcpRoutePatterns, async (req: Request, res: Response) => {
 
 app.delete(mcpRoutePatterns, async (req: Request, res: Response) => {
   const requestContext = createMcpRequestContext(req);
-  const startedAt = Date.now();
-  attachMcpRequestAuditing(res, requestContext, startedAt);
+  const requestStartedAt = Date.now();
+  attachMcpRequestAuditing(res, requestContext, requestStartedAt);
 
   return withRequestTelemetry(requestContext, async () => {
     requestAudit({
@@ -210,21 +552,64 @@ app.delete(mcpRoutePatterns, async (req: Request, res: Response) => {
     if (rejectUnauthorizedMcpPath(req, res)) {
       return;
     }
+    if (await rejectUnauthorizedBridgeAccess(req, res, requestContext)) {
+      return;
+    }
 
     try {
       const sessionId = req.headers["mcp-session-id"];
       if (typeof sessionId !== "string" || !transports[sessionId]) {
+        await appendBridgeSecurityEvent(registry, {
+          event_type: "tool_session_terminated",
+          severity: "warning",
+          caller_classification: "connector",
+          operation: "mcp_delete",
+          allowed: false,
+          reason: "Invalid or missing MCP session id",
+          evidence: {
+            request_id: requestContext.request_id,
+            mcp_session: requestContext.mcp_session ?? "missing",
+            session_fingerprint: requestContext.session_fingerprint ?? "",
+            status_code: 400,
+            bridge_process_id: process.pid,
+            bridge_started_at: startedAt
+          },
+          suggested_next_action: "retry repo_list_roots in a fresh MCP session; if repeated, restart the connector"
+        });
+        recordConnectorRequestOutcome({
+          ok: false,
+          tool: requestContext.mcp_method,
+          error_kind: "invalid_mcp_session",
+          occurred_at: new Date().toISOString()
+        });
         res.status(400).send("Invalid or missing MCP session id");
         return;
       }
       await transports[sessionId].handleRequest(req, res);
     } catch {
+      await appendBridgeSecurityEvent(registry, {
+        event_type: "transport_disconnect",
+        severity: "error",
+        caller_classification: "connector",
+        operation: "mcp_delete",
+        allowed: false,
+        reason: "MCP DELETE request failed during transport handling",
+        evidence: {
+          request_id: requestContext.request_id,
+          mcp_session: requestContext.mcp_session ?? "missing",
+          session_fingerprint: requestContext.session_fingerprint ?? "",
+          status_code: 500,
+          bridge_process_id: process.pid,
+          bridge_started_at: startedAt
+        },
+        suggested_next_action: "retry once, then check bridge /health and connector network/session state"
+      });
       requestAudit({
         event: "mcp_request_error",
         request_id: requestContext.request_id,
         http_method: requestContext.http_method ?? "DELETE",
         route: requestContext.route ?? "/mcp",
-        duration_ms: Date.now() - startedAt,
+        duration_ms: Date.now() - requestStartedAt,
         mcp_session: requestContext.mcp_session,
         mcp_method: requestContext.mcp_method,
         mcp_tool: requestContext.mcp_tool

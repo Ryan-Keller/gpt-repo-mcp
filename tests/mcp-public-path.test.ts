@@ -3,6 +3,7 @@ import {
   buildMcpRoutePatterns,
   buildPublicMcpPath,
   isAuthorizedMcpPath,
+  isPublicTokenMcpPath,
   sanitizeMcpRouteForAudit
 } from "../src/runtime/mcp-routes.js";
 
@@ -13,14 +14,17 @@ describe("public MCP path token routing", () => {
     expect(isAuthorizedMcpPath("/t/anything/mcp", undefined)).toBe(false);
   });
 
-  test("requires the token-prefixed path when a public path token is configured", () => {
+  test("keeps /mcp available and authorizes the token-prefixed path when a public path token is configured", () => {
     const token = "0123456789abcdef0123456789abcdef";
 
-    expect(buildMcpRoutePatterns(token)).toEqual(["/t/:publicPathToken/mcp"]);
+    expect(buildMcpRoutePatterns(token)).toEqual(["/mcp", "/t/:publicPathToken/mcp"]);
     expect(buildPublicMcpPath(token)).toBe("/t/0123456789abcdef0123456789abcdef/mcp");
-    expect(isAuthorizedMcpPath("/mcp", token)).toBe(false);
+    expect(isAuthorizedMcpPath("/mcp", token)).toBe(true);
     expect(isAuthorizedMcpPath("/t/0123456789abcdef0123456789abcdef/mcp", token)).toBe(true);
     expect(isAuthorizedMcpPath("/t/wrong/mcp", token)).toBe(false);
+    expect(isPublicTokenMcpPath("/mcp", token)).toBe(false);
+    expect(isPublicTokenMcpPath("/t/0123456789abcdef0123456789abcdef/mcp", token)).toBe(true);
+    expect(isPublicTokenMcpPath("/t/wrong/mcp", token)).toBe(false);
   });
 
   test("sanitizes token-prefixed routes for audit logs", () => {

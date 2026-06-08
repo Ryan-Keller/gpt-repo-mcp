@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { AgentRunnerStatusResultSchema } from "./agent-runner.contract.js";
 import { RepoInputSchema } from "./repo.contract.js";
 
 export const GitStatusInputSchema = RepoInputSchema;
@@ -23,7 +24,8 @@ export const GitStatusResultSchema = z.object({
     original_path: z.string().optional(),
     index: z.string(),
     worktree: z.string()
-  }))
+  })),
+  runner_status: AgentRunnerStatusResultSchema.optional()
 });
 
 export const GitDiffResultSchema = z.object({

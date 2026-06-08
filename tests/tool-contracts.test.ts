@@ -1,5 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
+import { AgentRunnerStatusInputSchema, AgentRunnerStatusResultSchema } from "../src/contracts/agent-runner.contract.js";
 import {
   WriteChangesInputSchema,
   WriteChangesResultSchema,
@@ -21,7 +22,7 @@ import {
   GitUnstageResultSchema
 } from "../src/contracts/git-operations.contract.js";
 import { CleanupPathsInputSchema, CleanupPathsResultSchema } from "../src/contracts/cleanup.contract.js";
-import { CodexReviewInputSchema, CodexReviewResultSchema, CodexTaskInputSchema, CodexTaskResultSchema, CodexTaskWriteInputSchema, CodexTaskWriteResultSchema } from "../src/contracts/codex-task.contract.js";
+import { CodexReviewInputSchema, CodexReviewResultSchema, CodexRunAndWaitInputSchema, CodexRunAndWaitResultSchema, CodexTaskInputSchema, CodexTaskResultSchema, CodexTaskWriteInputSchema, CodexTaskWriteResultSchema } from "../src/contracts/codex-task.contract.js";
 import { DecisionLogInputSchema, DecisionLogResultSchema } from "../src/contracts/decision.contract.js";
 import { GitReviewResultSchema } from "../src/contracts/git-review.contract.js";
 import { HandoffInputSchema, HandoffResultSchema } from "../src/contracts/handoff.contract.js";
@@ -49,6 +50,10 @@ describe("tool catalog contracts", () => {
   test("all tools have required metadata and appropriate annotations", () => {
     expect(toolCatalog.map((tool) => tool.name)).toEqual([
       "repo_list_roots",
+      "agent_runner_status",
+      "repo_runner_status",
+      "repo_run_live_tail",
+      "repo_vision_routes",
       "repo_policy_explain",
       "repo_last_write",
       "repo_tree",
@@ -77,6 +82,7 @@ describe("tool catalog contracts", () => {
       "repo_prepare_codex_task",
       "repo_write_codex_task",
       "repo_codex_review",
+      "codex_run_and_wait",
       "repo_write_file",
       "repo_write_changes",
       "repo_write_handoff"
@@ -102,6 +108,7 @@ describe("tool catalog contracts", () => {
       "repo_write_changes",
       "repo_write_handoff",
       "repo_write_codex_task",
+      "codex_run_and_wait",
       "repo_git_stage",
       "repo_git_unstage",
       "repo_git_restore_paths",
@@ -115,9 +122,12 @@ describe("tool catalog contracts", () => {
     ]);
     const writeFile = toolCatalog.find((tool) => tool.name === "repo_write_file");
     const policyExplain = toolCatalog.find((tool) => tool.name === "repo_policy_explain");
+    const agentRunnerStatus = toolCatalog.find((tool) => tool.name === "agent_runner_status");
+    const repoRunnerStatus = toolCatalog.find((tool) => tool.name === "repo_runner_status");
     const prepareCodexTask = toolCatalog.find((tool) => tool.name === "repo_prepare_codex_task");
     const writeCodexTask = toolCatalog.find((tool) => tool.name === "repo_write_codex_task");
     const codexReview = toolCatalog.find((tool) => tool.name === "repo_codex_review");
+    const codexRunAndWait = toolCatalog.find((tool) => tool.name === "codex_run_and_wait");
     const writeChanges = toolCatalog.find((tool) => tool.name === "repo_write_changes");
     const writeHandoff = toolCatalog.find((tool) => tool.name === "repo_write_handoff");
     const stageCommit = toolCatalog.find((tool) => tool.name === "repo_write_stage_commit");
@@ -129,6 +139,14 @@ describe("tool catalog contracts", () => {
     expect(policyExplain?.inputSchema).toBe(PolicyExplainInputSchema);
     expect(policyExplain?.outputSchema).toBe(PolicyExplainResultSchema);
     expect(policyExplain?.annotations).toEqual(readOnlyAnnotations);
+    expect(agentRunnerStatus).toBeDefined();
+    expect(agentRunnerStatus?.inputSchema).toBe(AgentRunnerStatusInputSchema);
+    expect(agentRunnerStatus?.outputSchema).toBe(AgentRunnerStatusResultSchema);
+    expect(agentRunnerStatus?.annotations).toEqual(readOnlyAnnotations);
+    expect(repoRunnerStatus).toBeDefined();
+    expect(repoRunnerStatus?.inputSchema).toBe(AgentRunnerStatusInputSchema);
+    expect(repoRunnerStatus?.outputSchema).toBe(AgentRunnerStatusResultSchema);
+    expect(repoRunnerStatus?.annotations).toEqual(readOnlyAnnotations);
     expect(prepareCodexTask).toBeDefined();
     expect(prepareCodexTask?.inputSchema).toBe(CodexTaskInputSchema);
     expect(prepareCodexTask?.outputSchema).toBe(CodexTaskResultSchema);
@@ -141,6 +159,10 @@ describe("tool catalog contracts", () => {
     expect(codexReview?.inputSchema).toBe(CodexReviewInputSchema);
     expect(codexReview?.outputSchema).toBe(CodexReviewResultSchema);
     expect(codexReview?.annotations).toEqual(readOnlyAnnotations);
+    expect(codexRunAndWait).toBeDefined();
+    expect(codexRunAndWait?.inputSchema).toBe(CodexRunAndWaitInputSchema);
+    expect(codexRunAndWait?.outputSchema).toBe(CodexRunAndWaitResultSchema);
+    expect(codexRunAndWait?.annotations).toEqual(writeAnnotations);
     expect(lastWrite).toBeDefined();
     expect(lastWrite?.inputSchema).toBe(LastWriteInputSchema);
     expect(lastWrite?.outputSchema).toBe(LastWriteResultSchema);
@@ -221,6 +243,17 @@ describe("tool catalog contracts", () => {
       "mode",
       "repo_id"
     ]);
+  });
+
+  test("repo_runner_status exposes a ChatGPT-friendly tool schema", () => {
+    const tool = toolCatalog.find((tool) => tool.name === "repo_runner_status");
+    expect(tool).toBeDefined();
+
+    const serialized = JSON.stringify(tool?.outputSchema.toJSONSchema?.() ?? tool?.outputSchema.shape);
+
+    expect(serialized).not.toContain("anyOf");
+    expect(serialized).not.toContain("propertyNames");
+    expect(serialized.length).toBeLessThan(7000);
   });
 
   test("repo_git_review audit metadata omits changed path lists", () => {
@@ -728,9 +761,196 @@ describe("tool catalog contracts", () => {
           "inputKeys": [],
           "name": "repo_list_roots",
           "outputKeys": [
+            "bridge_observability",
             "repos",
           ],
           "title": "List approved repositories",
+        },
+        {
+          "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true,
+          },
+          "description": "Use this when the user asks whether the Shared Agent Bridge Codex runner is alive, pending, stale, locked, blocked, or completed. Reads repo-local heartbeat and Codex run status only, returns plain text plus structured counts, and never launches Codex, mutates files, stages, commits, pushes, or runs shell commands.",
+          "inputKeys": [
+            "heartbeat_stale_seconds",
+            "live_tail_max_events",
+            "repo_id",
+            "stale_lock_seconds",
+          ],
+          "name": "agent_runner_status",
+          "outputKeys": [
+            "acknowledgement_policy",
+            "active_count",
+            "active_locks",
+            "active_run_id",
+            "active_run_ids",
+            "active_run_live_tail",
+            "active_runs",
+            "auth_status",
+            "blocked_count",
+            "completed_count",
+            "completed_with_lock_warnings",
+            "connector_status",
+            "contract_schema_version",
+            "current_uptime_seconds",
+            "event_count",
+            "event_cursor",
+            "event_log_path",
+            "heartbeat_age_seconds",
+            "heartbeat_path",
+            "heartbeat_status",
+            "heartbeat_updated_at",
+            "last_connector_error_at",
+            "last_connector_error_kind",
+            "last_connector_success_at",
+            "last_failed_tool_call",
+            "last_run_id",
+            "last_run_status",
+            "last_successful_tool_call",
+            "ok",
+            "pending_count",
+            "plain_text",
+            "queue_entries",
+            "ready_results",
+            "recent_events",
+            "repo_id",
+            "runner",
+            "runner_pid",
+            "runner_state",
+            "runtime_assessment",
+            "server_started_at",
+            "stale_lock_count",
+            "stale_locks",
+            "suggested_next_action",
+            "suspected_cause",
+            "tool_catalog_hash",
+            "unresolved_event_count",
+            "unresolved_events",
+            "warnings",
+            "worker",
+          ],
+          "title": "Show Agent Runner status",
+        },
+        {
+          "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true,
+          },
+          "description": "Use this when the user asks to show runner status, check whether Codex is actually working, inspect an active run, or verify Shared Agent Bridge worker health. Stable read-only runner status tool for ChatGPT; never launches Codex, mutates files, stages, commits, pushes, deletes, clears locks, or runs shell commands.",
+          "inputKeys": [
+            "heartbeat_stale_seconds",
+            "live_tail_max_events",
+            "repo_id",
+            "stale_lock_seconds",
+          ],
+          "name": "repo_runner_status",
+          "outputKeys": [
+            "acknowledgement_policy",
+            "active_count",
+            "active_locks",
+            "active_run_id",
+            "active_run_ids",
+            "active_run_live_tail",
+            "active_runs",
+            "auth_status",
+            "blocked_count",
+            "completed_count",
+            "completed_with_lock_warnings",
+            "connector_status",
+            "contract_schema_version",
+            "current_uptime_seconds",
+            "event_count",
+            "event_cursor",
+            "event_log_path",
+            "heartbeat_age_seconds",
+            "heartbeat_path",
+            "heartbeat_status",
+            "heartbeat_updated_at",
+            "last_connector_error_at",
+            "last_connector_error_kind",
+            "last_connector_success_at",
+            "last_failed_tool_call",
+            "last_run_id",
+            "last_run_status",
+            "last_successful_tool_call",
+            "ok",
+            "pending_count",
+            "plain_text",
+            "queue_entries",
+            "ready_results",
+            "recent_events",
+            "repo_id",
+            "runner",
+            "runner_pid",
+            "runner_state",
+            "runtime_assessment",
+            "server_started_at",
+            "stale_lock_count",
+            "stale_locks",
+            "suggested_next_action",
+            "suspected_cause",
+            "tool_catalog_hash",
+            "unresolved_event_count",
+            "unresolved_events",
+            "warnings",
+            "worker",
+          ],
+          "title": "Show repository runner status",
+        },
+        {
+          "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true,
+          },
+          "description": "Use this when the user asks what an active or recent Shared Agent Bridge Codex run is doing. Reads .chatgpt/codex-runs/<run_id>/events.jsonl and safe log tails only; never launches Codex, mutates files, stages, commits, pushes, deletes, clears locks, or runs shell commands.",
+          "inputKeys": [
+            "cursor",
+            "max_events",
+            "repo_id",
+            "run_id",
+          ],
+          "name": "repo_run_live_tail",
+          "outputKeys": [
+            "events",
+            "next_cursor",
+            "ok",
+            "repo_id",
+            "result_path",
+            "result_status",
+            "run_id",
+            "terminal",
+            "warnings",
+          ],
+          "title": "Show Codex run live tail",
+        },
+        {
+          "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": false,
+            "readOnlyHint": true,
+          },
+          "description": "Use this when the user asks whether local Google/Gemini/Gemma/Ollama vision analysis is actually configured. Read-only detector that reports observed routes and typed missing capabilities without printing secrets, launching Codex, staging, committing, pushing, deleting, or mutating files.",
+          "inputKeys": [
+            "repo_id",
+          ],
+          "name": "repo_vision_routes",
+          "outputKeys": [
+            "available_routes",
+            "has_configured_vision_route",
+            "missing_capabilities",
+            "ok",
+            "repo_id",
+            "warnings",
+          ],
+          "title": "Detect vision analysis routes",
         },
         {
           "annotations": {
@@ -917,6 +1137,7 @@ describe("tool catalog contracts", () => {
             "counts",
             "files",
             "head_sha",
+            "runner_status",
           ],
           "title": "Read git status",
         },
@@ -1415,6 +1636,7 @@ describe("tool catalog contracts", () => {
             "context_summary",
             "forbidden_paths",
             "implementation_scope",
+            "input_assets",
             "inspect_first",
             "objective",
             "repo_id",
@@ -1425,6 +1647,7 @@ describe("tool catalog contracts", () => {
           "name": "repo_prepare_codex_task",
           "outputKeys": [
             "codex_user_prompt",
+            "input_assets",
             "manifest_path",
             "next_steps",
             "ok",
@@ -1452,6 +1675,7 @@ describe("tool catalog contracts", () => {
             "dry_run",
             "forbidden_paths",
             "implementation_scope",
+            "input_assets",
             "inspect_first",
             "objective",
             "reason",
@@ -1462,13 +1686,15 @@ describe("tool catalog contracts", () => {
           ],
           "name": "repo_write_codex_task",
           "outputKeys": [
-            "codex_user_prompt",
             "dry_run",
+            "input_assets",
             "manifest_path",
             "next_steps",
             "ok",
-            "prompt_markdown",
+            "operation_receipt",
             "prompt_path",
+            "queued_status",
+            "receipt",
             "repo_id",
             "result_path",
             "run_id",
@@ -1504,6 +1730,45 @@ describe("tool catalog contracts", () => {
             "warnings",
           ],
           "title": "Review Codex result",
+        },
+        {
+          "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": false,
+            "openWorldHint": false,
+            "readOnlyHint": false,
+          },
+          "description": "Use this when the user asks ChatGPT to synchronously launch exactly one existing repo-local Codex run and wait for its RESULT.md. Uses a lock file, can classify and explicitly recover stale locks, runs npx --no-install @openai/codex exec - with the prompt-path instruction on stdin, returns result text and log tails, and never stages, commits, pushes, deletes, starts multiple jobs, or stores secrets.",
+          "inputKeys": [
+            "dry_run",
+            "recover_stale_lock",
+            "repo_id",
+            "review_only",
+            "run_id",
+            "stale_lock_seconds",
+            "timeout_seconds",
+          ],
+          "name": "codex_run_and_wait",
+          "outputKeys": [
+            "blockers",
+            "command",
+            "elapsed_seconds",
+            "launched",
+            "lock_path",
+            "lock_state",
+            "ok",
+            "prompt_path",
+            "repo_id",
+            "result_path",
+            "result_text",
+            "run_id",
+            "status",
+            "stderr_tail",
+            "stdout_tail",
+            "timed_out",
+            "warnings",
+          ],
+          "title": "Run Codex and wait for result",
         },
         {
           "annotations": {

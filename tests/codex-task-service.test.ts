@@ -1,4 +1,5 @@
 import { access, mkdir, readFile, writeFile } from "node:fs/promises";
+import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -75,6 +76,215 @@ describe("Codex task services", () => {
       objective: "Read src/auth.ts and implement.",
       created_at: "2026-06-04T081500Z"
     });
+  });
+
+  test("write returns a compact receipt without echoing the generated prompt", async () => {
+    const fixture = await createRepoFixture();
+    const service = createTaskService(fixture.root);
+
+    const result = await service.write({
+      repo_id: "demo",
+      title: "Reduce connector response size",
+      objective: "Do not echo this sensitive and very long prompt body back to the connector.",
+      inspect_first: ["src/auth.ts"],
+      allowed_paths: ["src/**"],
+      run_id: "2026-06-07T204501Z-reduce-connector-response-size",
+      dry_run: false
+    });
+    const serialized = JSON.stringify(result);
+
+    expect(result).toMatchObject({
+      ok: true,
+      repo_id: "demo",
+      run_id: "2026-06-07T204501Z-reduce-connector-response-size",
+      queued_status: "queued",
+      prompt_path: ".chatgpt/codex-runs/2026-06-07T204501Z-reduce-connector-response-size/PROMPT.md",
+      result_path: ".chatgpt/codex-runs/2026-06-07T204501Z-reduce-connector-response-size/RESULT.md",
+      manifest_path: ".chatgpt/codex-runs/2026-06-07T204501Z-reduce-connector-response-size/run.json",
+      written_paths: [
+        ".chatgpt/codex-runs/2026-06-07T204501Z-reduce-connector-response-size/PROMPT.md",
+        ".chatgpt/codex-runs/2026-06-07T204501Z-reduce-connector-response-size/run.json"
+      ],
+      receipt: {
+        run_id: "2026-06-07T204501Z-reduce-connector-response-size",
+        queued: true,
+        status: "queued"
+      }
+    });
+    expect("prompt_markdown" in result).toBe(false);
+    expect("codex_user_prompt" in result).toBe(false);
+    expect(serialized).not.toContain("Do not echo this sensitive and very long prompt body");
+    await expect(readFile(join(fixture.root, result.prompt_path), "utf8")).resolves.toContain("Do not echo this sensitive");
+  });
+
+  test("write rejects duplicate run ids instead of overwriting queued tasks", async () => {
+    const fixture = await createRepoFixture();
+    const service = createTaskService(fixture.root);
+    const runId = "2026-06-07T183000Z-durable-queue-duplicate";
+
+    await service.write({
+      repo_id: "demo",
+      title: "Durable queue duplicate",
+      objective: "First task.",
+      run_id: runId,
+      dry_run: false
+    });
+
+    await expect(service.write({
+      repo_id: "demo",
+      title: "Durable queue duplicate",
+      objective: "Second task should not overwrite first task.",
+      run_id: runId,
+      dry_run: false
+    })).rejects.toThrow(/Codex run already exists/);
+
+    await expect(readFile(join(fixture.root, `.chatgpt/codex-runs/${runId}/PROMPT.md`), "utf8"))
+      .resolves.toContain("First task.");
+  });
+
+  test("write rejects duplicate run ids when a RESULT.md already exists", async () => {
+    const fixture = await createRepoFixture();
+    const service = createTaskService(fixture.root);
+    const runId = "2026-06-07T183000Z-durable-queue-result";
+    await mkdir(join(fixture.root, ".chatgpt/codex-runs", runId), { recursive: true });
+    await writeFile(join(fixture.root, ".chatgpt/codex-runs", runId, "RESULT.md"), "# Result\nstatus: completed\n");
+
+    await expect(service.write({
+      repo_id: "demo",
+      title: "Durable queue duplicate result",
+      objective: "Do not overwrite terminal result.",
+      run_id: runId,
+      dry_run: false
+    })).rejects.toThrow(/Codex run already exists/);
+  });
+
+  test("write stores safe image input assets with manifest, sha256, prompt path, and run metadata", async () => {
+    const fixture = await createRepoFixture();
+    const service = createTaskService(fixture.root);
+    const imageBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a]);
+
+    const result = await service.write({
+      repo_id: "demo",
+      title: "Count image objects",
+      objective: "Count visible red buttons in the input image.",
+      run_id: "2026-06-07T181500Z-count-image-objects",
+      input_assets: [{
+        filename: "My Photo!!.png",
+        mime_type: "image/png",
+        content_base64: imageBytes.toString("base64"),
+        description: "photo to inspect"
+      }],
+      dry_run: false
+    });
+
+    const assetPath = ".chatgpt/codex-runs/2026-06-07T181500Z-count-image-objects/inputs/my-photo.png";
+    const inputManifestPath = ".chatgpt/codex-runs/2026-06-07T181500Z-count-image-objects/inputs/manifest.json";
+    const sha256 = createHash("sha256").update(imageBytes).digest("hex");
+
+    expect(result.input_assets).toEqual([
+      expect.objectContaining({
+        filename: "my-photo.png",
+        original_filename: "My Photo!!.png",
+        mime_type: "image/png",
+        path: assetPath,
+        size_bytes: imageBytes.length,
+        sha256,
+        description: "photo to inspect"
+      })
+    ]);
+    expect(result.written_paths).toEqual(expect.arrayContaining([
+      result.prompt_path,
+      result.manifest_path,
+      assetPath,
+      inputManifestPath
+    ]));
+    await expect(readFile(join(fixture.root, assetPath))).resolves.toEqual(imageBytes);
+    const inputManifest = JSON.parse(await readFile(join(fixture.root, inputManifestPath), "utf8"));
+    expect(inputManifest.assets).toEqual(result.input_assets);
+    const runManifest = JSON.parse(await readFile(join(fixture.root, result.manifest_path), "utf8"));
+    expect(runManifest.input_assets).toEqual(result.input_assets);
+    await expect(readFile(join(fixture.root, result.prompt_path), "utf8")).resolves.toContain(assetPath);
+  });
+
+  test("prepare image analysis task keeps payload local and instructs completed or blocked RESULT.md shape", () => {
+    const service = createTaskService("/repo");
+    const imageBytes = Buffer.from([0x89, 0x50, 0x4e, 0x47]);
+    const contentBase64 = imageBytes.toString("base64");
+
+    const result = service.prepare({
+      repo_id: "demo",
+      title: "Analyze uploaded image",
+      objective: "Use the validated local Ollama/Gemma vision route to describe the input image.",
+      run_id: "2026-06-07T184501Z-analyze-uploaded-image",
+      input_assets: [{
+        filename: "screen.png",
+        mime_type: "image/png",
+        content_base64: contentBase64
+      }],
+      acceptance_criteria: [
+        "If a validated image route is available, RESULT.md has status: completed and summarizes the visual findings.",
+        "If no validated image route is available, RESULT.md has status: blocked and names the exact missing capability.",
+        "RESULT.md is readable through repo_list_roots.ready_results."
+      ]
+    });
+
+    expect(result.input_assets[0]).toMatchObject({
+      path: ".chatgpt/codex-runs/2026-06-07T184501Z-analyze-uploaded-image/inputs/screen.png",
+      size_bytes: imageBytes.length
+    });
+    expect(result.prompt_markdown).toContain("Use the repo-local input asset paths above.");
+    expect(result.prompt_markdown).toContain("status: completed");
+    expect(result.prompt_markdown).toContain("status: blocked");
+    expect(result.prompt_markdown).toContain("repo_list_roots.ready_results");
+    expect(JSON.stringify(result)).not.toContain(contentBase64);
+  });
+
+  test("write rejects path traversal asset filenames", async () => {
+    const fixture = await createRepoFixture();
+    const service = createTaskService(fixture.root);
+
+    await expect(service.write({
+      repo_id: "demo",
+      title: "Unsafe image",
+      objective: "Count objects.",
+      input_assets: [{
+        filename: "../escape.png",
+        mime_type: "image/png",
+        content_base64: Buffer.from("png").toString("base64")
+      }]
+    })).rejects.toThrow(/Invalid input asset filename/);
+  });
+
+  test("write rejects unsupported input asset MIME types", async () => {
+    const fixture = await createRepoFixture();
+    const service = createTaskService(fixture.root);
+
+    await expect(service.write({
+      repo_id: "demo",
+      title: "Unsupported image",
+      objective: "Count objects.",
+      input_assets: [{
+        filename: "photo.gif",
+        mime_type: "image/gif",
+        content_base64: Buffer.from("gif").toString("base64")
+      }]
+    })).rejects.toThrow(/Unsupported input asset MIME type/);
+  });
+
+  test("write rejects oversized input assets", async () => {
+    const fixture = await createRepoFixture();
+    const service = createTaskService(fixture.root);
+
+    await expect(service.write({
+      repo_id: "demo",
+      title: "Oversized image",
+      objective: "Count objects.",
+      input_assets: [{
+        filename: "photo.png",
+        mime_type: "image/png",
+        content_base64: Buffer.alloc(5_000_001).toString("base64")
+      }]
+    })).rejects.toThrow(/Input asset exceeds size limit/);
   });
 
   test("write dry_run writes no files", async () => {

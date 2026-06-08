@@ -1,7 +1,7 @@
 import { Client } from "@modelcontextprotocol/sdk/client/index.js";
 import { InMemoryTransport } from "@modelcontextprotocol/sdk/inMemory.js";
 import { execFile } from "node:child_process";
-import { mkdir, mkdtemp, writeFile } from "node:fs/promises";
+import { mkdir, mkdtemp, readdir, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { promisify } from "node:util";
@@ -87,9 +87,196 @@ describe("MCP contract", () => {
             "inputKeys": [],
             "name": "repo_list_roots",
             "outputKeys": [
+              "bridge_observability",
               "repos",
             ],
             "title": "List approved repositories",
+          },
+          {
+            "annotations": {
+              "destructiveHint": false,
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": true,
+            },
+            "description": "Use this when the user asks whether the Shared Agent Bridge Codex runner is alive, pending, stale, locked, blocked, or completed. Reads repo-local heartbeat and Codex run status only, returns plain text plus structured counts, and never launches Codex, mutates files, stages, commits, pushes, or runs shell commands.",
+            "inputKeys": [
+              "heartbeat_stale_seconds",
+              "live_tail_max_events",
+              "repo_id",
+              "stale_lock_seconds",
+            ],
+            "name": "agent_runner_status",
+            "outputKeys": [
+              "acknowledgement_policy",
+              "active_count",
+              "active_locks",
+              "active_run_id",
+              "active_run_ids",
+              "active_run_live_tail",
+              "active_runs",
+              "auth_status",
+              "blocked_count",
+              "completed_count",
+              "completed_with_lock_warnings",
+              "connector_status",
+              "contract_schema_version",
+              "current_uptime_seconds",
+              "event_count",
+              "event_cursor",
+              "event_log_path",
+              "heartbeat_age_seconds",
+              "heartbeat_path",
+              "heartbeat_status",
+              "heartbeat_updated_at",
+              "last_connector_error_at",
+              "last_connector_error_kind",
+              "last_connector_success_at",
+              "last_failed_tool_call",
+              "last_run_id",
+              "last_run_status",
+              "last_successful_tool_call",
+              "ok",
+              "pending_count",
+              "plain_text",
+              "queue_entries",
+              "ready_results",
+              "recent_events",
+              "repo_id",
+              "runner",
+              "runner_pid",
+              "runner_state",
+              "runtime_assessment",
+              "server_started_at",
+              "stale_lock_count",
+              "stale_locks",
+              "suggested_next_action",
+              "suspected_cause",
+              "tool_catalog_hash",
+              "unresolved_event_count",
+              "unresolved_events",
+              "warnings",
+              "worker",
+            ],
+            "title": "Show Agent Runner status",
+          },
+          {
+            "annotations": {
+              "destructiveHint": false,
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": true,
+            },
+            "description": "Use this when the user asks to show runner status, check whether Codex is actually working, inspect an active run, or verify Shared Agent Bridge worker health. Stable read-only runner status tool for ChatGPT; never launches Codex, mutates files, stages, commits, pushes, deletes, clears locks, or runs shell commands.",
+            "inputKeys": [
+              "heartbeat_stale_seconds",
+              "live_tail_max_events",
+              "repo_id",
+              "stale_lock_seconds",
+            ],
+            "name": "repo_runner_status",
+            "outputKeys": [
+              "acknowledgement_policy",
+              "active_count",
+              "active_locks",
+              "active_run_id",
+              "active_run_ids",
+              "active_run_live_tail",
+              "active_runs",
+              "auth_status",
+              "blocked_count",
+              "completed_count",
+              "completed_with_lock_warnings",
+              "connector_status",
+              "contract_schema_version",
+              "current_uptime_seconds",
+              "event_count",
+              "event_cursor",
+              "event_log_path",
+              "heartbeat_age_seconds",
+              "heartbeat_path",
+              "heartbeat_status",
+              "heartbeat_updated_at",
+              "last_connector_error_at",
+              "last_connector_error_kind",
+              "last_connector_success_at",
+              "last_failed_tool_call",
+              "last_run_id",
+              "last_run_status",
+              "last_successful_tool_call",
+              "ok",
+              "pending_count",
+              "plain_text",
+              "queue_entries",
+              "ready_results",
+              "recent_events",
+              "repo_id",
+              "runner",
+              "runner_pid",
+              "runner_state",
+              "runtime_assessment",
+              "server_started_at",
+              "stale_lock_count",
+              "stale_locks",
+              "suggested_next_action",
+              "suspected_cause",
+              "tool_catalog_hash",
+              "unresolved_event_count",
+              "unresolved_events",
+              "warnings",
+              "worker",
+            ],
+            "title": "Show repository runner status",
+          },
+          {
+            "annotations": {
+              "destructiveHint": false,
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": true,
+            },
+            "description": "Use this when the user asks what an active or recent Shared Agent Bridge Codex run is doing. Reads .chatgpt/codex-runs/<run_id>/events.jsonl and safe log tails only; never launches Codex, mutates files, stages, commits, pushes, deletes, clears locks, or runs shell commands.",
+            "inputKeys": [
+              "cursor",
+              "max_events",
+              "repo_id",
+              "run_id",
+            ],
+            "name": "repo_run_live_tail",
+            "outputKeys": [
+              "events",
+              "next_cursor",
+              "ok",
+              "repo_id",
+              "result_path",
+              "result_status",
+              "run_id",
+              "terminal",
+              "warnings",
+            ],
+            "title": "Show Codex run live tail",
+          },
+          {
+            "annotations": {
+              "destructiveHint": false,
+              "idempotentHint": true,
+              "openWorldHint": false,
+              "readOnlyHint": true,
+            },
+            "description": "Use this when the user asks whether local Google/Gemini/Gemma/Ollama vision analysis is actually configured. Read-only detector that reports observed routes and typed missing capabilities without printing secrets, launching Codex, staging, committing, pushing, deleting, or mutating files.",
+            "inputKeys": [
+              "repo_id",
+            ],
+            "name": "repo_vision_routes",
+            "outputKeys": [
+              "available_routes",
+              "has_configured_vision_route",
+              "missing_capabilities",
+              "ok",
+              "repo_id",
+              "warnings",
+            ],
+            "title": "Detect vision analysis routes",
           },
           {
             "annotations": {
@@ -276,6 +463,7 @@ describe("MCP contract", () => {
               "counts",
               "files",
               "head_sha",
+              "runner_status",
             ],
             "title": "Read git status",
           },
@@ -774,6 +962,7 @@ describe("MCP contract", () => {
               "context_summary",
               "forbidden_paths",
               "implementation_scope",
+              "input_assets",
               "inspect_first",
               "objective",
               "repo_id",
@@ -784,6 +973,7 @@ describe("MCP contract", () => {
             "name": "repo_prepare_codex_task",
             "outputKeys": [
               "codex_user_prompt",
+              "input_assets",
               "manifest_path",
               "next_steps",
               "ok",
@@ -811,6 +1001,7 @@ describe("MCP contract", () => {
               "dry_run",
               "forbidden_paths",
               "implementation_scope",
+              "input_assets",
               "inspect_first",
               "objective",
               "reason",
@@ -821,13 +1012,15 @@ describe("MCP contract", () => {
             ],
             "name": "repo_write_codex_task",
             "outputKeys": [
-              "codex_user_prompt",
               "dry_run",
+              "input_assets",
               "manifest_path",
               "next_steps",
               "ok",
-              "prompt_markdown",
+              "operation_receipt",
               "prompt_path",
+              "queued_status",
+              "receipt",
               "repo_id",
               "result_path",
               "run_id",
@@ -863,6 +1056,45 @@ describe("MCP contract", () => {
               "warnings",
             ],
             "title": "Review Codex result",
+          },
+          {
+            "annotations": {
+              "destructiveHint": true,
+              "idempotentHint": false,
+              "openWorldHint": false,
+              "readOnlyHint": false,
+            },
+            "description": "Use this when the user asks ChatGPT to synchronously launch exactly one existing repo-local Codex run and wait for its RESULT.md. Uses a lock file, can classify and explicitly recover stale locks, runs npx --no-install @openai/codex exec - with the prompt-path instruction on stdin, returns result text and log tails, and never stages, commits, pushes, deletes, starts multiple jobs, or stores secrets.",
+            "inputKeys": [
+              "dry_run",
+              "recover_stale_lock",
+              "repo_id",
+              "review_only",
+              "run_id",
+              "stale_lock_seconds",
+              "timeout_seconds",
+            ],
+            "name": "codex_run_and_wait",
+            "outputKeys": [
+              "blockers",
+              "command",
+              "elapsed_seconds",
+              "launched",
+              "lock_path",
+              "lock_state",
+              "ok",
+              "prompt_path",
+              "repo_id",
+              "result_path",
+              "result_text",
+              "run_id",
+              "status",
+              "stderr_tail",
+              "stdout_tail",
+              "timed_out",
+              "warnings",
+            ],
+            "title": "Run Codex and wait for result",
           },
           {
             "annotations": {
@@ -985,16 +1217,249 @@ describe("MCP contract", () => {
       });
 
       expect(result.isError).toBeUndefined();
-      expect(result.structuredContent).toEqual({
+      expect(result.structuredContent).toMatchObject({
         repos: [
           expect.objectContaining({
             repo_id: "fixture",
             display_name: "Fixture Repo",
             root: expect.any(String)
           })
+        ],
+        bridge_observability: expect.objectContaining({
+          transport_type: "streamable_http",
+          suggested_next_action: expect.any(String)
+        })
+      });
+      expect(result.content?.[0]).toMatchObject({
+        type: "text",
+        text: expect.stringContaining("1 approved repositories available.")
+      });
+      expect(result.content?.[0]).toMatchObject({
+        type: "text",
+        text: expect.stringContaining("Runner:")
+      });
+    } finally {
+      await close();
+    }
+  });
+
+  test("repo_list_roots includes read-only runner status fallback for mobile ChatGPT", async () => {
+    const { client, root, close } = await connectFixtureServer();
+    try {
+      await mkdir(join(root, "projects", "agent-runner", "reports"), { recursive: true });
+      await writeFile(join(root, "projects", "agent-runner", "reports", "runner-heartbeat.json"), JSON.stringify({
+        updated_at: new Date().toISOString(),
+        status: "running",
+        active_run_id: "",
+        runner_pid: process.pid
+      }));
+
+      const result = await client.callTool({
+        name: "repo_list_roots",
+        arguments: {}
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.structuredContent).toMatchObject({
+        repos: [
+          {
+            repo_id: "fixture",
+            runner_status: {
+              ok: true,
+              repo_id: "fixture",
+              runner: "alive",
+              worker: "running"
+            }
+          }
         ]
       });
-      expect(result.content).toEqual([{ type: "text", text: "1 approved repositories available." }]);
+      expect(result.content?.[0]).toMatchObject({
+        type: "text",
+        text: expect.stringContaining("Runner:")
+      });
+    } finally {
+      await close();
+    }
+  });
+
+  test("repo_run_live_tail is read-only and returns safe run events", async () => {
+    const { client, root, close } = await connectFixtureServer();
+    const runId = "2026-06-07T120000Z-live-tail-contract";
+    const runDir = join(root, ".chatgpt", "codex-runs", runId);
+    try {
+      await mkdir(runDir, { recursive: true });
+      await writeFile(join(runDir, "PROMPT.md"), "# Prompt\n");
+      await writeFile(join(runDir, "run.json"), JSON.stringify({
+        schema_version: 1,
+        repo_id: "fixture",
+        run_id: runId,
+        prompt_path: `.chatgpt/codex-runs/${runId}/PROMPT.md`,
+        result_path: `.chatgpt/codex-runs/${runId}/RESULT.md`
+      }));
+      await writeFile(join(runDir, "events.jsonl"), `${JSON.stringify({
+        timestamp: "2026-06-07T12:00:00Z",
+        event_type: "run_claimed",
+        summary: "Run claimed with token=abc123"
+      })}\n`);
+      const before = (await readdir(runDir)).sort();
+
+      const result = await client.callTool({
+        name: "repo_run_live_tail",
+        arguments: {
+          repo_id: "fixture",
+          run_id: runId
+        }
+      });
+
+      const after = (await readdir(runDir)).sort();
+      expect(result.isError).toBeUndefined();
+      expect(after).toEqual(before);
+      expect(result.structuredContent).toMatchObject({
+        ok: true,
+        repo_id: "fixture",
+        run_id: runId,
+        terminal: false,
+        events: [
+          expect.objectContaining({
+            event_type: "run_claimed",
+            summary: expect.stringContaining("token=[REDACTED]")
+          })
+        ]
+      });
+      expect(JSON.stringify(result.structuredContent)).not.toContain("abc123");
+    } finally {
+      await close();
+    }
+  });
+
+  test("repo_list_roots includes compact vision discovery and existing-tool helper fallback", async () => {
+    const { client, close } = await connectFixtureServer();
+    try {
+      const result = await client.callTool({
+        name: "repo_list_roots",
+        arguments: {}
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.structuredContent).toMatchObject({
+        bridge_observability: {
+          bridge_process_id: expect.any(Number),
+          bridge_started_at: expect.any(String),
+          bridge_uptime_seconds: expect.any(Number),
+          tool_catalog_generation: expect.any(String),
+          tool_catalog_loaded_at: expect.any(String),
+          request_observed_at: expect.any(String),
+          request_id: expect.any(String),
+          session_fingerprint: expect.any(String),
+          transport_type: "streamable_http",
+          last_successful_tool_call_at: expect.any(String),
+          last_tool_error: expect.any(String),
+          last_tool_error_code: null,
+          last_tool_error_message: expect.any(String),
+          last_tool_error_observed_at: expect.any(String),
+          suspected_failure_layer: expect.any(String),
+          suggested_next_action: expect.any(String)
+        },
+        repos: [
+          {
+            repo_id: "fixture",
+            bridge_observability: {
+              bridge_process_id: expect.any(Number),
+              tool_catalog_generation: expect.any(String),
+              suspected_failure_layer: expect.any(String)
+            },
+            vision_capabilities: {
+              has_configured_vision_route: expect.any(Boolean),
+              available_routes: expect.any(Array),
+              missing_capabilities: expect.any(Array),
+              helper: {
+                tool: "repo_write_codex_task",
+                input_assets_required: true,
+                result_visibility: "repo_list_roots.ready_results",
+                route_status: expect.stringMatching(/^(ready|blocked)$/)
+              }
+            },
+            capability_summary: {
+              codex_handoff: {
+                state: "available",
+                tools: expect.arrayContaining(["repo_write_codex_task", "codex_run_and_wait"])
+              },
+              runner: {
+                state: expect.stringMatching(/^(available|unavailable|unknown|blocked)$/),
+                runner: expect.any(String),
+                worker: expect.any(String)
+              },
+              image_assets: {
+                state: "available",
+                input_assets: true
+              },
+              vision_route_detection: {
+                state: "available",
+                tool: "repo_vision_routes"
+              },
+              ollama: {
+                state: expect.stringMatching(/^(available|unavailable|unknown|blocked)$/)
+              },
+              gemma_image_route: {
+                state: expect.stringMatching(/^(available|unavailable|unknown|blocked)$/)
+              },
+              latest_validation: {
+                state: expect.stringMatching(/^(available|unavailable|unknown|blocked)$/)
+              },
+              full_vision_helper: {
+                state: "blocked"
+              }
+            }
+          }
+        ]
+      });
+      const serialized = JSON.stringify(result.structuredContent);
+      expect(serialized).not.toContain("content_base64");
+      expect(serialized).not.toMatch(/sk-[A-Za-z0-9]/);
+      expect(result.content?.[0]).toMatchObject({
+        type: "text",
+        text: expect.stringContaining("Vision helper: repo_write_codex_task")
+      });
+      expect(result.content?.[0]).toMatchObject({
+        type: "text",
+        text: expect.stringContaining("Capabilities: handoff=available")
+      });
+    } finally {
+      await close();
+    }
+  });
+
+  test("repo_git_status includes read-only runner status fallback for cached ChatGPT connectors", async () => {
+    const { client, root, close } = await connectFixtureServer();
+    try {
+      await mkdir(join(root, "projects", "agent-runner", "reports"), { recursive: true });
+      await writeFile(join(root, "projects", "agent-runner", "reports", "runner-heartbeat.json"), JSON.stringify({
+        updated_at: new Date().toISOString(),
+        status: "running",
+        active_run_id: "",
+        runner_pid: process.pid
+      }));
+
+      const result = await client.callTool({
+        name: "repo_git_status",
+        arguments: { repo_id: "fixture" }
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.structuredContent).toMatchObject({
+        clean: expect.any(Boolean),
+        runner_status: {
+          ok: true,
+          repo_id: "fixture",
+          runner: "alive",
+          worker: "running",
+          active_count: 0
+        }
+      });
+      expect(result.content?.[0]).toMatchObject({
+        type: "text",
+        text: expect.stringContaining("Runner:")
+      });
     } finally {
       await close();
     }
@@ -1287,6 +1752,11 @@ function representativeCalls(head: string): Record<string, Record<string, unknow
     repo_id: "fixture",
     run_id: "2026-06-04T081500Z-fix-fixture-docs"
   },
+  codex_run_and_wait: {
+    repo_id: "fixture",
+    run_id: "2026-06-04T081500Z-fix-fixture-docs",
+    dry_run: true
+  },
   repo_write_file: { repo_id: "fixture", path: "docs/write-file-dry-run.md", content: "planned\n", dry_run: true },
   repo_write_changes: {
     repo_id: "fixture",
@@ -1343,6 +1813,7 @@ async function connectFixtureServer() {
 
   return {
     client,
+    root,
     head,
     close: async () => {
       await client.close();

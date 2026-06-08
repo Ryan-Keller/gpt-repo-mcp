@@ -7,6 +7,7 @@ export type RequestTelemetryContext = {
   http_method?: string;
   route?: string;
   mcp_session?: "present" | "missing";
+  session_fingerprint?: string;
   mcp_method?: string;
   mcp_tool?: string;
 };

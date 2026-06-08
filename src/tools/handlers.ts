@@ -1,5 +1,6 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
+import { AgentRunnerStatusService } from "../services/agent-runner-status-service.js";
 import { PathSandbox } from "../services/path-sandbox.js";
 import { CleanupService } from "../services/cleanup-service.js";
 import { RepoTreeService } from "../services/repo-tree-service.js";
@@ -14,9 +15,12 @@ import { ReviewPlanner } from "../services/review-planner.js";
 import { ReadManyService } from "../services/read-many-service.js";
 import { ProjectBriefService } from "../services/project-brief-service.js";
 import { TaskInventoryService } from "../services/task-inventory-service.js";
+import { VisionRouteService, buildVisionAnalysisFallback } from "../services/vision-route-service.js";
+import { buildCapabilitySummary } from "../services/capability-summary-service.js";
 import { DecisionLogService } from "../services/decision-log-service.js";
 import { ChangePlanService } from "../services/change-plan-service.js";
 import { CodexResultService } from "../services/codex-result-service.js";
+import { CodexRunService } from "../services/codex-run-service.js";
 import { CodexTaskService } from "../services/codex-task-service.js";
 import { NextActionService } from "../services/next-action-service.js";
 import { PolicyExplainService } from "../services/policy-explain-service.js";
@@ -27,7 +31,9 @@ import { OperationReceiptService } from "../services/operation-receipt-service.j
 import { createErrorEnvelope, createSuccessEnvelope } from "../runtime/result-envelope.js";
 import { toRepoReaderError } from "../runtime/errors.js";
 import { audit } from "../runtime/telemetry.js";
+import { getConnectorDiagnostics } from "../runtime/connector-session.js";
 import type { RuntimeContext } from "../runtime/context.js";
+import type { AgentRunnerStatusInput, RunLiveTailInput } from "../contracts/agent-runner.contract.js";
 import type { SearchOptions } from "../services/search-service.js";
 import type { FetchFileOptions } from "../services/file-reader.js";
 import type { TreeOptions } from "../services/repo-tree-service.js";
@@ -35,8 +41,9 @@ import type { ProjectBriefInput } from "../contracts/project.contract.js";
 import type { TaskInventoryInput } from "../contracts/task.contract.js";
 import type { DecisionLogInput } from "../contracts/decision.contract.js";
 import type { ChangePlanInput } from "../contracts/change-plan.contract.js";
-import type { CodexReviewInput, CodexTaskInput, CodexTaskWriteInput } from "../contracts/codex-task.contract.js";
+import type { CodexReviewInput, CodexRunAndWaitInput, CodexTaskInput, CodexTaskWriteInput } from "../contracts/codex-task.contract.js";
 import type { NextActionInput } from "../contracts/next-action.contract.js";
+import type { VisionRouteInput } from "../contracts/vision-route.contract.js";
 import type { LastWriteInput } from "../contracts/operation-receipt.contract.js";
 import type { PolicyExplainInput } from "../contracts/policy.contract.js";
 import type { WriteChangesInput, WriteFileInput } from "../contracts/write.contract.js";
@@ -69,8 +76,129 @@ export type ToolHandler = (input: unknown, context: RuntimeContext) => Promise<C
 
 export const listRootsHandler: ToolHandler = async (_input, context) => {
   const repos = context.registry.list();
-  return createSuccessEnvelope({ repos }, `${repos.length} approved repositories available.`);
+  context.diagnostics?.recordSuccess();
+  const connectorDiagnostics = getConnectorDiagnostics();
+  const fallbackStartedAt = new Date().toISOString();
+  const baseBridgeObservability = context.diagnostics?.snapshot() ?? {
+    bridge_process_id: process.pid,
+    bridge_started_at: fallbackStartedAt,
+    bridge_uptime_seconds: 0,
+    tool_catalog_generation: "in_memory_context",
+    tool_catalog_loaded_at: fallbackStartedAt,
+    request_observed_at: fallbackStartedAt,
+    request_id: "",
+    session_fingerprint: "",
+    transport_type: "streamable_http",
+    last_successful_tool_call_at: "",
+    last_tool_error: "",
+    last_tool_error_code: null,
+    last_tool_error_message: "",
+    last_tool_error_observed_at: "",
+    suspected_failure_layer: "none_observed",
+    suggested_next_action: "observe_only"
+  };
+  const bridgeObservability = {
+    ...baseBridgeObservability,
+    last_successful_tool_call_at: connectorDiagnostics.last_connector_success_at,
+    last_tool_error: connectorDiagnostics.last_connector_error_kind,
+    last_tool_error_code: baseBridgeObservability.last_tool_error_code,
+    last_tool_error_message: connectorDiagnostics.last_connector_error_kind
+      ? `Last observed connector error: ${connectorDiagnostics.last_connector_error_kind}`
+      : connectorDiagnostics.suspected_cause,
+    last_tool_error_observed_at: connectorDiagnostics.last_connector_error_at,
+    suspected_failure_layer: connectorDiagnostics.connector_status === "healthy" ? "none_observed" : connectorDiagnostics.last_connector_error_kind || "none_observed",
+    suggested_next_action: connectorDiagnostics.suggested_next_action
+  };
+  const reposWithFallbacks = await Promise.all(repos.map(async (repo) => {
+    const [runnerStatus, visionRoutes] = await Promise.all([
+      new AgentRunnerStatusService(repo.root).status({ repo_id: repo.repo_id }),
+      new VisionRouteService().detect()
+    ]);
+    const capabilitySummary = await buildCapabilitySummary({
+      repo_id: repo.repo_id,
+      repo_root: repo.root,
+      runner_status: runnerStatus,
+      vision_routes: visionRoutes
+    });
+    return {
+      ...repo,
+      bridge_observability: bridgeObservability,
+      runner_status: runnerStatus,
+      capability_summary: capabilitySummary,
+      vision_capabilities: {
+        has_configured_vision_route: visionRoutes.has_configured_vision_route,
+        available_routes: visionRoutes.available_routes,
+        missing_capabilities: visionRoutes.missing_capabilities,
+        warnings: visionRoutes.warnings.map(redactSecretLike),
+        helper: buildVisionAnalysisFallback(visionRoutes)
+      }
+    };
+  }));
+  const runnerSummaries = reposWithFallbacks.map((repo) => {
+    const visionStatus = repo.vision_capabilities.has_configured_vision_route
+      ? "ready"
+      : `blocked (${repo.vision_capabilities.missing_capabilities.join(", ")})`;
+    return [
+      repo.repo_id,
+      repo.runner_status.plain_text,
+      `Capabilities: handoff=${repo.capability_summary.codex_handoff.state}; runner=${repo.capability_summary.runner.state}; image_assets=${repo.capability_summary.image_assets.state}; gemma_image_route=${repo.capability_summary.gemma_image_route.state}; latest_validation=${repo.capability_summary.latest_validation.state}`,
+      `Vision routes: ${visionStatus}`,
+      "Vision helper: repo_write_codex_task with input_assets; results appear in repo_list_roots.ready_results."
+    ].join("\n");
+  }).join("\n\n");
+  return createSuccessEnvelope({ repos: reposWithFallbacks, bridge_observability: bridgeObservability }, `${repos.length} approved repositories available.\n\n${runnerSummaries}`);
 };
+
+export const agentRunnerStatusHandler: ToolHandler = async (input, context) => safeTool<AgentRunnerStatusInput>("agent_runner_status", input, context, async (args) => {
+  const repo = context.registry.get(args.repo_id);
+  const result = await new AgentRunnerStatusService(repo.root).status(args);
+  audit({
+    tool: "agent_runner_status",
+    repo_id: args.repo_id,
+    counts: {
+      pending: result.pending_count,
+      active: result.active_count,
+      completed: result.completed_count,
+      blocked: result.blocked_count
+    },
+    warnings: result.warnings
+  });
+  return createSuccessEnvelope(result, result.plain_text, { warnings: result.warnings });
+});
+
+export const runLiveTailHandler: ToolHandler = async (input, context) => safeTool<RunLiveTailInput>("repo_run_live_tail", input, context, async (args) => {
+  const repo = context.registry.get(args.repo_id);
+  const result = await new AgentRunnerStatusService(repo.root).liveTail(args);
+  audit({
+    tool: "repo_run_live_tail",
+    repo_id: args.repo_id,
+    counts: { events: result.events.length },
+    warnings: result.warnings
+  });
+  const summary = result.events.length
+    ? `Returned ${result.events.length} live-tail events for ${args.run_id}.`
+    : `No live-tail events found for ${args.run_id}.`;
+  return createSuccessEnvelope(result, summary, { warnings: result.warnings });
+});
+
+export const visionRoutesHandler: ToolHandler = async (input, context) => safeTool<VisionRouteInput>("repo_vision_routes", input, context, async (args) => {
+  context.registry.get(args.repo_id);
+  const result = await new VisionRouteService().detect();
+  const payload = { ...result, repo_id: args.repo_id };
+  audit({
+    tool: "repo_vision_routes",
+    repo_id: args.repo_id,
+    counts: { routes: payload.available_routes.length, missing: payload.missing_capabilities.length },
+    warnings: payload.warnings
+  });
+  return createSuccessEnvelope(
+    payload,
+    payload.has_configured_vision_route
+      ? "At least one configured vision route is available."
+      : `No configured vision route is available. Missing: ${payload.missing_capabilities.join(", ")}.`,
+    { warnings: payload.warnings }
+  );
+});
 
 export const policyExplainHandler: ToolHandler = async (input, context) => safeTool<PolicyExplainInput>("repo_policy_explain", input, context, async (args) => {
   const repo = context.registry.get(args.repo_id);
@@ -124,9 +252,17 @@ export const readManyHandler: ToolHandler = async (input, context) => safeTool<R
 
 export const gitStatusHandler: ToolHandler = async (input, context) => safeTool<RepoInput>("repo_git_status", input, context, async (args) => {
   const repo = context.registry.get(args.repo_id);
-  const result = await new GitService(repo.root).status();
+  const [result, runnerStatus] = await Promise.all([
+    new GitService(repo.root).status(),
+    new AgentRunnerStatusService(repo.root).status({ repo_id: args.repo_id })
+  ]);
+  const resultWithRunnerStatus = {
+    ...result,
+    runner_status: runnerStatus
+  };
   audit({ tool: "repo_git_status", repo_id: args.repo_id, counts: result.counts });
-  return createSuccessEnvelope(result, result.clean ? "Repository is clean." : `Repository has ${result.files.length} changed files.`);
+  const gitText = result.clean ? "Repository is clean." : `Repository has ${result.files.length} changed files.`;
+  return createSuccessEnvelope(resultWithRunnerStatus, `${gitText}\n\n${runnerStatus.plain_text}`);
 });
 
 export const gitDiffHandler: ToolHandler = async (input, context) => safeTool<GitDiffInput>("repo_git_diff", input, context, async (args) => {
@@ -287,7 +423,39 @@ export const prepareCodexTaskHandler: ToolHandler = async (input, context) => sa
 
 export const writeCodexTaskHandler: ToolHandler = async (input, context) => safeTool<CodexTaskWriteInput>("repo_write_codex_task", input, context, async (args) => {
   const repo = context.registry.get(args.repo_id);
+  const headShaBefore = await readHeadSha(repo.root);
   const result = await new CodexTaskService(repo.root, new PathSandbox(repo.root), new WritePolicy(repo.writes)).write(args);
+  if (!result.dry_run && result.written_paths.length > 0) {
+    const headShaAfter = await readHeadSha(repo.root);
+    const receipt = await new OperationReceiptService(repo.root).writeLastWrite({
+      tool: "repo_write_codex_task",
+      repo_id: args.repo_id,
+      ...(headShaBefore ? { head_sha_before: headShaBefore } : {}),
+      ...(headShaAfter ? { head_sha_after: headShaAfter } : {}),
+      touched_paths: result.written_paths,
+      changed_paths: result.written_paths,
+      created_paths: result.written_paths,
+      modified_paths: [],
+      counts: {
+        requested: result.written_paths.length,
+        changed: result.written_paths.length,
+        created: result.written_paths.length,
+        unchanged: 0
+      },
+      summary: `Queued Codex task ${result.run_id}.`
+    });
+    const resultWithReceipt = {
+      ...result,
+      warnings: [...result.warnings, ...receipt.warnings],
+      ...(receipt.operation_receipt ? { operation_receipt: receipt.operation_receipt } : {})
+    };
+    audit({ tool: "repo_write_codex_task", repo_id: args.repo_id, paths: resultWithReceipt.written_paths, warnings: resultWithReceipt.warnings });
+    return createSuccessEnvelope(
+      resultWithReceipt,
+      `Queued Codex task ${resultWithReceipt.run_id}.`,
+      { warnings: resultWithReceipt.warnings }
+    );
+  }
   audit({ tool: "repo_write_codex_task", repo_id: args.repo_id, paths: result.written_paths, warnings: result.warnings });
   return createSuccessEnvelope(
     result,
@@ -312,6 +480,24 @@ export const codexReviewHandler: ToolHandler = async (input, context) => safeToo
   return createSuccessEnvelope(
     result,
     result.result_found ? `Reviewed Codex result ${result.run_id}.` : `Codex result missing for ${result.run_id}.`,
+    { warnings: result.warnings }
+  );
+});
+
+export const codexRunAndWaitHandler: ToolHandler = async (input, context) => safeTool<CodexRunAndWaitInput>("codex_run_and_wait", input, context, async (args) => {
+  const repo = context.registry.get(args.repo_id);
+  const result = await new CodexRunService(repo.root).runAndWait(args);
+  audit({
+    tool: "codex_run_and_wait",
+    repo_id: args.repo_id,
+    paths: [result.prompt_path, result.result_path, result.lock_path],
+    warnings: result.warnings
+  });
+  return createSuccessEnvelope(
+    result,
+    result.status === "completed" || result.status === "existing_result"
+      ? `Codex result available for ${result.run_id}.`
+      : `Codex run ${result.run_id} returned status ${result.status}.`,
     { warnings: result.warnings }
   );
 });
@@ -411,10 +597,17 @@ async function safeTool<TInput extends Record<string, unknown>>(
   run: (args: TInput) => Promise<CallToolResult>
 ): Promise<CallToolResult> {
   try {
-    return await run(input as TInput);
+    const result = await run(input as TInput);
+    context.diagnostics?.recordSuccess();
+    return result;
   } catch (error) {
-    audit({ tool, repo_id: typeof input === "object" && input && "repo_id" in input ? String(input.repo_id) : undefined, warnings: [toRepoReaderError(error).code] });
-    return createErrorEnvelope(toRepoReaderError(error));
+    const repoError = toRepoReaderError(error);
+    context.diagnostics?.recordToolError({
+      error_type: repoError.code,
+      error_message: repoError.message
+    });
+    audit({ tool, repo_id: typeof input === "object" && input && "repo_id" in input ? String(input.repo_id) : undefined, warnings: [repoError.code] });
+    return createErrorEnvelope(repoError);
   }
 }
 
@@ -424,4 +617,10 @@ async function readHeadSha(root: string): Promise<string | undefined> {
   } catch {
     return undefined;
   }
+}
+
+function redactSecretLike(value: string): string {
+  return value
+    .replace(/\bsk-[A-Za-z0-9_-]{8,}\b/g, "[REDACTED_SECRET]")
+    .replace(/\b(?:api[_-]?key|token|secret)=\S+/gi, "$1=[REDACTED_SECRET]");
 }

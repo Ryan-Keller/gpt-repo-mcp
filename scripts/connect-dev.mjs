@@ -8,6 +8,7 @@ const CONFIG_PATH = "./config.local.json";
 const PORT = "8787";
 const NGROK_API_URL = "http://127.0.0.1:4040/api/tunnels";
 const publicPathToken = randomBytes(16).toString("hex");
+const npmBin = process.platform === "win32" ? "npm.cmd" : "npm";
 
 const children = [];
 let shuttingDown = false;
@@ -108,7 +109,7 @@ async function announceNgrokUrl() {
 async function startProcesses() {
   globalThis.console.log("Use the HTTPS ngrok URL with the printed /t/<token>/mcp path in ChatGPT Developer Mode.");
 
-  const mcp = spawn("npm", ["run", "dev"], {
+  const mcp = spawn(npmBin, ["run", "dev"], {
     env: {
       ...process.env,
       GPT_REPO_CONFIG: CONFIG_PATH,

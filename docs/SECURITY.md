@@ -24,7 +24,9 @@ Codex task tools do not run Codex or execute commands. `repo_prepare_codex_task`
 
 The default OSS connection path is `npm run connect`. It starts the local MCP server and starts or reuses ngrok as a built-in convenience HTTPS tunnel. The printed ChatGPT URL ends in `/t/<random-token>/mcp`. See [CONNECTION_OPTIONS.md](CONNECTION_OPTIONS.md) for built-in, manual, and Secure MCP Tunnel connection paths.
 
-That random path token is guess-resistance only, not authentication. Anyone with the full URL can reach the MCP endpoint while the public tunnel is running, so treat it as a temporary local development endpoint and stop it when done.
+That random path token is guess-resistance only, not authentication. Anyone with the full URL can reach the MCP endpoint while the public tunnel is running, so protect public/tunnel deployments with an outer identity layer such as Cloudflare Access and the app-level `BRIDGE_AUTH_TOKEN` gate. See [PUBLIC_SECURITY_RUNBOOK.md](PUBLIC_SECURITY_RUNBOOK.md).
+
+When `BRIDGE_AUTH_TOKEN` is set, authenticated MCP and diagnostic calls must send either `Authorization: Bearer <token>` or `x-bridge-auth-token: <token>`. When a public/tunnel path is enabled without an app token, sensitive MCP routes lock down and unauthenticated `/health` returns only public-safe liveness.
 
 Network exposure does not bypass repository policy. ChatGPT still supplies only `repo_id`; approved roots, default excludes, path sandboxing, secret checks, read/write policies, expected HEAD checks, and tool schemas still apply. Mutating tools remain disabled unless the target repo explicitly enables writes or operations.
 
@@ -112,6 +114,6 @@ Audit logs may include tool name, `repo_id`, safe repo-relative paths or globs, 
 
 Audit logs must not include request bodies, tool arguments, full MCP session ids, headers, returned file text, file content, secret-looking values, raw structured outputs, raw errors, environment variables, tokens, credentials, SSH keys, private keys, or unredacted absolute paths.
 
-`GPT_REPO_CONFIG`, `GPT_REPO_PUBLIC_PATH_TOKEN`, `GPT_REPO_LOG_FORMAT`, and `GPT_REPO_LOG_COLOR` are the public environment variables. Legacy `REPO_READER_*` names remain supported as fallback aliases for compatibility.
+`GPT_REPO_CONFIG`, `GPT_REPO_PUBLIC_PATH_TOKEN`, `BRIDGE_AUTH_TOKEN`, `GPT_REPO_LOG_FORMAT`, and `GPT_REPO_LOG_COLOR` are the public environment variables. Legacy `REPO_READER_*` names remain supported as fallback aliases for compatibility. Store real token values outside the repo and never print them in logs or docs.
 
 `GPT_REPO_LOG_FORMAT=pretty` changes only terminal formatting. Pretty logs use the same sanitized audit event data as the default JSON logs. `GPT_REPO_LOG_COLOR=auto|always|never` controls color, and `NO_COLOR` disables color.

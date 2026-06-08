@@ -93,7 +93,7 @@ Clone -> Install -> Add repo -> Choose mode -> Connect ChatGPT -> Start working
 | `write` | Daily implementation help | Everything in `read`, plus repo file writes guarded by policy, path checks, secret checks, and size limits. |
 | `ship` | Local commit prep | Everything in `write`, plus local stage, commit, recover, and cleanup operations after approval. |
 
-No mode enables push, pull, reset, checkout, switch, rebase, merge, stash, force, branch deletion, shell execution, or arbitrary command execution.
+No mode enables push, pull, reset, checkout, switch, rebase, merge, stash, force, branch deletion, or arbitrary command execution. The only subprocess launcher is the controlled `codex_run_and_wait` tool, which runs one repo-local Codex task prompt and waits for its `RESULT.md`.
 
 ## Example ChatGPT Prompts
 
@@ -147,7 +147,8 @@ Codex is done. Review the Codex result and the git diff for <repo_id>.
 | ChatGPT session continuity | `repo_write_handoff`, `repo_last_write` |
 | Local ship flow | `repo_write_stage`, `repo_write_unstage`, `repo_write_commit`, `repo_write_stage_commit`, `repo_write_recover`, `repo_cleanup_paths` |
 | Compatibility aliases | `repo_git_stage`, `repo_git_unstage`, `repo_git_commit` |
-| Codex/Claude coordination | `repo_prepare_codex_task`, `repo_write_codex_task`, `repo_codex_review` |
+| Runner status | `repo_runner_status`, `agent_runner_status` |
+| Codex/Claude coordination | `repo_prepare_codex_task`, `repo_write_codex_task`, `repo_codex_review`, `codex_run_and_wait` |
 
 See [docs/TOOL_SURFACE.md](docs/TOOL_SURFACE.md) for full schemas, examples, output shapes, and recommended workflows.
 
@@ -190,6 +191,65 @@ Review the Codex result and the git diff for <run_id>.
 
 ChatGPT can read the result, inspect the diff, and recommend the next step.
 
+### Synchronous Codex Run-And-Wait
+
+When a repo-local Codex task already exists, ChatGPT can call `codex_run_and_wait` with `repo_id`, `run_id`, `timeout_seconds`, optional `dry_run` or `review_only`, and optional stale-lock recovery fields.
+
+The tool resolves `.chatgpt/codex-runs/<run_id>/PROMPT.md`, refuses missing prompts, returns an existing `RESULT.md` without launching anything, creates a run lock to prevent duplicate launches, starts exactly one process with `npx --no-install @openai/codex exec -`, writes `Implement .chatgpt/codex-runs/<run_id>/PROMPT.md` to stdin, waits for `RESULT.md`, and returns the result text plus stdout/stderr tails, elapsed time, blockers, and timeout state.
+
+This is a controlled Codex task runner, not a general shell tool. It does not stage, commit, push, delete, or store secrets.
+
+If a lock file exists, the tool classifies it before launch. Locks with a live
+PID are active and are never removed. Locks without a live process are treated
+as stale only after `stale_lock_seconds` has elapsed. A stale lock is reported
+with `status: "stale_lock"` until the caller explicitly retries with
+`recover_stale_lock: true`; only then does the tool remove that stale lock and
+launch one Codex process.
+
+### Direct Runner Status
+
+ChatGPT should call `repo_runner_status` when the user asks whether the local
+Codex worker is alive, pending, active, stale, blocked, or actually working.
+`agent_runner_status` remains as a compatibility alias, but `repo_runner_status`
+is the stable preferred tool name.
+
+The tool is read-only. It never launches Codex, mutates files, stages, commits,
+pushes, deletes, clears locks, restores files, or resets state.
+
+It returns heartbeat fields, worker status, pending/active/stale/completed/
+blocked counts, active lock paths and ages, runner PIDs when available,
+evidence-based runtime assessments for active runs, durable `queue_entries`
+for every discovered run, and recent `ready_results` with completed or blocked
+`RESULT.md` text and preview URLs.
+
+`repo_write_codex_task` refuses to overwrite an existing run id once any of
+`PROMPT.md`, `run.json`, `RESULT.md`, `RESULT.md.lock`, or
+`inputs/manifest.json` exists. This keeps repeated ChatGPT calls from replacing
+queued, active, blocked, or completed work.
+
+`repo_write_codex_task` returns a compact write receipt with `run_id`, written
+paths, and queued status. It does not echo `PROMPT.md` or the full prompt body,
+which keeps connector responses small and recoverable with `repo_last_write` or
+runner status if a session drops.
+
+Source guidance can teach ChatGPT to prefer this tool, but only the app/server
+tool registry controls whether a tool is exposed in a chat. After changing the
+tool surface, rebuild and restart the MCP server, then verify the live catalog.
+
+Local diagnostic endpoints:
+
+```text
+http://127.0.0.1:8787/health
+http://127.0.0.1:8787/tool-catalog
+```
+
+Unauthenticated `/health` is public-safe and redacted when the app-level token
+gate is active or public/tunnel mode is locked. Detailed `/health` and
+`/tool-catalog` require `BRIDGE_AUTH_TOKEN` via `Authorization: Bearer <token>`
+or `x-bridge-auth-token: <token>` in public/tunnel mode. The detailed catalog
+lists registered tool names, enabled/read-only status, required bridge tools,
+connector diagnostics, and build/start timestamps.
+
 ## ChatGPT Session Handoffs
 
 In this repo, a handoff means a ChatGPT-to-ChatGPT session note. It is not the Codex/Claude task flow.
@@ -198,13 +258,14 @@ Use `repo_write_handoff` when you want ChatGPT to write local context for a futu
 
 ## Boundaries
 
-GPT Repo MCP is intentionally not a shell runner.
+GPT Repo MCP is intentionally not a general shell runner.
 
 - ChatGPT works through named repository ids and repo-relative paths.
 - Mutating tools are disabled until a repo opts in.
 - File writes are checked against allow/deny policy, path sandboxing, size limits, and secret scanning.
 - Git tools operate only on explicit paths and local commits.
-- There are no tools for push, pull, reset, checkout, switch, rebase, merge, stash, force, branch deletion, shell execution, or arbitrary command execution.
+- `codex_run_and_wait` is the only controlled subprocess launcher. It runs exactly one existing repo-local Codex prompt with `npx --no-install @openai/codex exec -`, sends the prompt-path instruction on stdin, and waits for its `RESULT.md`.
+- There are no tools for push, pull, reset, checkout, switch, rebase, merge, stash, force, branch deletion, or arbitrary command execution.
 
 Read the full model in [docs/SECURITY.md](docs/SECURITY.md).
 
@@ -225,6 +286,15 @@ Read the full model in [docs/SECURITY.md](docs/SECURITY.md).
 | `npm run check:config` | Validate local config. |
 | `npm test -- tests/tool-contracts.test.ts tests/mcp-contract.test.ts` | Run focused MCP contract checks. |
 
+After tool-surface changes, restart/reload the bridge:
+
+```powershell
+npm run build
+.\scripts\start-gpt-repo-mcp.ps1
+.\scripts\check-gpt-repo-mcp-live-tools.ps1 -ExpectedTool repo_runner_status
+Invoke-RestMethod http://127.0.0.1:8787/tool-catalog
+```
+
 ## Requirements
 
 - Node.js 20 or newer
@@ -240,6 +310,7 @@ New to ngrok? See [Install ngrok from zero](docs/SETUP.md#install-ngrok-from-zer
 - [Setup](docs/SETUP.md)
 - [ChatGPT connector steps](docs/CHATGPT_CONNECT.md)
 - [Connection options](docs/CONNECTION_OPTIONS.md)
+- [Public security runbook](docs/PUBLIC_SECURITY_RUNBOOK.md)
 - [Tool surface](docs/TOOL_SURFACE.md)
 - [Write workflows](docs/WRITE_WORKFLOWS.md)
 - [Security model](docs/SECURITY.md)

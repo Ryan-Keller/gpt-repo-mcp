@@ -174,13 +174,15 @@ For repo-local mode, call `repo_write_codex_task`. It writes:
 - `.chatgpt/codex-runs/<run_id>/PROMPT.md`
 - `.chatgpt/codex-runs/<run_id>/run.json`
 
-Give Codex the returned `codex_user_prompt`, for example:
+It returns a compact receipt with `run_id`, repo-local paths, written paths, and
+queued status. It does not echo the generated prompt body. Give Codex the
+returned `prompt_path`, for example:
 
 ```text
 Implement .chatgpt/codex-runs/<run_id>/PROMPT.md
 ```
 
-The generated prompt tells Codex to write `.chatgpt/codex-runs/<run_id>/RESULT.md` before its final chat response. After Codex finishes, call `repo_codex_review` with the same `run_id`; it reads `RESULT.md`, runs git review logic, and returns review/recovery/commit next-tool payloads. If `RESULT.md` is missing, ask the user to paste Codex output or rerun Codex with the prompt completion contract.
+The generated prompt tells Codex to write `.chatgpt/codex-runs/<run_id>/RESULT.md` before its final chat response. After Codex finishes, call `repo_codex_review` with the same `run_id`; it reads `RESULT.md`, runs git review logic, and returns review/recovery/commit next-tool payloads. If the connector drops after the write, recover the receipt with `repo_last_write`, `repo_runner_status`, or `repo_list_roots.runner_status`. If `RESULT.md` is missing, ask the user to paste Codex output or rerun Codex with the prompt completion contract.
 
 Codex task files are local ChatGPT working state under `.chatgpt/` and normally should not be committed.
 

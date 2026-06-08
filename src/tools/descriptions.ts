@@ -1,6 +1,14 @@
 export const descriptions = {
   repo_list_roots:
     "Use this when the user asks which approved repositories are available. Does not read file contents.",
+  agent_runner_status:
+    "Use this when the user asks whether the Shared Agent Bridge Codex runner is alive, pending, stale, locked, blocked, or completed. Reads repo-local heartbeat and Codex run status only, returns plain text plus structured counts, and never launches Codex, mutates files, stages, commits, pushes, or runs shell commands.",
+  repo_runner_status:
+    "Use this when the user asks to show runner status, check whether Codex is actually working, inspect an active run, or verify Shared Agent Bridge worker health. Stable read-only runner status tool for ChatGPT; never launches Codex, mutates files, stages, commits, pushes, deletes, clears locks, or runs shell commands.",
+  repo_run_live_tail:
+    "Use this when the user asks what an active or recent Shared Agent Bridge Codex run is doing. Reads .chatgpt/codex-runs/<run_id>/events.jsonl and safe log tails only; never launches Codex, mutates files, stages, commits, pushes, deletes, clears locks, or runs shell commands.",
+  repo_vision_routes:
+    "Use this when the user asks whether local Google/Gemini/Gemma/Ollama vision analysis is actually configured. Read-only detector that reports observed routes and typed missing capabilities without printing secrets, launching Codex, staging, committing, pushing, deleting, or mutating files.",
   repo_policy_explain:
     "Use this when a read, write, or cleanup policy question is blocked or the user asks what ChatGPT can access in a repo. Explains effective read/write/cleanup policy, local git operation toggles, matched globs, block reasons, and next steps without reading or mutating files.",
   repo_last_write:
@@ -57,6 +65,8 @@ export const descriptions = {
     "Use this when the user explicitly asks to write a Codex prompt/task/run into the repo for Codex to execute later. Writes only .chatgpt/codex-runs/<run_id>/PROMPT.md and run.json through repo write policy; does not implement, stage, commit, push, or run Codex.",
   repo_codex_review:
     "Use this when Codex has finished or the user asks to review a repo-local Codex run. Reads .chatgpt/codex-runs/<run_id>/RESULT.md and git diff review state without mutating files or git.",
+  codex_run_and_wait:
+    "Use this when the user asks ChatGPT to synchronously launch exactly one existing repo-local Codex run and wait for its RESULT.md. Uses a lock file, can classify and explicitly recover stale locks, runs npx --no-install @openai/codex exec - with the prompt-path instruction on stdin, returns result text and log tails, and never stages, commits, pushes, deletes, starts multiple jobs, or stores secrets.",
   repo_write_file:
     "Use this when the user explicitly asks to write or precisely edit one allowed repository file. Primary low-friction single-file writer/editor for docs, notes, prompts, and focused code edits; requires user approval, repo opt-in, and never runs shell, git, or Codex.",
   repo_write_changes:

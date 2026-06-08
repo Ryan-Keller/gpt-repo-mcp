@@ -481,12 +481,21 @@ Example:
 
 ### `repo_write_codex_task`
 
-Writes a repo-local Codex task prompt under `.chatgpt/codex-runs/<run_id>/`. It writes only `PROMPT.md` and `run.json` through the normal write policy. It does not implement code, run Codex, stage, commit, push, or execute shell commands.
+Writes a repo-local Codex task prompt under `.chatgpt/codex-runs/<run_id>/`. It writes `PROMPT.md`, `run.json`, and optional `inputs/**` files through the normal write policy. It refuses to overwrite an existing run id if any run artifact already exists, including `PROMPT.md`, `run.json`, `RESULT.md`, `RESULT.md.lock`, or `inputs/manifest.json`. It does not implement code, run Codex, stage, commit, push, or execute shell commands.
 
 Input: same task fields as `repo_prepare_codex_task`, plus optional `dry_run` and `reason`.
-Output: all prepare fields plus `dry_run` and `written_paths[]`.
+Output: compact receipt fields only: `run_id`, repo-local prompt/result/manifest
+paths, optional input asset metadata, `dry_run`, `written_paths[]`,
+`queued_status`, `receipt`, `next_steps[]`, warnings, and optional
+`operation_receipt`. It does not echo `prompt_markdown`,
+`codex_user_prompt`, or the full prompt body.
 
-After this tool, give Codex the returned `codex_user_prompt`, for example `Implement .chatgpt/codex-runs/<run_id>/PROMPT.md`. The prompt's completion contract tells Codex to write `.chatgpt/codex-runs/<run_id>/RESULT.md` before its final chat response.
+After this tool, Codex can be pointed at the returned prompt path, for example
+`Implement .chatgpt/codex-runs/<run_id>/PROMPT.md`. The prompt's completion
+contract tells Codex to write `.chatgpt/codex-runs/<run_id>/RESULT.md` before
+its final chat response. If the connector drops after the write, use
+`repo_last_write`, `repo_runner_status`, or `repo_list_roots.runner_status` to
+recover the run id and written paths.
 Example:
 
 ```json
@@ -498,6 +507,13 @@ Example:
   "allowed_paths": ["src/**", "tests/**"]
 }
 ```
+
+Queue visibility:
+
+- The local worker drains pending run directories one at a time.
+- `repo_runner_status`, `agent_runner_status`, and the `repo_list_roots.runner_status` fallback expose `queue_entries`.
+- Each queue entry includes `run_id`, `state`, prompt/run/result/lock paths, `result_status`, `result_md_exists`, `ready_result_available`, and whether the entry is terminal.
+- ChatGPT should use `queue_entries` to distinguish pending, active, stale, blocked, and completed work without creating duplicate replacement runs.
 
 ### `repo_codex_review`
 
@@ -513,6 +529,40 @@ Example:
 {
   "repo_id": "example-repo",
   "run_id": "2026-06-04T081500Z-fix-login-expiry"
+}
+```
+
+### `codex_run_and_wait`
+
+Launches one existing repo-local Codex task and waits for its result. Use this when ChatGPT should perform the whole bridge-side flow in one tool call instead of asking the human to paste the Codex prompt manually.
+
+Input: `repo_id`, `run_id`, optional `timeout_seconds`, `dry_run`, `review_only`, `recover_stale_lock`, and `stale_lock_seconds`.
+Output: `status`, `run_id`, `result_path`, optional `result_text`, `stdout_tail`, `stderr_tail`, `elapsed_seconds`, `blockers[]`, `timed_out`, `launched`, `command[]`, `lock_path`, `lock_state`, and `warnings[]`.
+
+Behavior:
+
+- Resolves `.chatgpt/codex-runs/<run_id>/PROMPT.md` and refuses missing prompts.
+- Returns an existing `.chatgpt/codex-runs/<run_id>/RESULT.md` without launching Codex.
+- Uses `.chatgpt/codex-runs/<run_id>/RESULT.md.lock` to prevent duplicate launches.
+- Classifies locks as `active` or `stale` before launch. Active locks are not
+  removed. Stale locks are reported first and are removed only when
+  `recover_stale_lock` is true.
+- Runs exactly one process: `npx --no-install @openai/codex exec -`.
+- Writes this instruction to Codex stdin:
+  `Implement .chatgpt/codex-runs/<run_id>/PROMPT.md`.
+- Waits for `RESULT.md` until `timeout_seconds`, then returns `timed_out` with captured log tails.
+- Does not stage, commit, push, delete, or run arbitrary commands.
+
+Example:
+
+```json
+{
+  "repo_id": "example-repo",
+  "run_id": "2026-06-04T081500Z-fix-login-expiry",
+  "timeout_seconds": 600,
+  "dry_run": false,
+  "recover_stale_lock": false,
+  "stale_lock_seconds": 600
 }
 ```
 
@@ -688,7 +738,7 @@ Delegate to Codex:
 
 1. Use direct write tools by default for normal ChatGPT implementation requests.
 2. When the user explicitly asks for Codex delegation, call `repo_prepare_codex_task` for chat-copy mode or `repo_write_codex_task` for repo-local mode.
-3. Give Codex the returned `codex_user_prompt`.
+3. For repo-local mode, give Codex `Implement <prompt_path>` from the compact receipt.
 4. After Codex finishes, call `repo_codex_review` with the returned `run_id`.
 5. Review `codex_result` and `git_review`, then use review-provided commit or recovery payloads after user approval.
 

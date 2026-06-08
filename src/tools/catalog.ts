@@ -4,7 +4,9 @@ import { toolContracts, type ToolContract, type ToolName } from "./contracts.js"
 import {
   changePlanHandler,
   cleanupPathsHandler,
+  agentRunnerStatusHandler,
   codexReviewHandler,
+  codexRunAndWaitHandler,
   decisionMemoryHandler,
   fetchFileHandler,
   gitCommitHandler,
@@ -24,6 +26,7 @@ import {
   searchHandler,
   taskInventoryHandler,
   treeHandler,
+  visionRoutesHandler,
   writeCommitHandler,
   writeRecoverHandler,
   writeStageCommitHandler,
@@ -32,6 +35,7 @@ import {
   writeFileHandler,
   writeHandoffHandler,
   policyExplainHandler,
+  runLiveTailHandler,
   writeStageHandler,
   writeUnstageHandler,
   type ToolHandler
@@ -56,6 +60,42 @@ export const toolCatalog: ToolDefinition[] = [
     outputSchema: toolContracts.repo_list_roots.output,
     annotations: readOnlyAnnotations,
     handler: listRootsHandler
+  },
+  {
+    name: "agent_runner_status",
+    title: "Show Agent Runner status",
+    description: descriptions.agent_runner_status,
+    inputSchema: toolContracts.agent_runner_status.input,
+    outputSchema: toolContracts.agent_runner_status.output,
+    annotations: readOnlyAnnotations,
+    handler: agentRunnerStatusHandler
+  },
+  {
+    name: "repo_runner_status",
+    title: "Show repository runner status",
+    description: descriptions.repo_runner_status,
+    inputSchema: toolContracts.repo_runner_status.input,
+    outputSchema: toolContracts.repo_runner_status.output,
+    annotations: readOnlyAnnotations,
+    handler: agentRunnerStatusHandler
+  },
+  {
+    name: "repo_run_live_tail",
+    title: "Show Codex run live tail",
+    description: descriptions.repo_run_live_tail,
+    inputSchema: toolContracts.repo_run_live_tail.input,
+    outputSchema: toolContracts.repo_run_live_tail.output,
+    annotations: readOnlyAnnotations,
+    handler: runLiveTailHandler
+  },
+  {
+    name: "repo_vision_routes",
+    title: "Detect vision analysis routes",
+    description: descriptions.repo_vision_routes,
+    inputSchema: toolContracts.repo_vision_routes.input,
+    outputSchema: toolContracts.repo_vision_routes.output,
+    annotations: readOnlyAnnotations,
+    handler: visionRoutesHandler
   },
   {
     name: "repo_policy_explain",
@@ -308,6 +348,15 @@ export const toolCatalog: ToolDefinition[] = [
     outputSchema: toolContracts.repo_codex_review.output,
     annotations: readOnlyAnnotations,
     handler: codexReviewHandler
+  },
+  {
+    name: "codex_run_and_wait",
+    title: "Run Codex and wait for result",
+    description: descriptions.codex_run_and_wait,
+    inputSchema: toolContracts.codex_run_and_wait.input,
+    outputSchema: toolContracts.codex_run_and_wait.output,
+    annotations: writeAnnotations,
+    handler: codexRunAndWaitHandler
   },
   {
     name: "repo_write_file",
