@@ -14,6 +14,7 @@ import { OperationsPolicy } from "../services/operations-policy.js";
 import { ReviewPlanner } from "../services/review-planner.js";
 import { ReadManyService } from "../services/read-many-service.js";
 import { ProjectBriefService } from "../services/project-brief-service.js";
+import { ProjectMemoryService } from "../services/project-memory-service.js";
 import { TaskInventoryService } from "../services/task-inventory-service.js";
 import { VisionRouteService, buildVisionAnalysisFallback } from "../services/vision-route-service.js";
 import { buildCapabilitySummary } from "../services/capability-summary-service.js";
@@ -38,10 +39,11 @@ import type { SearchOptions } from "../services/search-service.js";
 import type { FetchFileOptions } from "../services/file-reader.js";
 import type { TreeOptions } from "../services/repo-tree-service.js";
 import type { ProjectBriefInput } from "../contracts/project.contract.js";
+import type { ProjectMemoryInput } from "../contracts/project-memory.contract.js";
 import type { TaskInventoryInput } from "../contracts/task.contract.js";
 import type { DecisionLogInput } from "../contracts/decision.contract.js";
 import type { ChangePlanInput } from "../contracts/change-plan.contract.js";
-import type { CodexReviewInput, CodexRunAndWaitInput, CodexTaskInput, CodexTaskWriteInput } from "../contracts/codex-task.contract.js";
+import type { CodexReviewInput, CodexRunAndWaitInput, CodexTaskBatchWriteInput, CodexTaskInput, CodexTaskWriteInput } from "../contracts/codex-task.contract.js";
 import type { NextActionInput } from "../contracts/next-action.contract.js";
 import type { VisionRouteInput } from "../contracts/vision-route.contract.js";
 import type { LastWriteInput } from "../contracts/operation-receipt.contract.js";
@@ -149,11 +151,11 @@ export const listRootsHandler: ToolHandler = async (_input, context) => {
   return createSuccessEnvelope({ repos: reposWithFallbacks, bridge_observability: bridgeObservability }, `${repos.length} approved repositories available.\n\n${runnerSummaries}`);
 };
 
-export const agentRunnerStatusHandler: ToolHandler = async (input, context) => safeTool<AgentRunnerStatusInput>("agent_runner_status", input, context, async (args) => {
+export const agentRunnerStatusHandler: ToolHandler = async (input, context) => safeTool<AgentRunnerStatusInput>("repo_runner_status", input, context, async (args) => {
   const repo = context.registry.get(args.repo_id);
   const result = await new AgentRunnerStatusService(repo.root).status(args);
   audit({
-    tool: "agent_runner_status",
+    tool: "repo_runner_status",
     repo_id: args.repo_id,
     counts: {
       pending: result.pending_count,
@@ -366,6 +368,28 @@ export const projectBriefHandler: ToolHandler = async (input, context) => safeTo
   return createSuccessEnvelope(result, `Returned project brief for ${repo.display_name}.`);
 });
 
+export const projectMemoryHandler: ToolHandler = async (input, context) => safeTool<ProjectMemoryInput>("repo_project_memory", input, context, async (args) => {
+  const repo = context.registry.get(args.repo_id);
+  const result = await new ProjectMemoryService(repo, new PathSandbox(repo.root)).dashboard({
+    include_archived: args.include_archived
+  });
+  audit({
+    tool: "repo_project_memory",
+    repo_id: args.repo_id,
+    counts: {
+      projects: result.project_count,
+      roadmap: result.roadmap.length,
+      paused: result.paused_ideas.length,
+      watchlist: result.research_watchlist.length
+    },
+    warnings: result.warnings
+  });
+  const summary = result.project_count > 0
+    ? `Project memory dashboard: ${result.project_count} projects, ${result.roadmap.length} roadmap items, ${result.paused_ideas.length} paused ideas.`
+    : "Project memory dashboard is empty; seed .chatgpt/project-memory/projects.json.";
+  return createSuccessEnvelope(result, summary, { warnings: result.warnings });
+});
+
 export const taskInventoryHandler: ToolHandler = async (input, context) => safeTool<TaskInventoryInput>("repo_task_inventory", input, context, async (args) => {
   const repo = context.registry.get(args.repo_id);
   const sandbox = new PathSandbox(repo.root);
@@ -462,6 +486,50 @@ export const writeCodexTaskHandler: ToolHandler = async (input, context) => safe
     result.dry_run ? `Dry run checked Codex task ${result.run_id}.` : `Wrote Codex task ${result.run_id}.`,
     { warnings: result.warnings }
   );
+});
+
+export const writeCodexTasksBatchHandler: ToolHandler = async (input, context) => safeTool<CodexTaskBatchWriteInput>("repo_write_codex_tasks_batch", input, context, async (args) => {
+  const repo = context.registry.get(args.repo_id);
+  const headShaBefore = await readHeadSha(repo.root);
+  const result = await new CodexTaskService(repo.root, new PathSandbox(repo.root), new WritePolicy(repo.writes)).writeBatch(args);
+  if (!result.dry_run && result.written_paths.length > 0) {
+    const headShaAfter = await readHeadSha(repo.root);
+    const receipt = await new OperationReceiptService(repo.root).writeLastWrite({
+      tool: "repo_write_codex_tasks_batch",
+      repo_id: args.repo_id,
+      ...(headShaBefore ? { head_sha_before: headShaBefore } : {}),
+      ...(headShaAfter ? { head_sha_after: headShaAfter } : {}),
+      touched_paths: result.written_paths,
+      changed_paths: result.written_paths,
+      created_paths: result.written_paths,
+      modified_paths: [],
+      counts: {
+        requested: result.written_paths.length,
+        changed: result.written_paths.length,
+        created: result.written_paths.length,
+        unchanged: 0
+      },
+      summary: `Queued ${result.created_run_ids.length} Codex task seeds.`
+    });
+    const resultWithReceipt = {
+      ...result,
+      warnings: [...result.warnings, ...receipt.warnings],
+      ...(receipt.operation_receipt ? { operation_receipt: receipt.operation_receipt } : {})
+    };
+    audit({ tool: "repo_write_codex_tasks_batch", repo_id: args.repo_id, paths: resultWithReceipt.written_paths, warnings: resultWithReceipt.warnings });
+    return createSuccessEnvelope(
+      resultWithReceipt,
+      `Queued ${resultWithReceipt.created_run_ids.length} Codex task seeds: ${resultWithReceipt.created_run_ids.join(", ")}.`,
+      { warnings: resultWithReceipt.warnings }
+    );
+  }
+  audit({ tool: "repo_write_codex_tasks_batch", repo_id: args.repo_id, paths: result.written_paths, warnings: result.warnings });
+  const summary = result.rejected.length > 0
+    ? `Rejected Codex task batch before writing: ${result.rejected.length} rejected.`
+    : result.dry_run
+      ? `Dry run checked ${result.created_run_ids.length} Codex task seeds.`
+      : `Wrote ${result.created_run_ids.length} Codex task seeds.`;
+  return createSuccessEnvelope(result, summary, { warnings: result.warnings });
 });
 
 export const codexReviewHandler: ToolHandler = async (input, context) => safeTool<CodexReviewInput>("repo_codex_review", input, context, async (args) => {

@@ -22,6 +22,7 @@ import {
   planReviewHandler,
   prepareCodexTaskHandler,
   projectBriefHandler,
+  projectMemoryHandler,
   readManyHandler,
   searchHandler,
   taskInventoryHandler,
@@ -32,6 +33,7 @@ import {
   writeStageCommitHandler,
   writeChangesHandler,
   writeCodexTaskHandler,
+  writeCodexTasksBatchHandler,
   writeFileHandler,
   writeHandoffHandler,
   policyExplainHandler,
@@ -278,6 +280,15 @@ export const toolCatalog: ToolDefinition[] = [
     handler: projectBriefHandler
   },
   {
+    name: "repo_project_memory",
+    title: "Show project memory dashboard",
+    description: descriptions.repo_project_memory,
+    inputSchema: toolContracts.repo_project_memory.input,
+    outputSchema: toolContracts.repo_project_memory.output,
+    annotations: readOnlyAnnotations,
+    handler: projectMemoryHandler
+  },
+  {
     name: "repo_task_inventory",
     title: "Inventory repository tasks",
     description: descriptions.repo_task_inventory,
@@ -339,6 +350,15 @@ export const toolCatalog: ToolDefinition[] = [
     outputSchema: toolContracts.repo_write_codex_task.output,
     annotations: writeAnnotations,
     handler: writeCodexTaskHandler
+  },
+  {
+    name: "repo_write_codex_tasks_batch",
+    title: "Write Codex task batch",
+    description: descriptions.repo_write_codex_tasks_batch,
+    inputSchema: toolContracts.repo_write_codex_tasks_batch.input,
+    outputSchema: toolContracts.repo_write_codex_tasks_batch.output,
+    annotations: writeAnnotations,
+    handler: writeCodexTasksBatchHandler
   },
   {
     name: "repo_codex_review",

@@ -6,7 +6,7 @@ const NonEmptyStringSchema = z.string().min(1);
 const RepoPathListSchema = z.array(z.string().min(1)).default([]);
 const InputAssetSchema = z.object({
   filename: z.string().min(1).max(160).describe("Original asset filename. Must be a filename only, not a path."),
-  mime_type: z.string().refine((value) => ["image/png", "image/jpeg", "image/webp"].includes(value), "Unsupported input asset MIME type.").describe("Allowed image MIME type."),
+  mime_type: z.enum(["image/png", "image/jpeg", "image/webp"]).describe("Allowed image MIME type."),
   content_base64: z.string().min(1).describe("Base64-encoded image bytes. Never echoed in result summaries."),
   description: z.string().min(1).max(500).optional().describe("Optional human-readable asset description.")
 });
@@ -45,6 +45,16 @@ export const CodexTaskWriteInputSchema = CodexTaskInputSchema.extend({
   reason: z.string().min(1).optional().describe("Short audit reason for writing the task locally.")
 });
 
+const CodexTaskBatchSeedSchema = CodexTaskInputSchema.omit({ repo_id: true }).extend({
+  reason: z.string().min(1).optional().describe("Optional per-seed audit reason for this Codex task seed.")
+});
+
+export const CodexTaskBatchWriteInputSchema = RepoInputSchema.extend({
+  seeds: z.array(CodexTaskBatchSeedSchema).min(1).max(5).describe("One to five small Codex task seeds to validate and write as independent queued runs."),
+  dry_run: z.boolean().optional().describe("Render and validate every seed without writing files."),
+  reason: z.string().min(1).optional().describe("Shared audit reason for writing this batch of task seeds locally.")
+});
+
 export const CodexTaskResultSchema = z.object({
   ok: z.literal(true),
   repo_id: z.string(),
@@ -77,6 +87,43 @@ export const CodexTaskWriteResultSchema = z.object({
     prompt_path: z.string(),
     result_path: z.string(),
     manifest_path: z.string(),
+    written_paths: z.array(z.string())
+  }),
+  operation_receipt: z.object({}).passthrough().optional(),
+  next_steps: z.array(z.string()),
+  warnings: z.array(z.string())
+});
+
+const CodexTaskBatchCreatedSeedSchema = z.object({
+  run_id: CodexRunIdSchema,
+  title: z.string(),
+  prompt_path: z.string(),
+  result_path: z.string(),
+  manifest_path: z.string(),
+  written_paths: z.array(z.string()),
+  queued_status: z.enum(["queued", "dry_run"])
+});
+
+export const CodexTaskBatchWriteResultSchema = z.object({
+  ok: z.literal(true),
+  repo_id: z.string(),
+  dry_run: z.boolean(),
+  batch_size: z.number().int().positive(),
+  max_batch_size: z.number().int().positive(),
+  created_run_ids: z.array(CodexRunIdSchema),
+  created: z.array(CodexTaskBatchCreatedSeedSchema),
+  rejected: z.array(z.object({
+    index: z.number().int().nonnegative(),
+    title: z.string().optional(),
+    run_id: z.string().optional(),
+    reason: z.string()
+  })),
+  written_paths: z.array(z.string()),
+  receipt: z.object({
+    queued: z.boolean(),
+    status: z.enum(["queued", "dry_run"]),
+    run_ids: z.array(CodexRunIdSchema),
+    prompt_paths: z.array(z.string()),
     written_paths: z.array(z.string())
   }),
   operation_receipt: z.object({}).passthrough().optional(),
@@ -149,6 +196,8 @@ export type CodexTaskWrite = z.output<typeof CodexTaskWriteInputSchema>;
 export type CodexTaskWriteInput = z.input<typeof CodexTaskWriteInputSchema>;
 export type CodexTaskResult = z.infer<typeof CodexTaskResultSchema>;
 export type CodexTaskWriteResult = z.infer<typeof CodexTaskWriteResultSchema>;
+export type CodexTaskBatchWriteInput = z.input<typeof CodexTaskBatchWriteInputSchema>;
+export type CodexTaskBatchWriteResult = z.infer<typeof CodexTaskBatchWriteResultSchema>;
 export type CodexReviewInput = z.infer<typeof CodexReviewInputSchema>;
 export type CodexParsedResult = z.infer<typeof CodexParsedResultSchema>;
 export type CodexReviewResult = z.infer<typeof CodexReviewResultSchema>;

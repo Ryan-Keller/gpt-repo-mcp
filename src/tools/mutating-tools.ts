@@ -5,6 +5,7 @@ export const MUTATING_TOOL_NAMES = [
   "repo_write_changes",
   "repo_write_handoff",
   "repo_write_codex_task",
+  "repo_write_codex_tasks_batch",
   "codex_run_and_wait",
   "repo_git_stage",
   "repo_git_unstage",

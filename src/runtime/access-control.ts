@@ -33,9 +33,9 @@ export const ACCESS_MATRIX: Record<AccessTier, string[]> = {
   ],
   authenticated_read: [
     "repo_list_roots",
+    "agent_runner_status",
     "repo_runner_status",
     "repo_run_live_tail",
-    "agent_runner_status",
     "ready_results",
     "recent_events",
     "capability_summary",
@@ -45,6 +45,7 @@ export const ACCESS_MATRIX: Record<AccessTier, string[]> = {
   privileged_write: [
     "repo_prepare_codex_task",
     "repo_write_codex_task",
+    "repo_write_codex_tasks_batch",
     "repo_write_file",
     "repo_write_changes",
     "repo_write_handoff",
@@ -96,6 +97,7 @@ const TOOL_ACCESS_TIERS: Record<string, AccessTier> = {
   repo_plan_review: "authenticated_read",
   repo_prepare_codex_task: "privileged_write",
   repo_write_codex_task: "privileged_write",
+  repo_write_codex_tasks_batch: "privileged_write",
   repo_codex_review: "authenticated_read",
   codex_run_and_wait: "privileged_write",
   repo_write_file: "privileged_write",

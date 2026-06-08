@@ -5,7 +5,7 @@ import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, test } from "vitest";
 import { CodexTaskInputSchema } from "../src/contracts/codex-task.contract.js";
-import { CodexTaskService } from "../src/services/codex-task-service.js";
+import { ACTIVE_EXECUTION_PERIOD_REMINDER, CodexTaskService } from "../src/services/codex-task-service.js";
 import { CodexResultService } from "../src/services/codex-result-service.js";
 import { GitReviewService } from "../src/services/git-review-service.js";
 import { PathSandbox } from "../src/services/path-sandbox.js";
@@ -38,6 +38,7 @@ describe("Codex task services", () => {
     expect(result.prompt_markdown).toContain("# Codex Task");
     expect(result.prompt_markdown).toContain("Read src/auth.ts and fix expired login handling.");
     expect(result.prompt_markdown).toContain(".chatgpt/codex-runs/2026-06-04T081500Z-fix-login-expiry/RESULT.md");
+    expect(result.prompt_markdown).toContain(`active_execution_period_reminder: ${ACTIVE_EXECUTION_PERIOD_REMINDER}`);
     expect(result.prompt_markdown).toContain("Do not edit `.chatgpt/**` except this run's `RESULT.md`.");
     expect(result.next_steps).toContain("Give codex_user_prompt to Codex, or ask ChatGPT to write this task locally with repo_write_codex_task.");
   });
@@ -158,6 +159,111 @@ describe("Codex task services", () => {
     })).rejects.toThrow(/Codex run already exists/);
   });
 
+  test("writeBatch stores multiple prompts and manifests with compact created run ids", async () => {
+    const fixture = await createRepoFixture();
+    const service = createTaskService(fixture.root);
+
+    const result = await service.writeBatch({
+      repo_id: "demo",
+      seeds: [
+        {
+          title: "Survey queue state",
+          objective: "Read shared/state/CURRENT_STATE.md and summarize queue state.",
+          inspect_first: ["shared/state/CURRENT_STATE.md"],
+          allowed_paths: ["shared/status/**"],
+          run_id: "2026-06-08T080000Z-survey-queue-state"
+        },
+        {
+          title: "Brief worker status",
+          objective: "Read projects/agent-runner/README.md and summarize worker status.",
+          inspect_first: ["projects/agent-runner/README.md"],
+          allowed_paths: ["shared/status/**"],
+          run_id: "2026-06-08T080100Z-brief-worker-status"
+        }
+      ],
+      dry_run: false
+    });
+
+    expect(result).toMatchObject({
+      ok: true,
+      repo_id: "demo",
+      dry_run: false,
+      batch_size: 2,
+      max_batch_size: 5,
+      created_run_ids: [
+        "2026-06-08T080000Z-survey-queue-state",
+        "2026-06-08T080100Z-brief-worker-status"
+      ],
+      rejected: [],
+      receipt: {
+        queued: true,
+        status: "queued",
+        run_ids: [
+          "2026-06-08T080000Z-survey-queue-state",
+          "2026-06-08T080100Z-brief-worker-status"
+        ]
+      }
+    });
+    expect(result.written_paths).toEqual([
+      ".chatgpt/codex-runs/2026-06-08T080000Z-survey-queue-state/PROMPT.md",
+      ".chatgpt/codex-runs/2026-06-08T080000Z-survey-queue-state/run.json",
+      ".chatgpt/codex-runs/2026-06-08T080100Z-brief-worker-status/PROMPT.md",
+      ".chatgpt/codex-runs/2026-06-08T080100Z-brief-worker-status/run.json"
+    ]);
+    await expect(readFile(join(fixture.root, result.created[0].prompt_path), "utf8")).resolves.toContain("summarize queue state");
+    await expect(readFile(join(fixture.root, result.created[1].manifest_path), "utf8")).resolves.toContain("Brief worker status");
+    expect(JSON.stringify(result)).not.toContain("Read shared/state/CURRENT_STATE.md and summarize queue state.");
+  });
+
+  test("writeBatch rejects equivalent duplicate titles before writing any seed", async () => {
+    const fixture = await createRepoFixture();
+    const service = createTaskService(fixture.root);
+
+    const result = await service.writeBatch({
+      repo_id: "demo",
+      seeds: [
+        {
+          title: "Survey Queue State",
+          objective: "First task.",
+          run_id: "2026-06-08T080000Z-survey-queue-state"
+        },
+        {
+          title: "survey queue state",
+          objective: "Second task.",
+          run_id: "2026-06-08T080100Z-survey-queue-state-second"
+        }
+      ],
+      dry_run: false
+    });
+
+    expect(result.created_run_ids).toEqual([]);
+    expect(result.written_paths).toEqual([]);
+    expect(result.rejected).toEqual([
+      expect.objectContaining({
+        index: 1,
+        title: "survey queue state",
+        reason: "Duplicate equivalent title in batch; first seen at index 0."
+      })
+    ]);
+    await expect(access(join(fixture.root, ".chatgpt/codex-runs/2026-06-08T080000Z-survey-queue-state/PROMPT.md")))
+      .rejects.toMatchObject({ code: "ENOENT" });
+  });
+
+  test("writeBatch caps batch size at five seeds", async () => {
+    const fixture = await createRepoFixture();
+    const service = createTaskService(fixture.root);
+
+    await expect(service.writeBatch({
+      repo_id: "demo",
+      seeds: Array.from({ length: 6 }, (_, index) => ({
+        title: `Batch task ${index}`,
+        objective: `Task ${index}.`,
+        run_id: `2026-06-08T08010${index}Z-batch-task-${index}`
+      })),
+      dry_run: true
+    })).rejects.toThrow();
+  });
+
   test("write stores safe image input assets with manifest, sha256, prompt path, and run metadata", async () => {
     const fixture = await createRepoFixture();
     const service = createTaskService(fixture.root);
@@ -265,10 +371,10 @@ describe("Codex task services", () => {
       objective: "Count objects.",
       input_assets: [{
         filename: "photo.gif",
-        mime_type: "image/gif",
+        mime_type: "image/gif" as "image/png",
         content_base64: Buffer.from("gif").toString("base64")
       }]
-    })).rejects.toThrow(/Unsupported input asset MIME type/);
+    })).rejects.toThrow(/Invalid option/);
   });
 
   test("write rejects oversized input assets", async () => {
@@ -329,6 +435,7 @@ describe("Codex task services", () => {
       warnings: ["CODEX_RESULT_MISSING"]
     });
     expect(result.codex_result).toBeUndefined();
+    expect(result.next_steps).toContain(ACTIVE_EXECUTION_PERIOD_REMINDER);
     expect(result.next_steps).toContain("Paste Codex output into ChatGPT, or rerun Codex with the prompt completion contract.");
   });
 
@@ -386,6 +493,7 @@ describe("Codex task services", () => {
     });
     expect(result.git_review?.changed_paths.map((entry) => entry.path)).toContain("src/app.ts");
     expect(result.next_tool_payloads).toBeDefined();
+    expect(result.next_steps).toContain(ACTIVE_EXECUTION_PERIOD_REMINDER);
   });
 
   test("review redacts secret-like RESULT.md content before parsing and returning raw_text", async () => {

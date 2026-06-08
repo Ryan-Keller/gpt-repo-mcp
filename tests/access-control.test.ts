@@ -14,6 +14,7 @@ describe("bridge access control", () => {
     expect(getToolAccessTier("repo_runner_status")).toBe("authenticated_read");
     expect(getToolAccessTier("ready_results")).toBe("authenticated_read");
     expect(getToolAccessTier("repo_write_codex_task")).toBe("privileged_write");
+    expect(getToolAccessTier("repo_write_codex_tasks_batch")).toBe("privileged_write");
     expect(getToolAccessTier("repo_write_file")).toBe("privileged_write");
     expect(getToolAccessTier("repo_write_commit")).toBe("dangerous_git");
     expect(getToolAccessTier("repo_write_recover")).toBe("dangerous_git");

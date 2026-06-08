@@ -2,7 +2,7 @@ import type { z } from "zod";
 import { AgentRunnerStatusInputSchema, AgentRunnerStatusResultSchema, RunLiveTailInputSchema, RunLiveTailResultSchema } from "../contracts/agent-runner.contract.js";
 import { ChangePlanInputSchema, ChangePlanResultSchema } from "../contracts/change-plan.contract.js";
 import { CleanupPathsInputSchema, CleanupPathsResultSchema } from "../contracts/cleanup.contract.js";
-import { CodexReviewInputSchema, CodexReviewResultSchema, CodexRunAndWaitInputSchema, CodexRunAndWaitResultSchema, CodexTaskInputSchema, CodexTaskResultSchema, CodexTaskWriteInputSchema, CodexTaskWriteResultSchema } from "../contracts/codex-task.contract.js";
+import { CodexReviewInputSchema, CodexReviewResultSchema, CodexRunAndWaitInputSchema, CodexRunAndWaitResultSchema, CodexTaskBatchWriteInputSchema, CodexTaskBatchWriteResultSchema, CodexTaskInputSchema, CodexTaskResultSchema, CodexTaskWriteInputSchema, CodexTaskWriteResultSchema } from "../contracts/codex-task.contract.js";
 import { DecisionLogInputSchema, DecisionLogResultSchema } from "../contracts/decision.contract.js";
 import { FetchFileInputSchema, FileContentSchema, ReadManyInputSchema, ReadManyResultSchema } from "../contracts/file.contract.js";
 import { GitCommitInputSchema, GitCommitResultSchema, GitRecoverInputSchema, GitRecoverResultSchema, GitRestorePathsInputSchema, GitRestorePathsResultSchema, GitStageCommitInputSchema, GitStageCommitResultSchema, GitStageInputSchema, GitStageResultSchema, GitUnstageInputSchema, GitUnstageResultSchema } from "../contracts/git-operations.contract.js";
@@ -13,6 +13,7 @@ import { NextActionInputSchema, NextActionResultSchema } from "../contracts/next
 import { LastWriteInputSchema, LastWriteResultSchema } from "../contracts/operation-receipt.contract.js";
 import { PolicyExplainInputSchema, PolicyExplainResultSchema } from "../contracts/policy.contract.js";
 import { ProjectBriefInputSchema, ProjectBriefResultSchema } from "../contracts/project.contract.js";
+import { ProjectMemoryDashboardResultSchema, ProjectMemoryInputSchema } from "../contracts/project-memory.contract.js";
 import { RepoInputSchema, RepoListResultSchema, RepoTreeInputSchema } from "../contracts/repo.contract.js";
 import { PlanReviewInputSchema, PlanReviewResultSchema } from "../contracts/review.contract.js";
 import { SearchInputSchema, SearchResponseSchema } from "../contracts/search.contract.js";
@@ -47,6 +48,7 @@ export type ToolName =
   | "repo_write_recover"
   | "repo_cleanup_paths"
   | "repo_project_brief"
+  | "repo_project_memory"
   | "repo_task_inventory"
   | "repo_decision_memory"
   | "repo_change_plan"
@@ -54,6 +56,7 @@ export type ToolName =
   | "repo_plan_review"
   | "repo_prepare_codex_task"
   | "repo_write_codex_task"
+  | "repo_write_codex_tasks_batch"
   | "repo_codex_review"
   | "codex_run_and_wait"
   | "repo_write_file"
@@ -166,6 +169,10 @@ export const toolContracts = {
     input: ProjectBriefInputSchema,
     output: ProjectBriefResultSchema
   },
+  repo_project_memory: {
+    input: ProjectMemoryInputSchema,
+    output: ProjectMemoryDashboardResultSchema
+  },
   repo_task_inventory: {
     input: TaskInventoryInputSchema,
     output: TaskInventoryResultSchema
@@ -193,6 +200,10 @@ export const toolContracts = {
   repo_write_codex_task: {
     input: CodexTaskWriteInputSchema,
     output: CodexTaskWriteResultSchema
+  },
+  repo_write_codex_tasks_batch: {
+    input: CodexTaskBatchWriteInputSchema,
+    output: CodexTaskBatchWriteResultSchema
   },
   repo_codex_review: {
     input: CodexReviewInputSchema,

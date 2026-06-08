@@ -299,6 +299,80 @@ describe("AgentRunnerStatusService", () => {
     expect(status.plain_text).toContain(`Active run: ${activeRunId}; source: heartbeat_and_lock`);
   });
 
+  test("reports multiple active runs with worker slots capacity and separated live tails", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agent-runner-status-parallel-"));
+    const firstRun = "2026-06-08T031500Z-parallel-canary-a";
+    const secondRun = "2026-06-08T031501Z-parallel-canary-b";
+    const pendingRun = "2026-06-08T031502Z-parallel-canary-c";
+    await writeRun(root, firstRun, false);
+    await writeRun(root, secondRun, false);
+    await writeRun(root, pendingRun, false);
+    await writeFile(join(root, ".chatgpt/codex-runs", firstRun, "RESULT.md.lock"), JSON.stringify({
+      runner_pid: process.pid,
+      child_pid: 8001,
+      worker_slot_id: 1,
+      run_id: firstRun
+    }));
+    await writeFile(join(root, ".chatgpt/codex-runs", secondRun, "RESULT.md.lock"), JSON.stringify({
+      runner_pid: process.pid,
+      child_pid: 8002,
+      worker_slot_id: 2,
+      run_id: secondRun
+    }));
+    await writeFile(join(root, ".chatgpt/codex-runs", firstRun, "events.jsonl"), [
+      JSON.stringify({ timestamp: "2026-06-08T03:15:01Z", event_type: "run_claimed", summary: "first claimed" })
+    ].join("\n") + "\n");
+    await writeFile(join(root, ".chatgpt/codex-runs", secondRun, "events.jsonl"), [
+      JSON.stringify({ timestamp: "2026-06-08T03:15:02Z", event_type: "run_claimed", summary: "second claimed" })
+    ].join("\n") + "\n");
+    await mkdir(join(root, "projects/agent-runner/reports"), { recursive: true });
+    await writeFile(join(root, "projects/agent-runner/reports/runner-heartbeat.json"), JSON.stringify({
+      schema_version: 1,
+      updated_at: new Date().toISOString(),
+      status: "running",
+      active_run_id: firstRun,
+      active_run_ids: [firstRun, secondRun],
+      max_parallel_runs: 2,
+      worker_slots: [
+        { slot_id: 1, state: "active", run_id: firstRun, pid: 8001, started_at: "2026-06-08T03:15:00Z" },
+        { slot_id: 2, state: "active", run_id: secondRun, pid: 8002, started_at: "2026-06-08T03:15:01Z" }
+      ],
+      runner: "projects/agent-runner/agent_runner.py",
+      pid: process.pid
+    }));
+
+    const status = await new AgentRunnerStatusService(root).status({
+      repo_id: "fixture",
+      heartbeat_stale_seconds: 60,
+      stale_lock_seconds: 900
+    });
+
+    expect(status.active_count).toBe(2);
+    expect(status.pending_count).toBe(1);
+    expect(status.active_run_ids).toEqual([firstRun, secondRun]);
+    expect(status.max_parallel_runs).toBe(2);
+    expect(status.worker_slot_count).toBe(2);
+    expect(status.active_worker_slots).toBe(2);
+    expect(status.idle_worker_slots).toBe(0);
+    expect(status.queued_because_at_capacity).toBe(true);
+    expect(status.worker_slots).toEqual([
+      expect.objectContaining({ slot_id: 1, state: "active", run_id: firstRun, pid: 8001 }),
+      expect.objectContaining({ slot_id: 2, state: "active", run_id: secondRun, pid: 8002 })
+    ]);
+    expect(status.active_runs).toEqual([
+      expect.objectContaining({ run_id: firstRun, source: "heartbeat_and_lock", heartbeat_active: true }),
+      expect.objectContaining({ run_id: secondRun, source: "heartbeat_and_lock", heartbeat_active: true })
+    ]);
+    expect(status.active_run_live_tail).toEqual([
+      expect.objectContaining({ run_id: firstRun, event_type: "run_claimed", summary: "first claimed" }),
+      expect.objectContaining({ run_id: secondRun, event_type: "run_claimed", summary: "second claimed" })
+    ]);
+    expect(status.plain_text).toContain("Worker slots: 2 active / 0 idle");
+    expect(status.plain_text).toContain("Queued because at capacity: yes");
+    expect(status.plain_text).toContain(`Live tail for ${firstRun}:`);
+    expect(status.plain_text).toContain(`Live tail for ${secondRun}:`);
+  });
+
   test("reports no heartbeat as unknown worker with missing heartbeat warning", async () => {
     const root = await mkdtemp(join(tmpdir(), "agent-runner-status-no-heartbeat-"));
 
@@ -406,6 +480,80 @@ describe("AgentRunnerStatusService", () => {
         path: `.chatgpt/codex-runs/${runId}/PROMPT.md`
       })
     ]);
+    expect(status.plain_text).toContain("Live tail for 2026-06-07T120000Z-active-live-tail:");
+    expect(status.plain_text).toContain("1 run_claimed: Run claimed with Authorization=[REDACTED]");
+    expect(status.plain_text).toContain("2 prompt_loaded: Prompt loaded");
+  });
+
+  test("polls active runner status internally and returns compact live-tail deltas", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agent-runner-status-polling-"));
+    const runId = "2026-06-08T023500Z-live-tail-polling-mode";
+    await writeRun(root, runId, false);
+    await writeFile(join(root, ".chatgpt/codex-runs", runId, "RESULT.md.lock"), JSON.stringify({
+      runner_pid: process.pid,
+      run_id: runId
+    }));
+    await writeFile(join(root, ".chatgpt/codex-runs", runId, "events.jsonl"), [
+      JSON.stringify({ timestamp: "2026-06-08T02:35:01Z", event_type: "run_claimed", summary: "Run claimed" }),
+      JSON.stringify({ timestamp: "2026-06-08T02:35:02Z", event_type: "prompt_loaded", summary: "Prompt loaded" })
+    ].join("\n") + "\n");
+    await mkdir(join(root, "projects/agent-runner/reports"), { recursive: true });
+    await writeFile(join(root, "projects/agent-runner/reports/runner-heartbeat.json"), JSON.stringify({
+      schema_version: 1,
+      updated_at: new Date().toISOString(),
+      status: "running",
+      active_run_id: runId,
+      runner: "projects/agent-runner/agent_runner.py",
+      pid: process.pid
+    }));
+    const sleeps: number[] = [];
+    const service = new AgentRunnerStatusService(root, {
+      sleep: async (milliseconds: number) => {
+        sleeps.push(milliseconds);
+      }
+    });
+
+    const status = await service.status({
+      repo_id: "fixture",
+      heartbeat_stale_seconds: 60,
+      stale_lock_seconds: 900,
+      live_tail_max_events: 10,
+      poll_count: 2,
+      poll_interval_seconds: 5
+    });
+
+    expect(sleeps).toEqual([5000]);
+    expect(status.poll_count).toBe(2);
+    expect(status.poll_interval_seconds).toBe(5);
+    expect(status.monitoring_stop_reason).toBe("poll_count_reached");
+    expect(status.poll_history).toEqual([
+      expect.objectContaining({
+        poll_index: 1,
+        observed_at: expect.any(String),
+        heartbeat_updated_at: expect.any(String),
+        heartbeat_age_seconds: expect.any(Number),
+        event_count: expect.any(Number),
+        event_cursor: expect.any(String),
+        active_count: 1,
+        active_run_id: runId,
+        last_run_status: "active",
+        result_md_exists: false,
+        preview_urls: [],
+        live_tail_events: [
+          expect.objectContaining({ event_type: "run_claimed" }),
+          expect.objectContaining({ event_type: "prompt_loaded" })
+        ]
+      }),
+      expect.objectContaining({
+        poll_index: 2,
+        active_count: 1,
+        active_run_id: runId,
+        result_md_exists: false,
+        preview_urls: [],
+        live_tail_events: []
+      })
+    ]);
+    expect(status.plain_text).toContain("Monitoring polls: 2; stop reason: poll_count_reached");
   });
 
   test("repo live tail reads events with cursor and redacts sensitive output tails", async () => {

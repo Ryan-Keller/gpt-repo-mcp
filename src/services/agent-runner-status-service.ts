@@ -6,6 +6,10 @@ import { getConnectorDiagnostics } from "../runtime/connector-session.js";
 const ACTIVE_HEARTBEAT_STATUSES = new Set(["starting", "polling", "running", "completed_run"]);
 const EVENT_LOG_PATH = ".chatgpt/events/bridge-events.jsonl";
 const EVENT_RETENTION_LIMIT = 500;
+const MAX_POLL_COUNT = 4;
+const MIN_POLL_INTERVAL_SECONDS = 5;
+const MAX_POLL_INTERVAL_SECONDS = 15;
+const DEFAULT_POLL_INTERVAL_SECONDS = 10;
 
 type ClassifiedRun = {
   run_id: string;
@@ -13,6 +17,8 @@ type ClassifiedRun = {
   lock_path?: string;
   lock_age_seconds?: number;
   runner_pid?: number | null;
+  child_pid?: number | null;
+  worker_slot_id?: number | null;
   pid_status?: "alive" | "dead" | "missing" | "unknown" | "";
   stale_reason?: "dead_pid" | "lock_age_exceeded" | "";
   suggested_next_action?: string;
@@ -24,6 +30,13 @@ type ClassifiedRun = {
 };
 
 type LiveTailEvent = AgentRunnerStatusResult["active_run_live_tail"][number];
+type PollHistoryEntry = AgentRunnerStatusResult["poll_history"][number];
+type WorkerSlot = AgentRunnerStatusResult["worker_slots"][number];
+type MonitoringStopReason = AgentRunnerStatusResult["monitoring_stop_reason"];
+type StatusSnapshot = Omit<AgentRunnerStatusResult, "poll_count" | "poll_interval_seconds" | "monitoring_stop_reason" | "poll_history">;
+type StatusServiceOptions = {
+  sleep?: (milliseconds: number) => Promise<void>;
+};
 
 type BridgeEvent = {
   event_id: string;
@@ -73,9 +86,49 @@ type BridgeEvent = {
 };
 
 export class AgentRunnerStatusService {
-  constructor(private readonly repoRoot: string) {}
+  constructor(private readonly repoRoot: string, private readonly options: StatusServiceOptions = {}) {}
 
   async status(input: AgentRunnerStatusInput): Promise<AgentRunnerStatusResult> {
+    const polling = normalizePolling(input);
+    if (polling.count <= 1) {
+      const snapshot = await this.readStatusSnapshot(input);
+      return withPollingFields(snapshot, polling, [], "single_shot");
+    }
+
+    const pollHistory: PollHistoryEntry[] = [];
+    const liveTailCursors = new Map<string, number>();
+    let monitoredRunId = "";
+    let finalSnapshot: StatusSnapshot | undefined;
+    let stopReason: MonitoringStopReason | "" = "";
+
+    for (let pollIndex = 1; pollIndex <= polling.count; pollIndex += 1) {
+      finalSnapshot = await this.readStatusSnapshot(input);
+      monitoredRunId = monitoredRunId || finalSnapshot.active_run_id || finalSnapshot.active_run_ids[0] || "";
+      pollHistory.push(buildPollHistoryEntry(finalSnapshot, pollIndex, monitoredRunId, liveTailCursors));
+      stopReason = monitoringStopReason(finalSnapshot, monitoredRunId);
+      if (stopReason) {
+        break;
+      }
+      if (pollIndex < polling.count) {
+        await this.sleep(polling.intervalSeconds * 1000);
+      }
+    }
+
+    if (!finalSnapshot) {
+      finalSnapshot = await this.readStatusSnapshot(input);
+    }
+    return withPollingFields(finalSnapshot, polling, pollHistory, stopReason || "poll_count_reached");
+  }
+
+  private async sleep(milliseconds: number): Promise<void> {
+    if (this.options.sleep) {
+      await this.options.sleep(milliseconds);
+      return;
+    }
+    await new Promise((resolve) => setTimeout(resolve, milliseconds));
+  }
+
+  private async readStatusSnapshot(input: AgentRunnerStatusInput): Promise<StatusSnapshot> {
     const heartbeatStaleSeconds = input.heartbeat_stale_seconds ?? 60;
     const staleLockSeconds = input.stale_lock_seconds ?? 900;
     const heartbeat = await this.readHeartbeat(heartbeatStaleSeconds);
@@ -88,14 +141,24 @@ export class AgentRunnerStatusService {
     const lastRun = latestRun(runs.filter((run) => run.state !== "pending")) ?? latestRun(runs);
     const readyResults = await this.readyResults(runs);
     const queueEntries = queueEntriesForRuns(runs);
-    const activeRunForTail = heartbeat.active_run_id || runs.find((run) => run.state === "active_locked")?.run_id || "";
-    const activeRunLiveTail = activeRunForTail
-      ? (await this.liveTail({
-          repo_id: input.repo_id,
-          run_id: activeRunForTail,
-          max_events: input.live_tail_max_events ?? 15
-        })).events
-      : [];
+    const heartbeatActiveRunIds = heartbeat.active_run_ids.length > 0
+      ? heartbeat.active_run_ids
+      : heartbeat.active_run_id
+        ? [heartbeat.active_run_id]
+        : [];
+    const activeRunIdsForTail = uniqueStrings([
+      ...heartbeatActiveRunIds,
+      ...runs.filter((run) => run.state === "active_locked").map((run) => run.run_id)
+    ]);
+    const activeRunLiveTailGroups = await Promise.all(activeRunIdsForTail.map(async (activeRunId) => {
+      const tail = await this.liveTail({
+        repo_id: input.repo_id,
+        run_id: activeRunId,
+        max_events: input.live_tail_max_events ?? 15
+      });
+      return tail.events.map((event) => ({ ...event, run_id: activeRunId }));
+    }));
+    const activeRunLiveTail = activeRunLiveTailGroups.flat();
     const eventInbox = await this.eventInbox(input.repo_id, runnerState, heartbeat, runs, readyResults);
     const recentEvents = eventInbox.recent_events;
     const lastRunStatus = lastRun?.state.replace("_locked", "") ?? "";
@@ -110,6 +173,8 @@ export class AgentRunnerStatusService {
         lock_path: run.lock_path ?? "",
         lock_age_seconds: run.lock_age_seconds ?? 0,
         runner_pid: run.runner_pid ?? null,
+        child_pid: run.child_pid ?? null,
+        worker_slot_id: run.worker_slot_id ?? null,
         result_md_exists: run.result_md_exists ?? false
       }));
     for (const lock of activeLocks) {
@@ -145,14 +210,22 @@ export class AgentRunnerStatusService {
         lock_path: run.lock_path ?? "",
         lock_age_seconds: run.lock_age_seconds ?? 0,
         runner_pid: run.runner_pid ?? null,
+        child_pid: run.child_pid ?? null,
+        worker_slot_id: run.worker_slot_id ?? null,
         result_md_exists: true
       }));
     if (completedWithLockWarnings.length > 0) {
       warnings.push("COMPLETED_RESULT_HAS_LOCK");
     }
-    const activeRuns = activeRunDetails(heartbeat.active_run_id, activeLocks, runs, heartbeat);
+    const activeRuns = activeRunDetails(heartbeatActiveRunIds, activeLocks, runs, heartbeat);
     const activeRunIds = activeRuns.map((run) => run.run_id);
+    const primaryActiveRunId = heartbeat.active_run_id || activeRunIds[0] || "";
     const runtimeAssessment = assessRuntime(runnerState, heartbeat.status, counts, activeRuns.length);
+    const maxParallelRuns = heartbeat.max_parallel_runs;
+    const workerSlots = heartbeat.worker_slots;
+    const activeWorkerSlots = workerSlots.filter((slot) => slot.state === "active").length;
+    const idleWorkerSlots = workerSlots.filter((slot) => slot.state === "idle").length;
+    const queuedBecauseAtCapacity = counts.pending > 0 && counts.active_locked >= maxParallelRuns;
     const heartbeatAgeText = heartbeat.age_seconds === null ? "unknown" : `${Math.round(heartbeat.age_seconds)} sec ago`;
     const plainTextLines = [
       `Runner: ${runnerState}`,
@@ -160,6 +233,9 @@ export class AgentRunnerStatusService {
       `Runtime assessment: ${runtimeAssessment}`,
       `Last heartbeat: ${heartbeatAgeText}`,
       `Heartbeat status: ${heartbeat.status}`,
+      `Max parallel runs: ${maxParallelRuns}`,
+      `Worker slots: ${activeWorkerSlots} active / ${idleWorkerSlots} idle`,
+      `Queued because at capacity: ${queuedBecauseAtCapacity ? "yes" : "no"}`,
       `Pending: ${counts.pending}`,
       `Active: ${counts.active_locked}`,
       `Stale locks: ${counts.stale_locked}`,
@@ -173,6 +249,14 @@ export class AgentRunnerStatusService {
     }
     for (const activeRun of activeRuns) {
       plainTextLines.push(`Active run: ${activeRun.run_id}; source: ${activeRun.source}`);
+    }
+    for (const [tailRunId, tailEvents] of groupLiveTailByRun(activeRunLiveTail)) {
+      if (tailEvents.length > 0) {
+        plainTextLines.push(`Live tail for ${tailRunId}:`);
+        for (const event of tailEvents) {
+          plainTextLines.push(`${event.sequence} ${event.event_type}: ${event.summary}${event.path ? ` (${event.path})` : ""}`);
+        }
+      }
     }
     const readyResult = readyResults[0];
     if (readyResult) {
@@ -215,7 +299,13 @@ export class AgentRunnerStatusService {
       heartbeat_age_seconds: heartbeat.age_seconds,
       heartbeat_status: heartbeat.status,
       runner_pid: heartbeat.runner_pid,
-      active_run_id: heartbeat.alive && counts.active_locked > 0 ? heartbeat.active_run_id : "",
+      active_run_id: heartbeat.alive && counts.active_locked > 0 ? primaryActiveRunId : "",
+      max_parallel_runs: maxParallelRuns,
+      worker_slot_count: workerSlots.length,
+      active_worker_slots: activeWorkerSlots,
+      idle_worker_slots: idleWorkerSlots,
+      queued_because_at_capacity: queuedBecauseAtCapacity,
+      worker_slots: workerSlots,
       active_locks: activeLocks,
       stale_locks: staleLocks,
       completed_with_lock_warnings: completedWithLockWarnings,
@@ -396,6 +486,9 @@ export class AgentRunnerStatusService {
     age_seconds: number | null;
     status: string;
     active_run_id: string;
+    active_run_ids: string[];
+    max_parallel_runs: number;
+    worker_slots: WorkerSlot[];
     runner_pid: number | null;
     pid_status: "alive" | "dead" | "missing" | "unknown";
     alive: boolean;
@@ -412,6 +505,9 @@ export class AgentRunnerStatusService {
         age_seconds: null,
         status: "missing",
         active_run_id: "",
+        active_run_ids: [],
+        max_parallel_runs: 1,
+        worker_slots: [],
         runner_pid: null,
         pid_status: "missing",
         alive: false,
@@ -426,9 +522,17 @@ export class AgentRunnerStatusService {
       const ageSeconds = Number.isFinite(timestamp) ? Math.max(0, (Date.now() - timestamp) / 1000) : null;
       const status = typeof parsed.status === "string" ? parsed.status : "unknown";
       const activeRunId = typeof parsed.active_run_id === "string" ? parsed.active_run_id : "";
+      const parsedActiveRunIds = Array.isArray(parsed.active_run_ids)
+        ? parsed.active_run_ids.filter((value): value is string => typeof value === "string" && value.length > 0)
+        : [];
+      const activeRunIds = parsedActiveRunIds.length > 0 ? parsedActiveRunIds : activeRunId ? [activeRunId] : [];
+      const maxParallelRuns = typeof parsed.max_parallel_runs === "number" && Number.isInteger(parsed.max_parallel_runs) && parsed.max_parallel_runs > 0
+        ? parsed.max_parallel_runs
+        : Math.max(1, activeRunIds.length);
+      const workerSlots = parseWorkerSlots(parsed.worker_slots);
       const runnerPid = typeof parsed.pid === "number" && Number.isInteger(parsed.pid) && parsed.pid > 0 ? parsed.pid : null;
       const pidStatus = runnerPid === null ? "missing" : await processStatus(runnerPid);
-      const pidAllowsAlive = !activeRunId || runnerPid === null || pidStatus === "alive";
+      const pidAllowsAlive = activeRunIds.length === 0 || runnerPid === null || pidStatus === "alive";
       const alive = ageSeconds !== null && ageSeconds <= staleSeconds && ACTIVE_HEARTBEAT_STATUSES.has(status) && pidAllowsAlive;
       return {
         exists: true,
@@ -436,6 +540,9 @@ export class AgentRunnerStatusService {
         age_seconds: ageSeconds,
         status,
         active_run_id: activeRunId,
+        active_run_ids: activeRunIds,
+        max_parallel_runs: maxParallelRuns,
+        worker_slots: workerSlots,
         runner_pid: runnerPid,
         pid_status: pidStatus,
         alive,
@@ -448,6 +555,9 @@ export class AgentRunnerStatusService {
         age_seconds: null,
         status: "invalid",
         active_run_id: "",
+        active_run_ids: [],
+        max_parallel_runs: 1,
+        worker_slots: [],
         runner_pid: null,
         pid_status: "unknown",
         alive: false,
@@ -482,7 +592,7 @@ export class AgentRunnerStatusService {
         ]);
         const lockPath = join(runDir, "RESULT.md.lock");
         const lockInfo = lock ? await stat(lockPath) : null;
-        const lockPid = lock ? await lockRunnerPid(lockPath) : null;
+        const lockMetadata = lock ? await readLockMetadata(lockPath) : {};
         runs.push({
           run_id: runId,
           state: status === "blocked" ? "blocked" : lock ? "completed_with_lock_warning" : "completed",
@@ -491,14 +601,17 @@ export class AgentRunnerStatusService {
           result_mtime_ms: resultInfo.mtimeMs,
           lock_path: lock ? `.chatgpt/codex-runs/${runId}/RESULT.md.lock` : undefined,
           lock_age_seconds: lockInfo ? Math.max(0, (Date.now() - lockInfo.mtimeMs) / 1000) : undefined,
-          runner_pid: lockPid,
+          runner_pid: lockMetadata.runner_pid ?? null,
+          child_pid: lockMetadata.child_pid ?? null,
+          worker_slot_id: lockMetadata.worker_slot_id ?? null,
           result_md_exists: true
         });
       } else if (lock) {
         const lockPath = join(runDir, "RESULT.md.lock");
         const lockInfo = await stat(lockPath);
         const ageSeconds = Math.max(0, (Date.now() - lockInfo.mtimeMs) / 1000);
-        const lockPid = await lockRunnerPid(lockPath);
+        const lockMetadata = await readLockMetadata(lockPath);
+        const lockPid = lockMetadata.runner_pid ?? null;
         const pidStatus = lockPid === null ? "missing" : await processStatus(lockPid);
         const deadPid = pidStatus === "dead";
         const state = deadPid || ageSeconds >= staleLockSeconds ? "stale_locked" : "active_locked";
@@ -510,6 +623,8 @@ export class AgentRunnerStatusService {
           lock_path: `.chatgpt/codex-runs/${runId}/RESULT.md.lock`,
           lock_age_seconds: ageSeconds,
           runner_pid: lockPid,
+          child_pid: lockMetadata.child_pid ?? null,
+          worker_slot_id: lockMetadata.worker_slot_id ?? null,
           pid_status: pidStatus,
           stale_reason: staleReason,
           suggested_next_action: state === "stale_locked" ? "write_blocked_result_and_clear_abandoned_lock" : "wait_or_inspect_active_runner",
@@ -547,6 +662,146 @@ export class AgentRunnerStatusService {
     }));
     return ready;
   }
+}
+
+function normalizePolling(input: AgentRunnerStatusInput): { count: number; intervalSeconds: number } {
+  const raw = input as AgentRunnerStatusInput & {
+    poll_count?: unknown;
+    poll_interval_seconds?: unknown;
+  };
+  const count = boundedInteger(raw.poll_count, 1, 1, MAX_POLL_COUNT);
+  const intervalSeconds = count > 1
+    ? boundedInteger(raw.poll_interval_seconds, DEFAULT_POLL_INTERVAL_SECONDS, MIN_POLL_INTERVAL_SECONDS, MAX_POLL_INTERVAL_SECONDS)
+    : 0;
+  return { count, intervalSeconds };
+}
+
+function boundedInteger(value: unknown, fallback: number, min: number, max: number): number {
+  if (typeof value !== "number" || !Number.isInteger(value)) {
+    return fallback;
+  }
+  return Math.min(max, Math.max(min, value));
+}
+
+function withPollingFields(
+  snapshot: StatusSnapshot,
+  polling: { count: number; intervalSeconds: number },
+  pollHistory: PollHistoryEntry[],
+  stopReason: MonitoringStopReason
+): AgentRunnerStatusResult {
+  const plainText = pollHistory.length > 0
+    ? `${snapshot.plain_text}\nMonitoring polls: ${pollHistory.length}; stop reason: ${stopReason}`
+    : snapshot.plain_text;
+  return {
+    ...snapshot,
+    poll_count: polling.count,
+    poll_interval_seconds: polling.intervalSeconds,
+    monitoring_stop_reason: stopReason,
+    poll_history: pollHistory,
+    plain_text: plainText
+  };
+}
+
+function buildPollHistoryEntry(
+  status: StatusSnapshot,
+  pollIndex: number,
+  monitoredRunId: string,
+  liveTailCursors: Map<string, number>
+): PollHistoryEntry {
+  const activeRunId = status.active_run_id || status.active_run_ids[0] || "";
+  const tailRunId = activeRunId || monitoredRunId;
+  const previousCursor = tailRunId ? liveTailCursors.get(tailRunId) ?? 0 : 0;
+  const liveTailEvents = tailRunId
+    ? status.active_run_live_tail.filter((event) => event.sequence > previousCursor)
+    : [];
+  if (tailRunId && status.active_run_live_tail.length > 0) {
+    liveTailCursors.set(tailRunId, Math.max(previousCursor, ...status.active_run_live_tail.map((event) => event.sequence)));
+  }
+  const observedRunId = monitoredRunId || activeRunId || status.last_run_id;
+  const queueEntry = queueEntryForRun(status, observedRunId);
+  const readyResult = status.ready_results.find((result) => result.run_id === observedRunId) ?? status.ready_results[0];
+  return {
+    poll_index: pollIndex,
+    observed_at: new Date().toISOString(),
+    heartbeat_updated_at: status.heartbeat_updated_at,
+    heartbeat_age_seconds: status.heartbeat_age_seconds,
+    event_count: status.event_count,
+    event_cursor: status.event_cursor,
+    active_count: status.active_count,
+    active_run_id: activeRunId,
+    last_run_status: status.last_run_status,
+    result_md_exists: Boolean(queueEntryValue(queueEntry, "result_md_exists") ?? readyResult),
+    preview_urls: readyResult?.preview_urls ?? [],
+    live_tail_events: liveTailEvents
+  };
+}
+
+function monitoringStopReason(status: StatusSnapshot, monitoredRunId: string): MonitoringStopReason | "" {
+  if (!monitoredRunId && status.active_count === 0) {
+    return "no_active_run";
+  }
+  const queueEntry = queueEntryForRun(status, monitoredRunId);
+  if (Boolean(queueEntryValue(queueEntry, "result_md_exists"))) {
+    return "result_md_exists";
+  }
+  if (Boolean(queueEntryValue(queueEntry, "terminal"))) {
+    return "terminal_result";
+  }
+  return "";
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.filter((value) => value.length > 0))];
+}
+
+function groupLiveTailByRun(events: LiveTailEvent[]): Array<[string, LiveTailEvent[]]> {
+  const groups = new Map<string, LiveTailEvent[]>();
+  for (const event of events) {
+    const runId = event.run_id ?? "";
+    if (!runId) {
+      continue;
+    }
+    groups.set(runId, [...(groups.get(runId) ?? []), event]);
+  }
+  return [...groups.entries()];
+}
+
+function parseWorkerSlots(value: unknown): WorkerSlot[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  const slots: WorkerSlot[] = [];
+  for (const item of value) {
+    if (typeof item !== "object" || item === null) {
+      continue;
+    }
+    const record = item as Record<string, unknown>;
+    const slotId = typeof record.slot_id === "number" && Number.isInteger(record.slot_id) && record.slot_id > 0
+      ? record.slot_id
+      : slots.length + 1;
+    const rawState = typeof record.state === "string" ? record.state : "unknown";
+    const state: WorkerSlot["state"] = rawState === "active" || rawState === "idle" ? rawState : "unknown";
+    slots.push({
+      slot_id: slotId,
+      state,
+      run_id: typeof record.run_id === "string" ? record.run_id : "",
+      pid: typeof record.pid === "number" && Number.isInteger(record.pid) && record.pid > 0 ? record.pid : null,
+      started_at: typeof record.started_at === "string" ? record.started_at : "",
+      heartbeat_age_seconds: typeof record.heartbeat_age_seconds === "number" ? record.heartbeat_age_seconds : null
+    });
+  }
+  return slots;
+}
+
+function queueEntryForRun(status: StatusSnapshot, runId: string): Record<string, unknown> | undefined {
+  if (!runId) {
+    return undefined;
+  }
+  return status.queue_entries.find((entry) => queueEntryValue(entry, "run_id") === runId) as Record<string, unknown> | undefined;
+}
+
+function queueEntryValue(entry: unknown, key: string): unknown {
+  return typeof entry === "object" && entry !== null ? (entry as Record<string, unknown>)[key] : undefined;
 }
 
 async function exists(path: string): Promise<boolean> {
@@ -596,18 +851,25 @@ async function readResultStatus(path: string): Promise<string> {
   return match?.[1]?.trim().toLowerCase() ?? "";
 }
 
-async function lockRunnerPid(path: string): Promise<number | null> {
+async function readLockMetadata(path: string): Promise<{
+  runner_pid?: number;
+  child_pid?: number;
+  worker_slot_id?: number;
+}> {
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
   } catch {
-    return null;
+    return {};
   }
-  const pid = parsed.runner_pid ?? parsed.pid;
-  if (typeof pid !== "number" || !Number.isInteger(pid) || pid <= 0) {
-    return null;
-  }
-  return pid;
+  const runnerPid = parsed.runner_pid ?? parsed.pid;
+  const childPid = parsed.child_pid;
+  const workerSlotId = parsed.worker_slot_id;
+  return {
+    runner_pid: typeof runnerPid === "number" && Number.isInteger(runnerPid) && runnerPid > 0 ? runnerPid : undefined,
+    child_pid: typeof childPid === "number" && Number.isInteger(childPid) && childPid > 0 ? childPid : undefined,
+    worker_slot_id: typeof workerSlotId === "number" && Number.isInteger(workerSlotId) && workerSlotId > 0 ? workerSlotId : undefined
+  };
 }
 
 async function processIsAlive(pid: number): Promise<boolean> {
@@ -668,6 +930,8 @@ function queueEntriesForRuns(runs: ClassifiedRun[]): AgentRunnerStatusResult["qu
         lock_path: run.lock_path ?? "",
         lock_age_seconds: run.lock_age_seconds ?? null,
         runner_pid: run.runner_pid ?? null,
+        child_pid: run.child_pid ?? null,
+        worker_slot_id: run.worker_slot_id ?? null,
         result_md_exists: resultMdExists,
         result_status: run.result_status ?? (resultMdExists ? run.state : ""),
         stale_reason: run.stale_reason ?? "",
@@ -876,12 +1140,14 @@ async function writeEventLog(repoRoot: string, events: BridgeEvent[]): Promise<v
 }
 
 function activeRunDetails(
-  heartbeatActiveRunId: string,
+  heartbeatActiveRunIds: string[],
   activeLocks: Array<{
     run_id: string;
     lock_path: string;
     lock_age_seconds: number;
     runner_pid: number | null;
+    child_pid?: number | null;
+    worker_slot_id?: number | null;
     result_md_exists: boolean;
   }>,
   runs: ClassifiedRun[],
@@ -892,10 +1158,11 @@ function activeRunDetails(
   }
 ): AgentRunnerStatusResult["active_runs"] {
   const lockIds = new Set(activeLocks.map((lock) => lock.run_id));
+  const heartbeatIds = new Set(heartbeatActiveRunIds);
   const details = activeLocks.map((lock) => ({
     run_id: lock.run_id,
-    source: heartbeatActiveRunId === lock.run_id ? "heartbeat_and_lock" as const : "lock" as const,
-    heartbeat_active: heartbeatActiveRunId === lock.run_id,
+    source: heartbeatIds.has(lock.run_id) ? "heartbeat_and_lock" as const : "lock" as const,
+    heartbeat_active: heartbeatIds.has(lock.run_id),
     lock_path: lock.lock_path,
     lock_age_seconds: lock.lock_age_seconds,
     runner_pid: lock.runner_pid,
@@ -903,12 +1170,12 @@ function activeRunDetails(
     runtime_assessment: assessRun({
       run: runs.find((run) => run.run_id === lock.run_id),
       heartbeat,
-      heartbeatActive: heartbeatActiveRunId === lock.run_id,
-      source: heartbeatActiveRunId === lock.run_id ? "heartbeat_and_lock" : "lock"
+      heartbeatActive: heartbeatIds.has(lock.run_id),
+      source: heartbeatIds.has(lock.run_id) ? "heartbeat_and_lock" : "lock"
     })
   }));
 
-  if (heartbeatActiveRunId && !lockIds.has(heartbeatActiveRunId)) {
+  for (const heartbeatActiveRunId of heartbeatActiveRunIds.filter((id) => !lockIds.has(id))) {
     const heartbeatRun = runs.find((run) => run.run_id === heartbeatActiveRunId);
     details.unshift({
       run_id: heartbeatActiveRunId,

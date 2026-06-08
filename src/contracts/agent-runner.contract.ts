@@ -7,7 +7,11 @@ export const AgentRunnerStatusInputSchema = RepoInputSchema.extend({
   stale_lock_seconds: z.number().int().positive().optional()
     .describe("Seconds after which RESULT.md.lock is classified as stale. Defaults to 900."),
   live_tail_max_events: z.number().int().positive().max(50).optional()
-    .describe("Maximum active-run live tail events to include. Defaults to 15.")
+    .describe("Maximum active-run live tail events to include. Defaults to 15."),
+  poll_count: z.number().int().min(1).max(4).optional()
+    .describe("Number of fresh internal status polls to perform. Defaults to 1; maximum 4."),
+  poll_interval_seconds: z.number().int().min(5).max(15).optional()
+    .describe("Seconds to wait between internal polls when poll_count is greater than 1. Defaults to 10.")
 });
 
 export const RunLiveTailInputSchema = RepoInputSchema.extend({
@@ -32,10 +36,13 @@ const LockInfoSchema = z.object({
   lock_path: z.string(),
   lock_age_seconds: JsonValueSchema,
   runner_pid: JsonValueSchema,
+  child_pid: JsonValueSchema.optional(),
+  worker_slot_id: JsonValueSchema.optional(),
   result_md_exists: z.boolean()
 });
 
 export const LiveTailEventSchema = z.object({
+  run_id: z.string().optional(),
   sequence: z.number().int().nonnegative(),
   timestamp: z.string(),
   event_type: z.string(),
@@ -44,9 +51,32 @@ export const LiveTailEventSchema = z.object({
   cursor: z.string()
 });
 
+const WorkerSlotSchema = z.object({
+  slot_id: z.number().int().positive(),
+  state: z.enum(["active", "idle", "unknown"]),
+  run_id: z.string(),
+  pid: JsonValueSchema,
+  started_at: z.string(),
+  heartbeat_age_seconds: JsonValueSchema
+});
+
 const QueueEntrySchema = z.object({}).passthrough();
 const RunnerEventSchema = JsonValueSchema;
 const StaleLockInfoSchema = z.object({}).passthrough();
+const PollHistoryEntrySchema = z.object({
+  poll_index: z.number().int().positive(),
+  observed_at: z.string(),
+  heartbeat_updated_at: z.string(),
+  heartbeat_age_seconds: JsonValueSchema,
+  event_count: z.number().int(),
+  event_cursor: z.string(),
+  active_count: z.number().int(),
+  active_run_id: z.string(),
+  last_run_status: z.string(),
+  result_md_exists: z.boolean(),
+  preview_urls: z.array(z.string()),
+  live_tail_events: z.array(LiveTailEventSchema)
+});
 
 export const AgentRunnerStatusResultSchema = z.object({
   ok: z.boolean(),
@@ -74,6 +104,12 @@ export const AgentRunnerStatusResultSchema = z.object({
   heartbeat_status: z.string(),
   runner_pid: JsonValueSchema,
   active_run_id: z.string(),
+  max_parallel_runs: z.number().int().positive(),
+  worker_slot_count: z.number().int().nonnegative(),
+  active_worker_slots: z.number().int().nonnegative(),
+  idle_worker_slots: z.number().int().nonnegative(),
+  queued_because_at_capacity: z.boolean(),
+  worker_slots: z.array(WorkerSlotSchema),
   active_locks: z.array(LockInfoSchema),
   stale_locks: z.array(StaleLockInfoSchema),
   completed_with_lock_warnings: z.array(LockInfoSchema),
@@ -111,6 +147,10 @@ export const AgentRunnerStatusResultSchema = z.object({
   event_count: z.number().int(),
   unresolved_event_count: z.number().int(),
   acknowledgement_policy: z.string(),
+  poll_count: z.number().int().positive(),
+  poll_interval_seconds: z.number().int().nonnegative(),
+  monitoring_stop_reason: z.enum(["single_shot", "poll_count_reached", "no_active_run", "terminal_result", "result_md_exists"]),
+  poll_history: z.array(PollHistoryEntrySchema),
   plain_text: z.string(),
   warnings: z.array(z.string())
 });

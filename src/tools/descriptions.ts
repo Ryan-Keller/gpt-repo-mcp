@@ -2,9 +2,9 @@ export const descriptions = {
   repo_list_roots:
     "Use this when the user asks which approved repositories are available. Does not read file contents.",
   agent_runner_status:
-    "Use this when the user asks whether the Shared Agent Bridge Codex runner is alive, pending, stale, locked, blocked, or completed. Reads repo-local heartbeat and Codex run status only, returns plain text plus structured counts, and never launches Codex, mutates files, stages, commits, pushes, or runs shell commands.",
+    "Use this when the user asks whether the Shared Agent Bridge Codex runner is alive, pending, stale, locked, blocked, or completed. Compatibility alias for repo_runner_status; returns the same status including active-run live tail text when available.",
   repo_runner_status:
-    "Use this when the user asks to show runner status, check whether Codex is actually working, inspect an active run, or verify Shared Agent Bridge worker health. Stable read-only runner status tool for ChatGPT; never launches Codex, mutates files, stages, commits, pushes, deletes, clears locks, or runs shell commands.",
+    "Use this when the user asks to show runner status, check whether Codex is actually working, inspect an active run, monitor live-tail progress, or verify Shared Agent Bridge worker health. Supports bounded bridge-side polling with poll_count and poll_interval_seconds to avoid rapid repeated connector calls. Stable read-only runner status tool for ChatGPT; never launches Codex, mutates files, stages, commits, pushes, deletes, clears locks, or runs shell commands.",
   repo_run_live_tail:
     "Use this when the user asks what an active or recent Shared Agent Bridge Codex run is doing. Reads .chatgpt/codex-runs/<run_id>/events.jsonl and safe log tails only; never launches Codex, mutates files, stages, commits, pushes, deletes, clears locks, or runs shell commands.",
   repo_vision_routes:
@@ -49,6 +49,8 @@ export const descriptions = {
     "Use this when the user explicitly asks to delete generated repo-local artifacts or local ChatGPT artifacts separately, or granular cleanup control is needed; prefer repo_write_recover after repo_git_review for normal reviewed recovery. Requires user approval, explicit paths, refuses tracked files, and never runs shell commands or git clean.",
   repo_project_brief:
     "Use this when the user asks to understand, onboard into, plan work for, summarize, or start a daily planning session for an approved repository. Prefer this as the first planning tool because it returns bounded project signals without reading the whole repo.",
+  repo_project_memory:
+    "Use this when the user asks for persistent project memory, all projects, active roadmap, paused ideas, research watchlist, latest results, dream report inputs, or suggested next moves. Read-only dashboard over .chatgpt/project-memory; never mutates files, stages, commits, pushes, deletes, clears locks, runs shell commands, or performs internet research.",
   repo_task_inventory:
     "Use this when the user asks to find repo-local TODOs, FIXMEs, HACKs, roadmap notes, markdown checklist items, backlog candidates, or next tasks. Returns file and line grounded backlog signals for planning.",
   repo_decision_memory:
@@ -63,6 +65,8 @@ export const descriptions = {
     "Use this when the user explicitly asks for a Codex prompt, Codex task, or delegation to Codex and wants the prompt returned in chat for review/copying. Does not write files or implement the change.",
   repo_write_codex_task:
     "Use this when the user explicitly asks to write a Codex prompt/task/run into the repo for Codex to execute later. Writes only .chatgpt/codex-runs/<run_id>/PROMPT.md and run.json through repo write policy; does not implement, stage, commit, push, or run Codex.",
+  repo_write_codex_tasks_batch:
+    "Use this when the user explicitly asks to write a bounded batch of small Codex prompt/task/run seeds into the repo for Codex to execute later. Validates one to five seeds, rejects duplicate run_ids or equivalent titles before writing, writes one PROMPT.md and run.json per accepted seed through repo write policy, and does not implement, stage, commit, push, or run Codex.",
   repo_codex_review:
     "Use this when Codex has finished or the user asks to review a repo-local Codex run. Reads .chatgpt/codex-runs/<run_id>/RESULT.md and git diff review state without mutating files or git.",
   codex_run_and_wait:

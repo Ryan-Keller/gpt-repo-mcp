@@ -1,13 +1,15 @@
 import { createHash } from "node:crypto";
 import { mkdir, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { CodexTaskInputSchema, CodexTaskWriteInputSchema, type CodexTask, type CodexTaskInput, type CodexTaskResult, type CodexTaskWrite, type CodexTaskWriteInput, type CodexTaskWriteResult } from "../contracts/codex-task.contract.js";
+import { CodexTaskBatchWriteInputSchema, CodexTaskInputSchema, CodexTaskWriteInputSchema, type CodexTask, type CodexTaskBatchWriteInput, type CodexTaskBatchWriteResult, type CodexTaskInput, type CodexTaskResult, type CodexTaskWrite, type CodexTaskWriteInput, type CodexTaskWriteResult } from "../contracts/codex-task.contract.js";
 import { FileWriter } from "./file-writer.js";
 import { PathSandbox, validateRepoPath } from "./path-sandbox.js";
 import { WritePolicy } from "./write-policy.js";
 
 const CODEX_RUN_DIR = ".chatgpt/codex-runs";
 const INPUT_ASSET_MAX_BYTES = 5_000_000;
+const CODEX_TASK_BATCH_MAX_SIZE = 5;
+export const ACTIVE_EXECUTION_PERIOD_REMINDER = "The user is currently present. This conversation is an execution opportunity. Inspect active, queued, completed, and blocked work; capture new opportunities; queue bounded follow-up packets when possible; declare blocked execution paths immediately.";
 
 export class CodexTaskService {
   private readonly writer: FileWriter;
@@ -135,6 +137,131 @@ export class CodexTaskService {
         prompt_path: prepared.prompt_path,
         result_path: prepared.result_path,
         manifest_path: prepared.manifest_path,
+        written_paths: writtenPaths
+      },
+      next_steps: [
+        "Use repo_runner_status or repo_list_roots.runner_status to observe pickup and ready_results.",
+        "If the connector drops after this receipt, call repo_last_write or status to recover the written paths."
+      ],
+      warnings
+    };
+  }
+
+  async writeBatch(rawInput: CodexTaskBatchWriteInput): Promise<CodexTaskBatchWriteResult> {
+    const input = CodexTaskBatchWriteInputSchema.parse(rawInput);
+    const dryRun = input.dry_run ?? false;
+    const warnings: string[] = [];
+    const rejected: CodexTaskBatchWriteResult["rejected"] = [];
+    const preparedSeeds = input.seeds.map((seed, index) => {
+      const prepared = this.prepare({ ...seed, repo_id: input.repo_id });
+      return { index, seed, prepared };
+    });
+
+    const runIds = new Map<string, number>();
+    const titleKeys = new Map<string, number>();
+    for (const preparedSeed of preparedSeeds) {
+      const existingRunIndex = runIds.get(preparedSeed.prepared.run_id);
+      if (existingRunIndex !== undefined) {
+        rejected.push({
+          index: preparedSeed.index,
+          title: preparedSeed.seed.title,
+          run_id: preparedSeed.prepared.run_id,
+          reason: `Duplicate run_id in batch; first seen at index ${existingRunIndex}.`
+        });
+      } else {
+        runIds.set(preparedSeed.prepared.run_id, preparedSeed.index);
+      }
+
+      const titleKey = slugify(preparedSeed.seed.title);
+      const existingTitleIndex = titleKeys.get(titleKey);
+      if (existingTitleIndex !== undefined) {
+        rejected.push({
+          index: preparedSeed.index,
+          title: preparedSeed.seed.title,
+          run_id: preparedSeed.prepared.run_id,
+          reason: `Duplicate equivalent title in batch; first seen at index ${existingTitleIndex}.`
+        });
+      } else {
+        titleKeys.set(titleKey, preparedSeed.index);
+      }
+    }
+
+    await Promise.all(preparedSeeds.map(async (preparedSeed) => {
+      try {
+        await assertRunDoesNotExist(this.root, preparedSeed.prepared.run_id);
+      } catch (error) {
+        rejected.push({
+          index: preparedSeed.index,
+          title: preparedSeed.seed.title,
+          run_id: preparedSeed.prepared.run_id,
+          reason: error instanceof Error ? error.message : "Codex run already exists and will not be overwritten."
+        });
+      }
+    }));
+
+    if (rejected.length > 0) {
+      return {
+        ok: true,
+        repo_id: input.repo_id,
+        dry_run: dryRun,
+        batch_size: input.seeds.length,
+        max_batch_size: CODEX_TASK_BATCH_MAX_SIZE,
+        created_run_ids: [],
+        created: [],
+        rejected,
+        written_paths: [],
+        receipt: {
+          queued: false,
+          status: dryRun ? "dry_run" : "queued",
+          run_ids: [],
+          prompt_paths: [],
+          written_paths: []
+        },
+        next_steps: [
+          "Fix the rejected seeds and retry the whole batch.",
+          "Use repo_runner_status or repo_list_roots.runner_status after a successful write to observe pickup."
+        ],
+        warnings: [...warnings, "Batch rejected before writing any Codex task seeds."]
+      };
+    }
+
+    const created = [];
+    const writtenPaths: string[] = [];
+    for (const preparedSeed of preparedSeeds) {
+      const result = await this.write({
+        ...preparedSeed.seed,
+        repo_id: input.repo_id,
+        dry_run: dryRun,
+        reason: preparedSeed.seed.reason ?? input.reason
+      });
+      warnings.push(...result.warnings);
+      writtenPaths.push(...result.written_paths);
+      created.push({
+        run_id: result.run_id,
+        title: preparedSeed.seed.title,
+        prompt_path: result.prompt_path,
+        result_path: result.result_path,
+        manifest_path: result.manifest_path,
+        written_paths: result.written_paths,
+        queued_status: result.queued_status
+      });
+    }
+
+    return {
+      ok: true,
+      repo_id: input.repo_id,
+      dry_run: dryRun,
+      batch_size: input.seeds.length,
+      max_batch_size: CODEX_TASK_BATCH_MAX_SIZE,
+      created_run_ids: created.map((seed) => seed.run_id),
+      created,
+      rejected: [],
+      written_paths: writtenPaths,
+      receipt: {
+        queued: !dryRun,
+        status: dryRun ? "dry_run" : "queued",
+        run_ids: created.map((seed) => seed.run_id),
+        prompt_paths: created.map((seed) => seed.prompt_path),
         written_paths: writtenPaths
       },
       next_steps: [
@@ -312,6 +439,10 @@ function renderPrompt(input: CodexTask, runId: string, paths: ReturnType<typeof 
     renderScope(input),
     renderList("Acceptance Criteria", input.acceptance_criteria),
     renderList("Verification Commands", input.verification_commands),
+    "## Active Execution Period Reminder",
+    "",
+    ACTIVE_EXECUTION_PERIOD_REMINDER,
+    "",
     "## Completion Contract",
     "",
     "Before your final chat response, write this file:",
@@ -324,6 +455,7 @@ function renderPrompt(input: CodexTask, runId: string, paths: ReturnType<typeof 
     "# CODEX_RESULT",
     "",
     "status: completed | blocked",
+    `active_execution_period_reminder: ${ACTIVE_EXECUTION_PERIOD_REMINDER}`,
     "summary: <one-line summary>",
     "changed_files:",
     "commands_run:",

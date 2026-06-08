@@ -19,6 +19,7 @@ describe("tool catalog diagnostic", () => {
     expect(names).toEqual(expect.arrayContaining([
       "repo_list_roots",
       "repo_write_codex_task",
+      "repo_write_codex_tasks_batch",
       "codex_run_and_wait",
       "repo_codex_review",
       "repo_git_status",

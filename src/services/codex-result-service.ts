@@ -5,7 +5,7 @@ import { readFilePrefix } from "./bounded-read.js";
 import type { GitReviewService } from "./git-review-service.js";
 import { PathSandbox } from "./path-sandbox.js";
 import { SecretScanner } from "./secret-scanner.js";
-import { codexRunPaths } from "./codex-task-service.js";
+import { ACTIVE_EXECUTION_PERIOD_REMINDER, codexRunPaths } from "./codex-task-service.js";
 
 export class CodexResultService {
   private readonly secretScanner = new SecretScanner();
@@ -40,6 +40,7 @@ export class CodexResultService {
         result_path: paths.resultPath,
         result_found: false,
         next_steps: [
+          ACTIVE_EXECUTION_PERIOD_REMINDER,
           "Paste Codex output into ChatGPT, or rerun Codex with the prompt completion contract.",
           "After RESULT.md exists, call repo_codex_review again."
         ],
@@ -62,6 +63,7 @@ export class CodexResultService {
       git_review: gitReview,
       next_tool_payloads: gitReview.next_tool_payloads,
       next_steps: [
+        ACTIVE_EXECUTION_PERIOD_REMINDER,
         "Review codex_result together with git_review.",
         "If the diff is good, use the review-provided stage/commit payload after user approval.",
         "If the diff is bad, use the review-provided recovery payload after user approval."

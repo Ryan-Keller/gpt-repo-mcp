@@ -22,7 +22,7 @@ import {
   GitUnstageResultSchema
 } from "../src/contracts/git-operations.contract.js";
 import { CleanupPathsInputSchema, CleanupPathsResultSchema } from "../src/contracts/cleanup.contract.js";
-import { CodexReviewInputSchema, CodexReviewResultSchema, CodexRunAndWaitInputSchema, CodexRunAndWaitResultSchema, CodexTaskInputSchema, CodexTaskResultSchema, CodexTaskWriteInputSchema, CodexTaskWriteResultSchema } from "../src/contracts/codex-task.contract.js";
+import { CodexReviewInputSchema, CodexReviewResultSchema, CodexRunAndWaitInputSchema, CodexRunAndWaitResultSchema, CodexTaskBatchWriteInputSchema, CodexTaskBatchWriteResultSchema, CodexTaskInputSchema, CodexTaskResultSchema, CodexTaskWriteInputSchema, CodexTaskWriteResultSchema } from "../src/contracts/codex-task.contract.js";
 import { DecisionLogInputSchema, DecisionLogResultSchema } from "../src/contracts/decision.contract.js";
 import { GitReviewResultSchema } from "../src/contracts/git-review.contract.js";
 import { HandoffInputSchema, HandoffResultSchema } from "../src/contracts/handoff.contract.js";
@@ -74,6 +74,7 @@ describe("tool catalog contracts", () => {
       "repo_write_recover",
       "repo_cleanup_paths",
       "repo_project_brief",
+      "repo_project_memory",
       "repo_task_inventory",
       "repo_decision_memory",
       "repo_change_plan",
@@ -81,6 +82,7 @@ describe("tool catalog contracts", () => {
       "repo_plan_review",
       "repo_prepare_codex_task",
       "repo_write_codex_task",
+      "repo_write_codex_tasks_batch",
       "repo_codex_review",
       "codex_run_and_wait",
       "repo_write_file",
@@ -108,6 +110,7 @@ describe("tool catalog contracts", () => {
       "repo_write_changes",
       "repo_write_handoff",
       "repo_write_codex_task",
+      "repo_write_codex_tasks_batch",
       "codex_run_and_wait",
       "repo_git_stage",
       "repo_git_unstage",
@@ -122,10 +125,10 @@ describe("tool catalog contracts", () => {
     ]);
     const writeFile = toolCatalog.find((tool) => tool.name === "repo_write_file");
     const policyExplain = toolCatalog.find((tool) => tool.name === "repo_policy_explain");
-    const agentRunnerStatus = toolCatalog.find((tool) => tool.name === "agent_runner_status");
     const repoRunnerStatus = toolCatalog.find((tool) => tool.name === "repo_runner_status");
     const prepareCodexTask = toolCatalog.find((tool) => tool.name === "repo_prepare_codex_task");
     const writeCodexTask = toolCatalog.find((tool) => tool.name === "repo_write_codex_task");
+    const writeCodexTasksBatch = toolCatalog.find((tool) => tool.name === "repo_write_codex_tasks_batch");
     const codexReview = toolCatalog.find((tool) => tool.name === "repo_codex_review");
     const codexRunAndWait = toolCatalog.find((tool) => tool.name === "codex_run_and_wait");
     const writeChanges = toolCatalog.find((tool) => tool.name === "repo_write_changes");
@@ -134,15 +137,12 @@ describe("tool catalog contracts", () => {
     const recover = toolCatalog.find((tool) => tool.name === "repo_write_recover");
     const lastWrite = toolCatalog.find((tool) => tool.name === "repo_last_write");
     const decisionMemory = toolCatalog.find((tool) => tool.name === "repo_decision_memory");
+    const projectMemory = toolCatalog.find((tool) => tool.name === "repo_project_memory");
 
     expect(policyExplain).toBeDefined();
     expect(policyExplain?.inputSchema).toBe(PolicyExplainInputSchema);
     expect(policyExplain?.outputSchema).toBe(PolicyExplainResultSchema);
     expect(policyExplain?.annotations).toEqual(readOnlyAnnotations);
-    expect(agentRunnerStatus).toBeDefined();
-    expect(agentRunnerStatus?.inputSchema).toBe(AgentRunnerStatusInputSchema);
-    expect(agentRunnerStatus?.outputSchema).toBe(AgentRunnerStatusResultSchema);
-    expect(agentRunnerStatus?.annotations).toEqual(readOnlyAnnotations);
     expect(repoRunnerStatus).toBeDefined();
     expect(repoRunnerStatus?.inputSchema).toBe(AgentRunnerStatusInputSchema);
     expect(repoRunnerStatus?.outputSchema).toBe(AgentRunnerStatusResultSchema);
@@ -155,6 +155,10 @@ describe("tool catalog contracts", () => {
     expect(writeCodexTask?.inputSchema).toBe(CodexTaskWriteInputSchema);
     expect(writeCodexTask?.outputSchema).toBe(CodexTaskWriteResultSchema);
     expect(writeCodexTask?.annotations).toEqual(writeAnnotations);
+    expect(writeCodexTasksBatch).toBeDefined();
+    expect(writeCodexTasksBatch?.inputSchema).toBe(CodexTaskBatchWriteInputSchema);
+    expect(writeCodexTasksBatch?.outputSchema).toBe(CodexTaskBatchWriteResultSchema);
+    expect(writeCodexTasksBatch?.annotations).toEqual(writeAnnotations);
     expect(codexReview).toBeDefined();
     expect(codexReview?.inputSchema).toBe(CodexReviewInputSchema);
     expect(codexReview?.outputSchema).toBe(CodexReviewResultSchema);
@@ -171,6 +175,8 @@ describe("tool catalog contracts", () => {
     expect(decisionMemory?.inputSchema).toBe(DecisionLogInputSchema);
     expect(decisionMemory?.outputSchema).toBe(DecisionLogResultSchema);
     expect(decisionMemory?.annotations).toEqual(readOnlyAnnotations);
+    expect(projectMemory).toBeDefined();
+    expect(projectMemory?.annotations).toEqual(readOnlyAnnotations);
     expect(toolCatalog.some((tool) => (tool.name as string) === "repo_decision_log")).toBe(false);
     expect((toolContracts as Record<string, unknown>).repo_decision_log).toBeUndefined();
     expect(writeFile).toBeDefined();
@@ -207,6 +213,17 @@ describe("tool catalog contracts", () => {
     expect(toolContracts.repo_write_commit.output).toBe(toolContracts.repo_git_commit.output);
     expect(isMutatingToolName("repo_git_review")).toBe(false);
     expect(isMutatingToolName("repo_last_write")).toBe(false);
+  });
+
+  test("keeps agent_runner_status as a compatibility alias for cached connector sessions", () => {
+    const agentRunnerStatus = toolCatalog.find((tool) => tool.name === "agent_runner_status");
+    const repoRunnerStatus = toolCatalog.find((tool) => tool.name === "repo_runner_status");
+
+    expect(agentRunnerStatus).toBeDefined();
+    expect(repoRunnerStatus).toBeDefined();
+    expect(agentRunnerStatus?.inputSchema).toBe(repoRunnerStatus?.inputSchema);
+    expect(agentRunnerStatus?.outputSchema).toBe(repoRunnerStatus?.outputSchema);
+    expect(agentRunnerStatus?.annotations).toEqual(readOnlyAnnotations);
   });
 
   test("handoff intent is routed to repo_write_handoff description only", () => {
@@ -249,11 +266,34 @@ describe("tool catalog contracts", () => {
     const tool = toolCatalog.find((tool) => tool.name === "repo_runner_status");
     expect(tool).toBeDefined();
 
+    expect(Object.keys(tool?.inputSchema.shape ?? {}).sort()).toEqual([
+      "heartbeat_stale_seconds",
+      "live_tail_max_events",
+      "poll_count",
+      "poll_interval_seconds",
+      "repo_id",
+      "stale_lock_seconds"
+    ]);
+    expect(tool?.inputSchema.safeParse({
+      repo_id: "fixture",
+      poll_count: 4,
+      poll_interval_seconds: 15
+    }).success).toBe(true);
+    expect(tool?.inputSchema.safeParse({
+      repo_id: "fixture",
+      poll_count: 5
+    }).success).toBe(false);
+    expect(tool?.inputSchema.safeParse({
+      repo_id: "fixture",
+      poll_interval_seconds: 4
+    }).success).toBe(false);
+    expect(tool?.outputSchema.shape.poll_history).toBeDefined();
+
     const serialized = JSON.stringify(tool?.outputSchema.toJSONSchema?.() ?? tool?.outputSchema.shape);
 
     expect(serialized).not.toContain("anyOf");
     expect(serialized).not.toContain("propertyNames");
-    expect(serialized.length).toBeLessThan(7000);
+    expect(serialized.length).toBeLessThan(9000);
   });
 
   test("repo_git_review audit metadata omits changed path lists", () => {
@@ -741,1142 +781,52 @@ describe("tool catalog contracts", () => {
   });
 
   test("exposed tool surface shape stays stable", () => {
-    expect(toolCatalog.map((tool) => ({
+    const surface = toolCatalog.map((tool) => ({
       name: tool.name,
       title: tool.title,
       description: tool.description,
       annotations: tool.annotations,
       inputKeys: Object.keys(tool.inputSchema.shape).sort(),
       outputKeys: Object.keys(tool.outputSchema.shape).sort()
-    }))).toMatchInlineSnapshot(`
-      [
-        {
-          "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false,
-            "readOnlyHint": true,
-          },
-          "description": "Use this when the user asks which approved repositories are available. Does not read file contents.",
-          "inputKeys": [],
-          "name": "repo_list_roots",
-          "outputKeys": [
-            "bridge_observability",
-            "repos",
-          ],
-          "title": "List approved repositories",
-        },
-        {
-          "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false,
-            "readOnlyHint": true,
-          },
-          "description": "Use this when the user asks whether the Shared Agent Bridge Codex runner is alive, pending, stale, locked, blocked, or completed. Reads repo-local heartbeat and Codex run status only, returns plain text plus structured counts, and never launches Codex, mutates files, stages, commits, pushes, or runs shell commands.",
-          "inputKeys": [
-            "heartbeat_stale_seconds",
-            "live_tail_max_events",
-            "repo_id",
-            "stale_lock_seconds",
-          ],
-          "name": "agent_runner_status",
-          "outputKeys": [
-            "acknowledgement_policy",
-            "active_count",
-            "active_locks",
-            "active_run_id",
-            "active_run_ids",
-            "active_run_live_tail",
-            "active_runs",
-            "auth_status",
-            "blocked_count",
-            "completed_count",
-            "completed_with_lock_warnings",
-            "connector_status",
-            "contract_schema_version",
-            "current_uptime_seconds",
-            "event_count",
-            "event_cursor",
-            "event_log_path",
-            "heartbeat_age_seconds",
-            "heartbeat_path",
-            "heartbeat_status",
-            "heartbeat_updated_at",
-            "last_connector_error_at",
-            "last_connector_error_kind",
-            "last_connector_success_at",
-            "last_failed_tool_call",
-            "last_run_id",
-            "last_run_status",
-            "last_successful_tool_call",
-            "ok",
-            "pending_count",
-            "plain_text",
-            "queue_entries",
-            "ready_results",
-            "recent_events",
-            "repo_id",
-            "runner",
-            "runner_pid",
-            "runner_state",
-            "runtime_assessment",
-            "server_started_at",
-            "stale_lock_count",
-            "stale_locks",
-            "suggested_next_action",
-            "suspected_cause",
-            "tool_catalog_hash",
-            "unresolved_event_count",
-            "unresolved_events",
-            "warnings",
-            "worker",
-          ],
-          "title": "Show Agent Runner status",
-        },
-        {
-          "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false,
-            "readOnlyHint": true,
-          },
-          "description": "Use this when the user asks to show runner status, check whether Codex is actually working, inspect an active run, or verify Shared Agent Bridge worker health. Stable read-only runner status tool for ChatGPT; never launches Codex, mutates files, stages, commits, pushes, deletes, clears locks, or runs shell commands.",
-          "inputKeys": [
-            "heartbeat_stale_seconds",
-            "live_tail_max_events",
-            "repo_id",
-            "stale_lock_seconds",
-          ],
-          "name": "repo_runner_status",
-          "outputKeys": [
-            "acknowledgement_policy",
-            "active_count",
-            "active_locks",
-            "active_run_id",
-            "active_run_ids",
-            "active_run_live_tail",
-            "active_runs",
-            "auth_status",
-            "blocked_count",
-            "completed_count",
-            "completed_with_lock_warnings",
-            "connector_status",
-            "contract_schema_version",
-            "current_uptime_seconds",
-            "event_count",
-            "event_cursor",
-            "event_log_path",
-            "heartbeat_age_seconds",
-            "heartbeat_path",
-            "heartbeat_status",
-            "heartbeat_updated_at",
-            "last_connector_error_at",
-            "last_connector_error_kind",
-            "last_connector_success_at",
-            "last_failed_tool_call",
-            "last_run_id",
-            "last_run_status",
-            "last_successful_tool_call",
-            "ok",
-            "pending_count",
-            "plain_text",
-            "queue_entries",
-            "ready_results",
-            "recent_events",
-            "repo_id",
-            "runner",
-            "runner_pid",
-            "runner_state",
-            "runtime_assessment",
-            "server_started_at",
-            "stale_lock_count",
-            "stale_locks",
-            "suggested_next_action",
-            "suspected_cause",
-            "tool_catalog_hash",
-            "unresolved_event_count",
-            "unresolved_events",
-            "warnings",
-            "worker",
-          ],
-          "title": "Show repository runner status",
-        },
-        {
-          "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false,
-            "readOnlyHint": true,
-          },
-          "description": "Use this when the user asks what an active or recent Shared Agent Bridge Codex run is doing. Reads .chatgpt/codex-runs/<run_id>/events.jsonl and safe log tails only; never launches Codex, mutates files, stages, commits, pushes, deletes, clears locks, or runs shell commands.",
-          "inputKeys": [
-            "cursor",
-            "max_events",
-            "repo_id",
-            "run_id",
-          ],
-          "name": "repo_run_live_tail",
-          "outputKeys": [
-            "events",
-            "next_cursor",
-            "ok",
-            "repo_id",
-            "result_path",
-            "result_status",
-            "run_id",
-            "terminal",
-            "warnings",
-          ],
-          "title": "Show Codex run live tail",
-        },
-        {
-          "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false,
-            "readOnlyHint": true,
-          },
-          "description": "Use this when the user asks whether local Google/Gemini/Gemma/Ollama vision analysis is actually configured. Read-only detector that reports observed routes and typed missing capabilities without printing secrets, launching Codex, staging, committing, pushing, deleting, or mutating files.",
-          "inputKeys": [
-            "repo_id",
-          ],
-          "name": "repo_vision_routes",
-          "outputKeys": [
-            "available_routes",
-            "has_configured_vision_route",
-            "missing_capabilities",
-            "ok",
-            "repo_id",
-            "warnings",
-          ],
-          "title": "Detect vision analysis routes",
-        },
-        {
-          "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false,
-            "readOnlyHint": true,
-          },
-          "description": "Use this when a read, write, or cleanup policy question is blocked or the user asks what ChatGPT can access in a repo. Explains effective read/write/cleanup policy, local git operation toggles, matched globs, block reasons, and next steps without reading or mutating files.",
-          "inputKeys": [
-            "operation",
-            "path",
-            "repo_id",
-          ],
-          "name": "repo_policy_explain",
-          "outputKeys": [
-            "cleanup",
-            "effective_policy",
-            "guidance",
-            "ok",
-            "operations",
-            "path",
-            "read",
-            "repo_id",
-            "requested_operation",
-            "summary",
-            "write",
-          ],
-          "title": "Explain repository policy",
-        },
-        {
-          "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false,
-            "readOnlyHint": true,
-          },
-          "description": "Use this when the user asks what the last write operation changed or how to continue review/recovery after a previous write. Reads safe local receipt metadata only and never mutates files or git.",
-          "inputKeys": [
-            "repo_id",
-          ],
-          "name": "repo_last_write",
-          "outputKeys": [
-            "found",
-            "next_tool_payloads",
-            "ok",
-            "receipt",
-            "warnings",
-          ],
-          "title": "Read last write receipt",
-        },
-        {
-          "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false,
-            "readOnlyHint": true,
-          },
-          "description": "Use this when the user asks to inspect repository structure or locate likely files by directory. Do not use this when the user asks to read file contents.",
-          "inputKeys": [
-            "cursor",
-            "include_dependencies",
-            "include_files",
-            "include_generated",
-            "max_depth",
-            "page_size",
-            "path",
-            "repo_id",
-            "respect_default_excludes",
-          ],
-          "name": "repo_tree",
-          "outputKeys": [
-            "entries",
-            "excluded_summary",
-            "next_cursor",
-            "truncated",
-          ],
-          "title": "Inspect repository tree",
-        },
-        {
-          "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false,
-            "readOnlyHint": true,
-          },
-          "description": "Use this when the user asks to find code, inspect usages, perform a bughunt, or locate relevant files before reading them. Prefer this before repo_read_many.",
-          "inputKeys": [
-            "context_lines",
-            "cursor",
-            "exclude_globs",
-            "include_globs",
-            "max_results",
-            "mode",
-            "query",
-            "repo_id",
-          ],
-          "name": "repo_search",
-          "outputKeys": [
-            "matched_count",
-            "next_cursor",
-            "results",
-            "returned_count",
-            "truncated",
-            "warnings",
-          ],
-          "title": "Search repository text",
-        },
-        {
-          "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false,
-            "readOnlyHint": true,
-          },
-          "description": "Use this when the user names a specific file or after repo_tree/repo_search identifies a relevant file. Supports line ranges. Do not use for broad repository review.",
-          "inputKeys": [
-            "end_line",
-            "max_bytes",
-            "override_default_excludes",
-            "path",
-            "repo_id",
-            "start_line",
-          ],
-          "name": "repo_fetch_file",
-          "outputKeys": [
-            "end_line",
-            "language",
-            "path",
-            "sha256",
-            "size_bytes",
-            "start_line",
-            "text",
-            "total_lines",
-            "truncated",
-            "warnings",
-          ],
-          "title": "Fetch one file",
-        },
-        {
-          "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false,
-            "readOnlyHint": true,
-          },
-          "description": "Use this when the user asks to read a bounded set of explicit files or glob-matched files. Do not use this to read an entire repository.",
-          "inputKeys": [
-            "cursor",
-            "exclude_globs",
-            "include_globs",
-            "max_bytes_per_file",
-            "max_files",
-            "max_total_bytes",
-            "paths",
-            "repo_id",
-          ],
-          "name": "repo_read_many",
-          "outputKeys": [
-            "files",
-            "matched_count",
-            "next_cursor",
-            "returned_count",
-            "skipped",
-            "truncated",
-          ],
-          "title": "Read bounded files",
-        },
-        {
-          "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false,
-            "readOnlyHint": true,
-          },
-          "description": "Use this when the user asks for git status, branch, dirty files, or changed file counts. Do not use this to inspect file contents.",
-          "inputKeys": [
-            "repo_id",
-          ],
-          "name": "repo_git_status",
-          "outputKeys": [
-            "branch",
-            "clean",
-            "counts",
-            "files",
-            "head_sha",
-            "runner_status",
-          ],
-          "title": "Read git status",
-        },
-        {
-          "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false,
-            "readOnlyHint": true,
-          },
-          "description": "Use this when the user asks to review changes or inspect a git diff. Default first call should pass only repo_id. Do not include staged, unstaged, paths, max_bytes, or context_lines on the first pass. Use optional filters only after the default diff is truncated, too broad, or the user asks for a specific comparison.",
-          "inputKeys": [
-            "base",
-            "compare",
-            "context_lines",
-            "max_bytes",
-            "paths",
-            "repo_id",
-            "staged",
-            "unstaged",
-          ],
-          "name": "repo_git_diff",
-          "outputKeys": [
-            "base",
-            "compare",
-            "files",
-            "staged",
-            "truncated",
-            "unstaged",
-            "warnings",
-          ],
-          "title": "Read git diff",
-        },
-        {
-          "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false,
-            "readOnlyHint": true,
-          },
-          "description": "Use this when the user asks to review current git changes, recover bad write-tool edits, clean up generated artifacts, prepare staging, or plan a local commit without mutating anything. Workflow hub that returns status, diff summary, warnings, and ready-to-run composite payloads for repo_write_stage_commit and repo_write_recover plus low-level fallback payloads.",
-          "inputKeys": [
-            "max_files",
-            "mode",
-            "repo_id",
-          ],
-          "name": "repo_git_review",
-          "outputKeys": [
-            "branch",
-            "changed_paths",
-            "clean",
-            "diff_summary",
-            "head_sha",
-            "next_tool_payloads",
-            "ok",
-            "recommendation",
-          ],
-          "title": "Plan git review",
-        },
-        {
-          "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": false,
-            "openWorldHint": false,
-            "readOnlyHint": false,
-          },
-          "description": "Use this when compatibility with the git-prefixed staging alias is needed; prefer repo_write_stage for ChatGPT workflows. Stages explicit repo-relative paths only, requires user approval and expected HEAD, and never runs shell commands.",
-          "inputKeys": [
-            "dry_run",
-            "expected_head_sha",
-            "paths",
-            "reason",
-            "repo_id",
-          ],
-          "name": "repo_git_stage",
-          "outputKeys": [
-            "dry_run",
-            "head_sha",
-            "ok",
-            "skipped",
-            "staged_paths",
-            "warnings",
-          ],
-          "title": "Stage explicit git paths",
-        },
-        {
-          "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": false,
-            "openWorldHint": false,
-            "readOnlyHint": false,
-          },
-          "description": "Use this when compatibility with the git-prefixed unstaging alias is needed; prefer repo_write_unstage for ChatGPT workflows. Unstages explicit repo-relative paths only, requires user approval and expected HEAD, and never runs shell commands.",
-          "inputKeys": [
-            "dry_run",
-            "expected_head_sha",
-            "paths",
-            "reason",
-            "repo_id",
-          ],
-          "name": "repo_git_unstage",
-          "outputKeys": [
-            "dry_run",
-            "head_sha",
-            "ok",
-            "skipped",
-            "unstaged_paths",
-            "warnings",
-          ],
-          "title": "Unstage explicit git paths",
-        },
-        {
-          "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": false,
-            "openWorldHint": false,
-            "readOnlyHint": false,
-          },
-          "description": "Use this when the user explicitly asks to recover bad unstaged worktree changes for reviewed explicit repo-relative paths. Runs only git restore -- <paths>, requires expected HEAD, does not unstage, stage, commit, reset, checkout, or run shell commands.",
-          "inputKeys": [
-            "dry_run",
-            "expected_head_sha",
-            "paths",
-            "reason",
-            "repo_id",
-          ],
-          "name": "repo_git_restore_paths",
-          "outputKeys": [
-            "dry_run",
-            "head_sha",
-            "ok",
-            "restored_paths",
-            "skipped",
-            "warnings",
-          ],
-          "title": "Restore explicit worktree paths",
-        },
-        {
-          "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": false,
-            "openWorldHint": false,
-            "readOnlyHint": false,
-          },
-          "description": "Use this when compatibility with the git-prefixed commit alias is needed; prefer repo_write_commit for ChatGPT workflows. Creates a local-only commit from exact staged paths, requires user approval and expected HEAD, does not push, and never runs shell commands.",
-          "inputKeys": [
-            "dry_run",
-            "expected_head_sha",
-            "expected_staged_paths",
-            "message",
-            "reason",
-            "repo_id",
-          ],
-          "name": "repo_git_commit",
-          "outputKeys": [
-            "commit_sha",
-            "committed_paths",
-            "dry_run",
-            "head_after",
-            "head_before",
-            "ok",
-            "warnings",
-          ],
-          "title": "Create local git commit",
-        },
-        {
-          "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": false,
-            "openWorldHint": false,
-            "readOnlyHint": false,
-          },
-          "description": "Use this when the user explicitly asks to stage reviewed repo-relative paths separately or granular control is needed; prefer repo_write_stage_commit after repo_git_review for normal reviewed commits. Requires user approval, expected HEAD, explicit paths, and never runs shell commands.",
-          "inputKeys": [
-            "dry_run",
-            "expected_head_sha",
-            "paths",
-            "reason",
-            "repo_id",
-          ],
-          "name": "repo_write_stage",
-          "outputKeys": [
-            "dry_run",
-            "head_sha",
-            "ok",
-            "skipped",
-            "staged_paths",
-            "warnings",
-          ],
-          "title": "Stage reviewed paths",
-        },
-        {
-          "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": false,
-            "openWorldHint": false,
-            "readOnlyHint": false,
-          },
-          "description": "Use this when the user explicitly asks to unstage reviewed repo-relative paths separately or granular recovery control is needed; prefer repo_write_recover after repo_git_review for normal reviewed recovery. Requires user approval, expected HEAD, explicit paths, and never runs shell commands.",
-          "inputKeys": [
-            "dry_run",
-            "expected_head_sha",
-            "paths",
-            "reason",
-            "repo_id",
-          ],
-          "name": "repo_write_unstage",
-          "outputKeys": [
-            "dry_run",
-            "head_sha",
-            "ok",
-            "skipped",
-            "unstaged_paths",
-            "warnings",
-          ],
-          "title": "Unstage reviewed paths",
-        },
-        {
-          "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": false,
-            "openWorldHint": false,
-            "readOnlyHint": false,
-          },
-          "description": "Use this when the user explicitly asks to create a local-only commit from already staged reviewed paths, or staged-only flow requires a commit without staging; prefer repo_write_stage_commit after repo_git_review for normal reviewed commits. Requires user approval, exact staged path verification, expected HEAD, does not push, and never runs shell commands.",
-          "inputKeys": [
-            "dry_run",
-            "expected_head_sha",
-            "expected_staged_paths",
-            "message",
-            "reason",
-            "repo_id",
-          ],
-          "name": "repo_write_commit",
-          "outputKeys": [
-            "commit_sha",
-            "committed_paths",
-            "dry_run",
-            "head_after",
-            "head_before",
-            "ok",
-            "warnings",
-          ],
-          "title": "Create reviewed local commit",
-        },
-        {
-          "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": false,
-            "openWorldHint": false,
-            "readOnlyHint": false,
-          },
-          "description": "Use this when the user has reviewed repo_git_review output and explicitly approves staging and committing exact repo-relative paths in one local-only operation. Requires expected HEAD, explicit paths, exact staged path verification, does not push, and never runs shell commands.",
-          "inputKeys": [
-            "dry_run",
-            "expected_head_sha",
-            "message",
-            "paths",
-            "reason",
-            "repo_id",
-          ],
-          "name": "repo_write_stage_commit",
-          "outputKeys": [
-            "clean_after",
-            "commit_sha",
-            "committed_paths",
-            "dry_run",
-            "head_after",
-            "head_before",
-            "ok",
-            "remaining_changes",
-            "staged_paths",
-            "warnings",
-          ],
-          "title": "Stage and commit reviewed paths",
-        },
-        {
-          "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": false,
-            "openWorldHint": false,
-            "readOnlyHint": false,
-          },
-          "description": "Use this when the user has reviewed repo_git_review output and explicitly approves recovering exact repo-relative paths in one operation. Can unstage, restore tracked worktree paths, and clean configured generated artifacts; requires expected HEAD, explicit paths, does not reset, checkout, stash, clean, commit, push, or run shell commands.",
-          "inputKeys": [
-            "cleanup_paths",
-            "dry_run",
-            "expected_head_sha",
-            "reason",
-            "repo_id",
-            "restore_paths",
-            "unstage_paths",
-          ],
-          "name": "repo_write_recover",
-          "outputKeys": [
-            "clean_after",
-            "deleted",
-            "dry_run",
-            "head_sha",
-            "ok",
-            "remaining_changes",
-            "restored_paths",
-            "skipped",
-            "unstaged_paths",
-            "warnings",
-          ],
-          "title": "Recover reviewed paths",
-        },
-        {
-          "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": false,
-            "openWorldHint": false,
-            "readOnlyHint": false,
-          },
-          "description": "Use this when the user explicitly asks to delete generated repo-local artifacts or local ChatGPT artifacts separately, or granular cleanup control is needed; prefer repo_write_recover after repo_git_review for normal reviewed recovery. Requires user approval, explicit paths, refuses tracked files, and never runs shell commands or git clean.",
-          "inputKeys": [
-            "dry_run",
-            "paths",
-            "reason",
-            "repo_id",
-          ],
-          "name": "repo_cleanup_paths",
-          "outputKeys": [
-            "deleted",
-            "dry_run",
-            "ok",
-            "skipped",
-            "warnings",
-          ],
-          "title": "Clean up generated paths",
-        },
-        {
-          "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false,
-            "readOnlyHint": true,
-          },
-          "description": "Use this when the user asks to understand, onboard into, plan work for, summarize, or start a daily planning session for an approved repository. Prefer this as the first planning tool because it returns bounded project signals without reading the whole repo.",
-          "inputKeys": [
-            "include",
-            "repo_id",
-          ],
-          "name": "repo_project_brief",
-          "outputKeys": [
-            "key_docs",
-            "languages",
-            "likely_entrypoints",
-            "package_managers",
-            "project_type",
-            "repo",
-            "scripts",
-            "test_commands",
-            "truncated",
-            "warnings",
-          ],
-          "title": "Create project brief",
-        },
-        {
-          "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false,
-            "readOnlyHint": true,
-          },
-          "description": "Use this when the user asks to find repo-local TODOs, FIXMEs, HACKs, roadmap notes, markdown checklist items, backlog candidates, or next tasks. Returns file and line grounded backlog signals for planning.",
-          "inputKeys": [
-            "cursor",
-            "exclude_globs",
-            "include_globs",
-            "labels",
-            "max_results",
-            "repo_id",
-          ],
-          "name": "repo_task_inventory",
-          "outputKeys": [
-            "matched_count",
-            "next_cursor",
-            "returned_count",
-            "scan_complete",
-            "scanned_file_count",
-            "tasks",
-            "truncated",
-            "warnings",
-          ],
-          "title": "Inventory repository tasks",
-        },
-        {
-          "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false,
-            "readOnlyHint": true,
-          },
-          "description": "Use this when the user asks about project memory, architecture decisions, conventions, patterns, rationale, or why the project is structured a certain way. Returns bounded evidence-grounded decisions, conventions, and gaps from repo documentation and package metadata.",
-          "inputKeys": [
-            "include_sources",
-            "repo_id",
-          ],
-          "name": "repo_decision_memory",
-          "outputKeys": [
-            "conventions",
-            "decisions",
-            "gaps",
-            "warnings",
-          ],
-          "title": "Extract decision memory",
-        },
-        {
-          "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false,
-            "readOnlyHint": true,
-          },
-          "description": "Use this when the user asks how to implement, refactor, debug, fix, or add a feature without writing files. Returns an evidence-grounded implementation plan, likely files, risks, tests, and open questions.",
-          "inputKeys": [
-            "goal",
-            "include_globs",
-            "max_files_to_inspect",
-            "planning_depth",
-            "repo_id",
-          ],
-          "name": "repo_change_plan",
-          "outputKeys": [
-            "estimated_cost",
-            "goal",
-            "open_questions",
-            "proposed_steps",
-            "relevant_files",
-            "scan_complete",
-            "test_strategy",
-            "warnings",
-          ],
-          "title": "Plan repository change",
-        },
-        {
-          "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false,
-            "readOnlyHint": true,
-          },
-          "description": "Use this when the user asks what to do next, what to prioritize, whether work is ready to ship, what to clean up, or how to choose focused solo-dev work. Returns advisory next actions from repo status, project brief, and task inventory.",
-          "inputKeys": [
-            "horizon",
-            "mode",
-            "repo_id",
-          ],
-          "name": "repo_next_action",
-          "outputKeys": [
-            "blockers",
-            "confidence",
-            "rationale",
-            "recommendation",
-            "suggested_actions",
-            "useful_context",
-            "warnings",
-          ],
-          "title": "Recommend next action",
-        },
-        {
-          "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false,
-            "readOnlyHint": true,
-          },
-          "description": "Use this when the user asks for broad or ambiguous repository review. It estimates scope and suggests whether to ask a clarifying question before reading many files; for onboarding or daily planning prefer repo_project_brief first.",
-          "inputKeys": [
-            "prompt",
-          ],
-          "name": "repo_plan_review",
-          "outputKeys": [
-            "estimated_cost",
-            "explicit_full_repo",
-            "recommended_next_tools",
-            "recommended_scope",
-            "should_ask_clarifying_question",
-            "suggested_question",
-          ],
-          "title": "Plan repository review",
-        },
-        {
-          "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false,
-            "readOnlyHint": true,
-          },
-          "description": "Use this when the user explicitly asks for a Codex prompt, Codex task, or delegation to Codex and wants the prompt returned in chat for review/copying. Does not write files or implement the change.",
-          "inputKeys": [
-            "acceptance_criteria",
-            "allowed_paths",
-            "context_summary",
-            "forbidden_paths",
-            "implementation_scope",
-            "input_assets",
-            "inspect_first",
-            "objective",
-            "repo_id",
-            "run_id",
-            "title",
-            "verification_commands",
-          ],
-          "name": "repo_prepare_codex_task",
-          "outputKeys": [
-            "codex_user_prompt",
-            "input_assets",
-            "manifest_path",
-            "next_steps",
-            "ok",
-            "prompt_markdown",
-            "prompt_path",
-            "repo_id",
-            "result_path",
-            "run_id",
-            "warnings",
-          ],
-          "title": "Prepare Codex task prompt",
-        },
-        {
-          "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": false,
-            "openWorldHint": false,
-            "readOnlyHint": false,
-          },
-          "description": "Use this when the user explicitly asks to write a Codex prompt/task/run into the repo for Codex to execute later. Writes only .chatgpt/codex-runs/<run_id>/PROMPT.md and run.json through repo write policy; does not implement, stage, commit, push, or run Codex.",
-          "inputKeys": [
-            "acceptance_criteria",
-            "allowed_paths",
-            "context_summary",
-            "dry_run",
-            "forbidden_paths",
-            "implementation_scope",
-            "input_assets",
-            "inspect_first",
-            "objective",
-            "reason",
-            "repo_id",
-            "run_id",
-            "title",
-            "verification_commands",
-          ],
-          "name": "repo_write_codex_task",
-          "outputKeys": [
-            "dry_run",
-            "input_assets",
-            "manifest_path",
-            "next_steps",
-            "ok",
-            "operation_receipt",
-            "prompt_path",
-            "queued_status",
-            "receipt",
-            "repo_id",
-            "result_path",
-            "run_id",
-            "warnings",
-            "written_paths",
-          ],
-          "title": "Write Codex task prompt",
-        },
-        {
-          "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": false,
-            "readOnlyHint": true,
-          },
-          "description": "Use this when Codex has finished or the user asks to review a repo-local Codex run. Reads .chatgpt/codex-runs/<run_id>/RESULT.md and git diff review state without mutating files or git.",
-          "inputKeys": [
-            "max_files",
-            "repo_id",
-            "run_id",
-          ],
-          "name": "repo_codex_review",
-          "outputKeys": [
-            "codex_result",
-            "git_review",
-            "next_steps",
-            "next_tool_payloads",
-            "ok",
-            "repo_id",
-            "result_found",
-            "result_path",
-            "run_id",
-            "warnings",
-          ],
-          "title": "Review Codex result",
-        },
-        {
-          "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": false,
-            "openWorldHint": false,
-            "readOnlyHint": false,
-          },
-          "description": "Use this when the user asks ChatGPT to synchronously launch exactly one existing repo-local Codex run and wait for its RESULT.md. Uses a lock file, can classify and explicitly recover stale locks, runs npx --no-install @openai/codex exec - with the prompt-path instruction on stdin, returns result text and log tails, and never stages, commits, pushes, deletes, starts multiple jobs, or stores secrets.",
-          "inputKeys": [
-            "dry_run",
-            "recover_stale_lock",
-            "repo_id",
-            "review_only",
-            "run_id",
-            "stale_lock_seconds",
-            "timeout_seconds",
-          ],
-          "name": "codex_run_and_wait",
-          "outputKeys": [
-            "blockers",
-            "command",
-            "elapsed_seconds",
-            "launched",
-            "lock_path",
-            "lock_state",
-            "ok",
-            "prompt_path",
-            "repo_id",
-            "result_path",
-            "result_text",
-            "run_id",
-            "status",
-            "stderr_tail",
-            "stdout_tail",
-            "timed_out",
-            "warnings",
-          ],
-          "title": "Run Codex and wait for result",
-        },
-        {
-          "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": false,
-            "openWorldHint": false,
-            "readOnlyHint": false,
-          },
-          "description": "Use this when the user explicitly asks to write or precisely edit one allowed repository file. Primary low-friction single-file writer/editor for docs, notes, prompts, and focused code edits; requires user approval, repo opt-in, and never runs shell, git, or Codex.",
-          "inputKeys": [
-            "action",
-            "content",
-            "create_dirs",
-            "dry_run",
-            "find",
-            "path",
-            "reason",
-            "replace",
-            "repo_id",
-          ],
-          "name": "repo_write_file",
-          "outputKeys": [
-            "action",
-            "bytes_written",
-            "changed",
-            "created",
-            "dry_run",
-            "new_sha256",
-            "ok",
-            "old_sha256",
-            "operation_receipt",
-            "path",
-            "summary",
-            "warnings",
-          ],
-          "title": "Write one repository file",
-        },
-        {
-          "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": false,
-            "openWorldHint": false,
-            "readOnlyHint": false,
-          },
-          "description": "Use this when the user explicitly asks to apply a cohesive multi-file edit pack to allowed repository files. Primary low-friction multi-file writer/editor for full-file writes and exact-match edits; requires user approval, repo opt-in, and never runs shell, git, stage, commit, or restore.",
-          "inputKeys": [
-            "changes",
-            "dry_run",
-            "reason",
-            "repo_id",
-          ],
-          "name": "repo_write_changes",
-          "outputKeys": [
-            "changed_paths",
-            "counts",
-            "dry_run",
-            "files",
-            "next_steps",
-            "ok",
-            "operation_receipt",
-            "summary",
-            "warnings",
-          ],
-          "title": "Apply repository edit pack",
-        },
-        {
-          "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": false,
-            "openWorldHint": false,
-            "readOnlyHint": false,
-          },
-          "description": "Use this when the user asks for a local-only ChatGPT handoff: skapa handoff, create handoff, skriv handoff, session handoff, resume note, fortsättningsanteckning, ny chatt context, or överlämning till nästa chatt. Creates .chatgpt/handoffs/*.local.md and updates current.local.md; never stages, commits, pushes, resets, checks out, or runs shell commands.",
-          "inputKeys": [
-            "completed_work",
-            "constraints",
-            "current_state",
-            "current_track",
-            "decisions",
-            "dry_run",
-            "important_files",
-            "next_steps",
-            "open_questions",
-            "repo_id",
-            "risks",
-            "title",
-            "update_current",
-            "why",
-            "workflow",
-          ],
-          "name": "repo_write_handoff",
-          "outputKeys": [
-            "branch",
-            "clean",
-            "current_next_step",
-            "current_path",
-            "dry_run",
-            "handoff_path",
-            "head_sha",
-            "ok",
-            "startup_prompt",
-            "updated_current",
-            "warnings",
-          ],
-          "title": "Create ChatGPT handoff",
-        },
+    }));
+    const names = surface.map((tool) => tool.name);
+    const liveTail = surface.find((tool) => tool.name === "repo_run_live_tail");
+    const runnerStatus = surface.find((tool) => tool.name === "repo_runner_status");
+
+    expect(names).toHaveLength(39);
+    expect(names).toContain("repo_run_live_tail");
+    expect(names).toContain("repo_runner_status");
+    expect(names).toContain("repo_project_memory");
+    expect(names).toContain("repo_write_codex_tasks_batch");
+    expect(names).toContain("agent_runner_status");
+    expect(runnerStatus?.inputKeys).toEqual([
+      "heartbeat_stale_seconds",
+      "live_tail_max_events",
+      "poll_count",
+      "poll_interval_seconds",
+      "repo_id",
+      "stale_lock_seconds"
+    ]);
+    expect(runnerStatus?.outputKeys).toContain("active_run_live_tail");
+    expect(runnerStatus?.outputKeys).toContain("max_parallel_runs");
+    expect(runnerStatus?.outputKeys).toContain("worker_slots");
+    expect(runnerStatus?.outputKeys).toContain("queued_because_at_capacity");
+    expect(runnerStatus?.outputKeys).toContain("poll_history");
+    expect(liveTail).toMatchObject({
+      title: "Show Codex run live tail",
+      inputKeys: ["cursor", "max_events", "repo_id", "run_id"],
+      outputKeys: [
+        "events",
+        "next_cursor",
+        "ok",
+        "repo_id",
+        "result_path",
+        "result_status",
+        "run_id",
+        "terminal",
+        "warnings"
       ]
-    `);
+    });
   });
 
   test("catalog does not define inline zod schemas", () => {

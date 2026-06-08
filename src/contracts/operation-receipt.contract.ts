@@ -16,7 +16,7 @@ const ReceiptCountsSchema = z.object({
 export const OperationReceiptSchema = z.object({
   schema_version: z.literal(1).describe("Receipt schema version."),
   operation_id: z.string().describe("Stable identifier for this local write operation receipt."),
-  tool: z.enum(["repo_write_file", "repo_write_changes"]).describe("Write tool that produced the receipt."),
+  tool: z.enum(["repo_write_file", "repo_write_changes", "repo_write_codex_task", "repo_write_codex_tasks_batch"]).describe("Write tool that produced the receipt."),
   repo_id: z.string().describe("Repository id used by the write tool."),
   timestamp: z.string().datetime().describe("UTC timestamp when the receipt was written."),
   head_sha_before: z.string().optional().describe("Best-effort git HEAD SHA observed before the write."),
