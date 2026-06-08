@@ -35,6 +35,7 @@ pnpm-debug.log*
 !.env.example
 config.local.json
 *.local.json
+public-path-token.txt
 
 # Test artifacts
 playwright-report/
