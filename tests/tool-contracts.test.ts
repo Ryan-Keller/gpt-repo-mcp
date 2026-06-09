@@ -53,6 +53,7 @@ describe("tool catalog contracts", () => {
       "agent_runner_status",
       "repo_runner_status",
       "repo_run_live_tail",
+      "repo_connector_whoami",
       "repo_vision_routes",
       "repo_policy_explain",
       "repo_last_write",
@@ -793,9 +794,10 @@ describe("tool catalog contracts", () => {
     const liveTail = surface.find((tool) => tool.name === "repo_run_live_tail");
     const runnerStatus = surface.find((tool) => tool.name === "repo_runner_status");
 
-    expect(names).toHaveLength(39);
+    expect(names).toHaveLength(40);
     expect(names).toContain("repo_run_live_tail");
     expect(names).toContain("repo_runner_status");
+    expect(names).toContain("repo_connector_whoami");
     expect(names).toContain("repo_project_memory");
     expect(names).toContain("repo_write_codex_tasks_batch");
     expect(names).toContain("agent_runner_status");
@@ -807,8 +809,9 @@ describe("tool catalog contracts", () => {
       "repo_id",
       "stale_lock_seconds"
     ]);
-    expect(runnerStatus?.outputKeys).toContain("active_run_live_tail");
-    expect(runnerStatus?.outputKeys).toContain("max_parallel_runs");
+      expect(runnerStatus?.outputKeys).toContain("active_run_live_tail");
+      expect(runnerStatus?.outputKeys).toContain("connector_identity");
+      expect(runnerStatus?.outputKeys).toContain("max_parallel_runs");
     expect(runnerStatus?.outputKeys).toContain("worker_slots");
     expect(runnerStatus?.outputKeys).toContain("queued_because_at_capacity");
     expect(runnerStatus?.outputKeys).toContain("poll_history");

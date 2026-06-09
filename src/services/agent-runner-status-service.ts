@@ -2,6 +2,7 @@ import { mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promi
 import { join } from "node:path";
 import type { AgentRunnerStatusInput, AgentRunnerStatusResult, RunLiveTailInput, RunLiveTailResult } from "../contracts/agent-runner.contract.js";
 import { getConnectorDiagnostics } from "../runtime/connector-session.js";
+import { buildConnectorIdentitySnapshot } from "../runtime/connector-identity.js";
 
 const ACTIVE_HEARTBEAT_STATUSES = new Set(["starting", "polling", "running", "completed_run"]);
 const EVENT_LOG_PATH = ".chatgpt/events/bridge-events.jsonl";
@@ -133,6 +134,7 @@ export class AgentRunnerStatusService {
     const staleLockSeconds = input.stale_lock_seconds ?? 900;
     const heartbeat = await this.readHeartbeat(heartbeatStaleSeconds);
     const connector = getConnectorDiagnostics();
+    const connectorIdentity = buildConnectorIdentitySnapshot();
     const runs = await this.classifyRuns(staleLockSeconds);
     const counts = countRuns(runs);
     const runnerState = heartbeat.alive ? "alive" : heartbeat.exists && heartbeat.age_seconds !== null ? "stale" : "dead";
@@ -290,6 +292,7 @@ export class AgentRunnerStatusService {
       tool_catalog_hash: connector.tool_catalog_hash,
       contract_schema_version: connector.contract_schema_version,
       auth_status: connector.auth_status,
+      connector_identity: connectorIdentity,
       runner_state: runnerState,
       runner,
       worker,

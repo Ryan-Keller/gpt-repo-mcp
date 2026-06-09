@@ -4,6 +4,7 @@ import { join } from "node:path";
 import { toolCatalog } from "../tools/catalog.js";
 import { buildToolCatalogDiagnostic } from "./tool-catalog-diagnostic.js";
 import { getRequestTelemetry, type RequestTelemetryContext } from "./telemetry.js";
+import { buildConnectorIdentitySnapshot, type ConnectorIdentitySnapshot } from "./connector-identity.js";
 
 const EVENT_LOG_PATH = ".chatgpt/events/bridge-events.jsonl";
 
@@ -46,6 +47,7 @@ export type BridgeObservabilitySnapshot = {
   last_tool_error_observed_at: string;
   suspected_failure_layer: string;
   suggested_next_action: string;
+  connector_identity: ConnectorIdentitySnapshot;
 };
 
 export class BridgeRuntimeDiagnostics {
@@ -89,7 +91,8 @@ export class BridgeRuntimeDiagnostics {
       last_tool_error_message: this.lastToolErrorMessage,
       last_tool_error_observed_at: this.lastToolErrorObservedAt,
       suspected_failure_layer: suspected,
-      suggested_next_action: suggestedActionForLayer(suspected)
+      suggested_next_action: suggestedActionForLayer(suspected),
+      connector_identity: buildConnectorIdentitySnapshot()
     };
   }
 

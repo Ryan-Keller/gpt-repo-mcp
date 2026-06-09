@@ -137,7 +137,12 @@ describe("MCP contract", () => {
         ],
         bridge_observability: expect.objectContaining({
           transport_type: "streamable_http",
-          suggested_next_action: expect.any(String)
+          suggested_next_action: expect.any(String),
+          connector_identity: expect.objectContaining({
+            auth_mode: expect.any(String),
+            server_catalog_has_repo_connector_whoami: true,
+            callable_surface_warning: expect.stringContaining("repo_connector_whoami")
+          })
         })
       });
       expect(result.content?.[0]).toMatchObject({
@@ -268,7 +273,12 @@ describe("MCP contract", () => {
           last_tool_error_message: expect.any(String),
           last_tool_error_observed_at: expect.any(String),
           suspected_failure_layer: expect.any(String),
-          suggested_next_action: expect.any(String)
+          suggested_next_action: expect.any(String),
+          connector_identity: expect.objectContaining({
+            auth_mode: expect.any(String),
+            chatgpt_callable_surface_verified: false,
+            server_catalog_has_repo_connector_whoami: true
+          })
         },
         repos: [
           {

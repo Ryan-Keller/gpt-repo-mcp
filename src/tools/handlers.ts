@@ -33,6 +33,7 @@ import { createErrorEnvelope, createSuccessEnvelope } from "../runtime/result-en
 import { toRepoReaderError } from "../runtime/errors.js";
 import { audit, getRequestTelemetry, type RequestTelemetryContext } from "../runtime/telemetry.js";
 import { getConnectorDiagnostics } from "../runtime/connector-session.js";
+import { buildConnectorIdentitySnapshot } from "../runtime/connector-identity.js";
 import type { RuntimeContext } from "../runtime/context.js";
 import type { AgentRunnerStatusInput, RunLiveTailInput } from "../contracts/agent-runner.contract.js";
 import type { SearchOptions } from "../services/search-service.js";
@@ -98,7 +99,8 @@ export const listRootsHandler: ToolHandler = async (_input, context) => {
     last_tool_error_message: "",
     last_tool_error_observed_at: "",
     suspected_failure_layer: "none_observed",
-    suggested_next_action: "observe_only"
+    suggested_next_action: "observe_only",
+    connector_identity: buildConnectorIdentitySnapshot()
   };
   const bridgeObservability = {
     ...baseBridgeObservability,

@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ConnectorIdentitySnapshotSchema } from "./connector-identity.contract.js";
 
 export const RepoInputSchema = z.object({
   repo_id: z.string().min(1).describe("Stable approved repository id from repo_list_roots.")
@@ -132,7 +133,8 @@ const BridgeObservabilitySchema = z.object({
   last_tool_error_message: z.string(),
   last_tool_error_observed_at: z.string(),
   suspected_failure_layer: z.string(),
-  suggested_next_action: z.string()
+  suggested_next_action: z.string(),
+  connector_identity: ConnectorIdentitySnapshotSchema
 });
 
 export const RepoSummarySchema = z.object({

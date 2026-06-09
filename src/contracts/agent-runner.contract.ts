@@ -1,4 +1,5 @@
 import { z } from "zod";
+import { ConnectorIdentitySnapshotSchema } from "./connector-identity.contract.js";
 import { RepoInputSchema } from "./repo.contract.js";
 
 export const AgentRunnerStatusInputSchema = RepoInputSchema.extend({
@@ -94,6 +95,7 @@ export const AgentRunnerStatusResultSchema = z.object({
   tool_catalog_hash: z.string(),
   contract_schema_version: z.string(),
   auth_status: z.string(),
+  connector_identity: ConnectorIdentitySnapshotSchema,
   runner_state: z.enum(["alive", "dead", "stale"]),
   runner: z.enum(["alive", "dead", "stale", "unknown"]),
   worker: z.enum(["running", "not_running", "unknown"]),
