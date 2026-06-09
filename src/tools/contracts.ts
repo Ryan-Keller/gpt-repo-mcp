@@ -3,6 +3,7 @@ import { AgentRunnerStatusInputSchema, AgentRunnerStatusResultSchema, RunLiveTai
 import { ChangePlanInputSchema, ChangePlanResultSchema } from "../contracts/change-plan.contract.js";
 import { CleanupPathsInputSchema, CleanupPathsResultSchema } from "../contracts/cleanup.contract.js";
 import { CodexReviewInputSchema, CodexReviewResultSchema, CodexRunAndWaitInputSchema, CodexRunAndWaitResultSchema, CodexTaskBatchWriteInputSchema, CodexTaskBatchWriteResultSchema, CodexTaskInputSchema, CodexTaskResultSchema, CodexTaskWriteInputSchema, CodexTaskWriteResultSchema } from "../contracts/codex-task.contract.js";
+import { ConnectorWhoamiInputSchema, ConnectorWhoamiResultSchema } from "../contracts/connector-whoami.contract.js";
 import { DecisionLogInputSchema, DecisionLogResultSchema } from "../contracts/decision.contract.js";
 import { FetchFileInputSchema, FileContentSchema, ReadManyInputSchema, ReadManyResultSchema } from "../contracts/file.contract.js";
 import { GitCommitInputSchema, GitCommitResultSchema, GitRecoverInputSchema, GitRecoverResultSchema, GitRestorePathsInputSchema, GitRestorePathsResultSchema, GitStageCommitInputSchema, GitStageCommitResultSchema, GitStageInputSchema, GitStageResultSchema, GitUnstageInputSchema, GitUnstageResultSchema } from "../contracts/git-operations.contract.js";
@@ -27,6 +28,7 @@ export type ToolName =
   | "agent_runner_status"
   | "repo_runner_status"
   | "repo_run_live_tail"
+  | "repo_connector_whoami"
   | "repo_vision_routes"
   | "repo_policy_explain"
   | "repo_last_write"
@@ -84,6 +86,10 @@ export const toolContracts = {
   repo_run_live_tail: {
     input: RunLiveTailInputSchema,
     output: RunLiveTailResultSchema
+  },
+  repo_connector_whoami: {
+    input: ConnectorWhoamiInputSchema,
+    output: ConnectorWhoamiResultSchema
   },
   repo_vision_routes: {
     input: VisionRouteInputSchema,

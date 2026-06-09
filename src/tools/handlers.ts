@@ -31,7 +31,7 @@ import { WritePolicy } from "../services/write-policy.js";
 import { OperationReceiptService } from "../services/operation-receipt-service.js";
 import { createErrorEnvelope, createSuccessEnvelope } from "../runtime/result-envelope.js";
 import { toRepoReaderError } from "../runtime/errors.js";
-import { audit } from "../runtime/telemetry.js";
+import { audit, getRequestTelemetry, type RequestTelemetryContext } from "../runtime/telemetry.js";
 import { getConnectorDiagnostics } from "../runtime/connector-session.js";
 import type { RuntimeContext } from "../runtime/context.js";
 import type { AgentRunnerStatusInput, RunLiveTailInput } from "../contracts/agent-runner.contract.js";
@@ -53,6 +53,7 @@ import type { GitCommitInput, GitRecoverInput, GitRestorePathsInput, GitStageCom
 import type { GitReviewInput } from "../contracts/git-review.contract.js";
 import type { CleanupPathsInput } from "../contracts/cleanup.contract.js";
 import type { HandoffInput } from "../contracts/handoff.contract.js";
+import type { ConnectorWhoamiResult } from "../contracts/connector-whoami.contract.js";
 
 type RepoInput = { repo_id: string };
 type ReadManyInput = RepoInput & {
@@ -182,6 +183,94 @@ export const runLiveTailHandler: ToolHandler = async (input, context) => safeToo
     : `No live-tail events found for ${args.run_id}.`;
   return createSuccessEnvelope(result, summary, { warnings: result.warnings });
 });
+
+export const connectorWhoamiHandler: ToolHandler = async (_input, _context) => {
+  const telemetry = getRequestTelemetry();
+  const observedAt = new Date().toISOString();
+  const routeTokenValid = telemetry?.route_token_valid === true;
+  const authorizationHeaderPresent = telemetry?.authorization_header_present === true;
+  const bridgeAuthHeaderPresent = telemetry?.bridge_auth_header_present === true;
+  const cloudflareAccessCandidate = telemetry?.cloudflare_access_email_present === true ||
+    telemetry?.cloudflare_access_jwt_present === true;
+  const callerHint = routeTokenValid
+    ? "tokenized_route"
+    : authorizationHeaderPresent || bridgeAuthHeaderPresent
+      ? "header_auth_candidate"
+      : cloudflareAccessCandidate
+        ? "cloudflare_access_candidate"
+        : "public_or_unknown";
+  const result: ConnectorWhoamiResult = {
+    ok: true,
+    observed_at: observedAt,
+    bridge_process_id: process.pid,
+    bridge_started_at: getConnectorDiagnostics().server_started_at,
+    route: telemetry?.route ?? "unknown",
+    http_method: telemetry?.http_method ?? "unknown",
+    mcp_method: telemetry?.mcp_method ?? "unknown",
+    mcp_tool: telemetry?.mcp_tool ?? "unknown",
+    mcp_session: telemetry?.mcp_session ?? "unknown",
+    session_fingerprint: telemetry?.session_fingerprint ?? "",
+    authentication_required: true,
+    auth_status: getConnectorDiagnostics().auth_status,
+    path_token_connector_auth: process.env.BRIDGE_ALLOW_PATH_TOKEN_CONNECTOR_AUTH === "1" ||
+      process.env.GPT_REPO_ALLOW_PATH_TOKEN_CONNECTOR_AUTH === "1" ? "enabled" : "disabled",
+    public_path_token_configured: Boolean(process.env.GPT_REPO_PUBLIC_PATH_TOKEN || process.env.REPO_READER_PUBLIC_PATH_TOKEN),
+    route_token_present: telemetry?.route_token_present === true,
+    route_token_valid: routeTokenValid,
+    authorization_header_present: authorizationHeaderPresent,
+    bridge_auth_header_present: bridgeAuthHeaderPresent,
+    cloudflare_access_email_present: telemetry?.cloudflare_access_email_present === true,
+    cloudflare_access_jwt_present: telemetry?.cloudflare_access_jwt_present === true,
+    cf_ray_present: telemetry?.cf_ray_present === true,
+    forwarded_proto: telemetry?.forwarded_proto ?? "",
+    caller_classification_hint: callerHint,
+    interpretation: connectorWhoamiInterpretation(callerHint, telemetry),
+    suggested_next_action: connectorWhoamiNextAction(callerHint, telemetry)
+  };
+  audit({ tool: "repo_connector_whoami" });
+  return createSuccessEnvelope(
+    result,
+    `Connector route=${result.route}; session=${result.mcp_session}; auth_header=${result.authorization_header_present || result.bridge_auth_header_present ? "present" : "missing"}; route_token_valid=${result.route_token_valid}; cloudflare_access=${result.cloudflare_access_email_present || result.cloudflare_access_jwt_present ? "present" : "missing"}.`
+  );
+};
+
+function connectorWhoamiInterpretation(
+  callerHint: ConnectorWhoamiResult["caller_classification_hint"],
+  telemetry: RequestTelemetryContext | undefined
+): string {
+  if (callerHint === "tokenized_route") {
+    return "This tool call arrived through the tokenized MCP route. If tool discovery works but later calls terminate, refresh the connector URL and start a fresh ChatGPT session.";
+  }
+  if (callerHint === "header_auth_candidate") {
+    return "This tool call included an app auth header candidate. Header-auth /mcp mode may be viable for this connector path.";
+  }
+  if (callerHint === "cloudflare_access_candidate") {
+    return "This request appears to include Cloudflare Access identity material, but the bridge is intentionally reporting presence only, not identity values.";
+  }
+  if (telemetry?.mcp_session === "missing") {
+    return "The request did not include an MCP session id. This can be normal for initialize, but repeated missing sessions on tool calls explain Session terminated symptoms.";
+  }
+  return "No stable connector identity signal was observed beyond the MCP transport request.";
+}
+
+function connectorWhoamiNextAction(
+  callerHint: ConnectorWhoamiResult["caller_classification_hint"],
+  telemetry: RequestTelemetryContext | undefined
+): string {
+  if (callerHint === "tokenized_route") {
+    return "Use the current rotated /t/[token]/mcp connector URL and treat it as a secret; if stale, update the connector URL.";
+  }
+  if (callerHint === "header_auth_candidate") {
+    return "Consider testing /mcp header-auth mode in a fresh connector session.";
+  }
+  if (callerHint === "cloudflare_access_candidate") {
+    return "If this identity is stable, consider moving access control to Cloudflare Access or a small broker.";
+  }
+  if (telemetry?.mcp_session === "missing") {
+    return "Start a fresh ChatGPT connector session and retry repo_connector_whoami before runner-status calls.";
+  }
+  return "Keep tokenized connector mode or build a broker that injects stable auth on behalf of ChatGPT.";
+}
 
 export const visionRoutesHandler: ToolHandler = async (input, context) => safeTool<VisionRouteInput>("repo_vision_routes", input, context, async (args) => {
   context.registry.get(args.repo_id);

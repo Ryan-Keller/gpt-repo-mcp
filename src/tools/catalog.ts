@@ -5,6 +5,7 @@ import {
   changePlanHandler,
   cleanupPathsHandler,
   agentRunnerStatusHandler,
+  connectorWhoamiHandler,
   codexReviewHandler,
   codexRunAndWaitHandler,
   decisionMemoryHandler,
@@ -89,6 +90,15 @@ export const toolCatalog: ToolDefinition[] = [
     outputSchema: toolContracts.repo_run_live_tail.output,
     annotations: readOnlyAnnotations,
     handler: runLiveTailHandler
+  },
+  {
+    name: "repo_connector_whoami",
+    title: "Diagnose connector identity",
+    description: descriptions.repo_connector_whoami,
+    inputSchema: toolContracts.repo_connector_whoami.input,
+    outputSchema: toolContracts.repo_connector_whoami.output,
+    annotations: readOnlyAnnotations,
+    handler: connectorWhoamiHandler
   },
   {
     name: "repo_vision_routes",

@@ -10,6 +10,14 @@ export type RequestTelemetryContext = {
   session_fingerprint?: string;
   mcp_method?: string;
   mcp_tool?: string;
+  route_token_present?: boolean;
+  route_token_valid?: boolean;
+  authorization_header_present?: boolean;
+  bridge_auth_header_present?: boolean;
+  cloudflare_access_email_present?: boolean;
+  cloudflare_access_jwt_present?: boolean;
+  cf_ray_present?: boolean;
+  forwarded_proto?: string;
 };
 
 export type AuditEvent = {

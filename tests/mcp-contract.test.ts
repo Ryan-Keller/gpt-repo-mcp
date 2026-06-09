@@ -78,9 +78,10 @@ describe("MCP contract", () => {
       const liveTail = surface.find((tool) => tool.name === "repo_run_live_tail");
       const runnerStatus = surface.find((tool) => tool.name === "repo_runner_status");
 
-      expect(names).toHaveLength(39);
+      expect(names).toHaveLength(40);
       expect(names).toContain("repo_run_live_tail");
       expect(names).toContain("repo_runner_status");
+      expect(names).toContain("repo_connector_whoami");
       expect(names).toContain("repo_project_memory");
       expect(names).toContain("repo_write_codex_tasks_batch");
       expect(names).toContain("agent_runner_status");

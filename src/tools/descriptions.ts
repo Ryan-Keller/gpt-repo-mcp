@@ -7,6 +7,8 @@ export const descriptions = {
     "Use this when the user asks to show runner status, check whether Codex is actually working, inspect an active run, monitor live-tail progress, or verify Shared Agent Bridge worker health. Supports bounded bridge-side polling with poll_count and poll_interval_seconds to avoid rapid repeated connector calls. Stable read-only runner status tool for ChatGPT; never launches Codex, mutates files, stages, commits, pushes, deletes, clears locks, or runs shell commands.",
   repo_run_live_tail:
     "Use this when the user asks what an active or recent Shared Agent Bridge Codex run is doing. Reads .chatgpt/codex-runs/<run_id>/events.jsonl and safe log tails only; never launches Codex, mutates files, stages, commits, pushes, deletes, clears locks, or runs shell commands.",
+  repo_connector_whoami:
+    "Use this when diagnosing ChatGPT connector identity, session termination, auth header behavior, Cloudflare Access behavior, tokenized route usage, or whether discovery and tool calls are using the same MCP route. Returns redacted request facts only; never exposes tokens, emails, prompts, repo contents, local paths, or secrets.",
   repo_vision_routes:
     "Use this when the user asks whether local Google/Gemini/Gemma/Ollama vision analysis is actually configured. Read-only detector that reports observed routes and typed missing capabilities without printing secrets, launching Codex, staging, committing, pushing, deleting, or mutating files.",
   repo_policy_explain:

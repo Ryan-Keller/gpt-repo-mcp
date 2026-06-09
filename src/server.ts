@@ -37,6 +37,7 @@ import {
 } from "./runtime/telemetry.js";
 
 const port = Number(process.env.PORT ?? 8787);
+const host = process.env.GPT_REPO_HOST ?? process.env.HOST ?? "127.0.0.1";
 const configPath = process.env.GPT_REPO_CONFIG ?? process.env.REPO_READER_CONFIG;
 const publicPathToken = process.env.GPT_REPO_PUBLIC_PATH_TOKEN ?? process.env.REPO_READER_PUBLIC_PATH_TOKEN;
 const authToken = process.env.BRIDGE_AUTH_TOKEN ?? process.env.GPT_REPO_AUTH_TOKEN ?? process.env.REPO_READER_AUTH_TOKEN;
@@ -171,12 +172,53 @@ app.get("/tool-catalog", async (req, res) => {
   res.json(buildToolCatalogDiagnostic({ startedAt, buildTimestamp, toolCatalog }));
 });
 
+app.get("/whoami", async (req, res) => {
+  const decision = authorizeHttpRequest(req, "GET /whoami", "authenticated_read");
+  const publicTokenPath = req.path.startsWith("/t/") && req.path.endsWith("/whoami");
+  const routeTokenValid = publicTokenPath && isPublicWhoamiTokenPath(req.path);
+  if (!decision.allowed) {
+    await recordSecurityDecision(decision, "auth_denied", "warning");
+    res.status(decision.http_status).json(deniedStatus(decision));
+    return;
+  }
+  await recordSecurityDecision(decision, "auth_allowed", "info");
+  res.json(buildWhoamiDiagnostic(req, {
+    route: "/whoami",
+    routeTokenPresent: publicTokenPath,
+    routeTokenValid
+  }));
+});
+
+app.get("/t/:publicPathToken/whoami", async (req, res) => {
+  const routeTokenValid = isPublicWhoamiTokenPath(req.path);
+  const decision = authorizeBridgeRequest({
+    config: authConfig,
+    accessTier: "authenticated_read",
+    operation: "GET /whoami",
+    headers: req.headers,
+    remoteAddress: req.ip || req.socket.remoteAddress,
+    publicPathTokenAuthenticated: routeTokenValid
+  });
+  if (!decision.allowed) {
+    await recordSecurityDecision(decision, "auth_denied", "warning");
+    res.status(decision.http_status).json(deniedStatus(decision));
+    return;
+  }
+  await recordSecurityDecision(decision, "auth_allowed", "info");
+  res.json(buildWhoamiDiagnostic(req, {
+    route: "/t/[token]/whoami",
+    routeTokenPresent: true,
+    routeTokenValid
+  }));
+});
+
 function createMcpRequestContext(req: Request): RequestTelemetryContext {
   const method = typeof req.body?.method === "string" ? req.body.method : undefined;
   const tool =
     method === "tools/call" && typeof req.body?.params?.name === "string"
       ? req.body.params.name
       : undefined;
+  const publicTokenPath = req.path.startsWith("/t/") && req.path.endsWith("/mcp");
 
   return {
     request_id: createRequestId(),
@@ -185,7 +227,16 @@ function createMcpRequestContext(req: Request): RequestTelemetryContext {
     mcp_session: typeof req.headers["mcp-session-id"] === "string" ? "present" : "missing",
     session_fingerprint: sessionFingerprint(typeof req.headers["mcp-session-id"] === "string" ? req.headers["mcp-session-id"] : undefined),
     mcp_method: method,
-    mcp_tool: tool
+    mcp_tool: tool,
+    route_token_present: publicTokenPath,
+    route_token_valid: publicTokenPath && isPublicTokenMcpPath(req.path, publicPathToken),
+    authorization_header_present: typeof req.headers.authorization === "string",
+    bridge_auth_header_present: typeof req.headers["x-bridge-auth-token"] === "string" ||
+      typeof req.headers["x-gpt-repo-auth-token"] === "string",
+    cloudflare_access_email_present: typeof req.headers["cf-access-authenticated-user-email"] === "string",
+    cloudflare_access_jwt_present: typeof req.headers["cf-access-jwt-assertion"] === "string",
+    cf_ray_present: typeof req.headers["cf-ray"] === "string",
+    forwarded_proto: typeof req.headers["x-forwarded-proto"] === "string" ? req.headers["x-forwarded-proto"] : ""
   };
 }
 
@@ -235,6 +286,62 @@ function buildDetailedHealth() {
     path_token_connector_auth: authConfig.allowPathTokenConnectorAuth ? "enabled" : "disabled",
     connector: getConnectorDiagnostics()
   };
+}
+
+function buildWhoamiDiagnostic(req: Request, input: {
+  route: string;
+  routeTokenPresent: boolean;
+  routeTokenValid: boolean;
+}) {
+  const authorizationHeaderPresent = typeof req.headers.authorization === "string";
+  const bridgeAuthHeaderPresent = typeof req.headers["x-bridge-auth-token"] === "string" ||
+    typeof req.headers["x-gpt-repo-auth-token"] === "string";
+  const cloudflareAccessEmailPresent = typeof req.headers["cf-access-authenticated-user-email"] === "string";
+  const cloudflareAccessJwtPresent = typeof req.headers["cf-access-jwt-assertion"] === "string";
+  const callerHint = input.routeTokenValid
+    ? "tokenized_route"
+    : authorizationHeaderPresent || bridgeAuthHeaderPresent
+      ? "header_auth_candidate"
+      : cloudflareAccessEmailPresent || cloudflareAccessJwtPresent
+        ? "cloudflare_access_candidate"
+        : "public_or_unknown";
+  return {
+    ok: true,
+    observed_at: new Date().toISOString(),
+    bridge_process_id: process.pid,
+    bridge_started_at: startedAt,
+    route: input.route,
+    http_method: req.method,
+    authentication_required: authConfig.authRequired,
+    auth_status: authConfig.tokenConfigured ? "configured" : authConfig.publicExposure ? "missing_public_mode" : "local_dev_unauthenticated",
+    path_token_connector_auth: authConfig.allowPathTokenConnectorAuth ? "enabled" : "disabled",
+    public_path_token_configured: Boolean(publicPathToken),
+    route_token_present: input.routeTokenPresent,
+    route_token_valid: input.routeTokenValid,
+    authorization_header_present: authorizationHeaderPresent,
+    bridge_auth_header_present: bridgeAuthHeaderPresent,
+    cloudflare_access_email_present: cloudflareAccessEmailPresent,
+    cloudflare_access_jwt_present: cloudflareAccessJwtPresent,
+    cf_ray_present: typeof req.headers["cf-ray"] === "string",
+    forwarded_proto: typeof req.headers["x-forwarded-proto"] === "string" ? req.headers["x-forwarded-proto"] : "",
+    caller_classification_hint: callerHint,
+    interpretation: "This endpoint reports presence/absence of connector identity signals only. It never returns token, email, JWT, cookie, or header values.",
+    suggested_next_action: callerHint === "tokenized_route"
+      ? "Tokenized connector compatibility mode is in use; treat the full URL as a secret."
+      : callerHint === "header_auth_candidate"
+        ? "Header-auth /mcp mode may be viable for this connector path."
+        : callerHint === "cloudflare_access_candidate"
+          ? "Cloudflare Access identity material is present; evaluate whether it is stable enough for policy."
+          : "No stable identity signal observed; use tokenized route or a broker."
+  };
+}
+
+function isPublicWhoamiTokenPath(path: string): boolean {
+  if (!publicPathToken || !path.startsWith("/t/") || !path.endsWith("/whoami")) {
+    return false;
+  }
+  const expected = `/t/${encodeURIComponent(publicPathToken)}/whoami`;
+  return path === expected;
 }
 
 function authorizeHttpRequest(req: Request, operation: string, accessTier: AccessTier): BridgeAuthorizationDecision {
@@ -621,7 +728,7 @@ app.delete(mcpRoutePatterns, async (req: Request, res: Response) => {
   });
 });
 
-app.listen(port, () => {
+app.listen(port, host, () => {
   const localPath = publicPathToken ? "/t/[token]/mcp" : "/mcp";
-  console.error(`gpt-repo-mcp listening on http://localhost:${port}${localPath}`);
+  console.error(`gpt-repo-mcp listening on http://${host}:${port}${localPath}`);
 });
