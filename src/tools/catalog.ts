@@ -21,7 +21,6 @@ import {
   lastWriteHandler,
   listRootsHandler,
   nextActionHandler,
-  planReviewHandler,
   prepareCodexTaskHandler,
   projectBriefHandler,
   projectMemoryHandler,
@@ -343,15 +342,6 @@ export const toolCatalog: ToolDefinition[] = [
     outputSchema: toolContracts.repo_next_action.output,
     annotations: readOnlyAnnotations,
     handler: nextActionHandler
-  },
-  {
-    name: "repo_plan_review",
-    title: "Plan repository review",
-    description: descriptions.repo_plan_review,
-    inputSchema: toolContracts.repo_plan_review.input,
-    outputSchema: toolContracts.repo_plan_review.output,
-    annotations: readOnlyAnnotations,
-    handler: planReviewHandler
   },
   {
     name: "repo_prepare_codex_task",

@@ -12,7 +12,9 @@ export const AgentRunnerStatusInputSchema = RepoInputSchema.extend({
   poll_count: z.number().int().min(1).max(4).optional()
     .describe("Number of fresh internal status polls to perform. Defaults to 1; maximum 4."),
   poll_interval_seconds: z.number().int().min(5).max(15).optional()
-    .describe("Seconds to wait between internal polls when poll_count is greater than 1. Defaults to 10.")
+    .describe("Seconds to wait between internal polls when poll_count is greater than 1. Defaults to 10."),
+  detail: z.enum(["summary", "full"]).optional()
+    .describe("Payload detail level. Defaults to summary, which keeps status concise and omits bulky result/event bodies. Use full only when debugging or reviewing detailed evidence.")
 });
 
 export const RunLiveTailInputSchema = RepoInputSchema.extend({
@@ -82,6 +84,9 @@ const PollHistoryEntrySchema = z.object({
 export const AgentRunnerStatusResultSchema = z.object({
   ok: z.boolean(),
   repo_id: z.string(),
+  detail_level: z.enum(["summary", "full"]),
+  details_truncated: z.boolean(),
+  full_detail_hint: z.string(),
   connector_status: z.enum(["unknown", "healthy", "degraded", "terminated", "stale"]),
   last_connector_success_at: z.string(),
   last_connector_error_at: z.string(),

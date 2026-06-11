@@ -47,6 +47,20 @@ async function fixtureRoot(): Promise<string> {
     "- Real camera capture remains out of scope.",
     "- Automatic patch execution remains out of scope."
   ].join("\n"), "utf8");
+  await writeFile(join(root, "shared", "status", "2026-06-11-bridge-concierge-tool.md"), [
+    "# Bridge Concierge Tool",
+    "",
+    "status: completed",
+    "date: 2026-06-11",
+    "",
+    "## Summary",
+    "",
+    "Added a concierge tool with examples like check visual streaming and What happened overnight.",
+    "",
+    "## Boundary",
+    "",
+    "- Does not replace project or capability destination status."
+  ].join("\n"), "utf8");
   return root;
 }
 
@@ -61,7 +75,8 @@ describe("BridgeConciergeService", () => {
 
     expect(result.ok).toBe(true);
     expect(result.mode).toBe("destination_status");
-    expect(result.destination.label).toBe("Visual Stream Renderer Witness Hybrid V0");
+    expect(result.destination.label).toBe("Visual Streaming Project");
+    expect(result.destination.kind).toBe("project");
     expect(result.current_status).toContain("completed");
     expect(result.latest_progress[0]).toContain("Visual Stream Renderer Witness Hybrid V0");
     expect(result.open_issues).toEqual(expect.arrayContaining([

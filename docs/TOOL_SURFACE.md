@@ -469,18 +469,6 @@ Example:
 { "repo_id": "example-repo", "mode": "ship", "horizon": "today" }
 ```
 
-### `repo_plan_review`
-
-Plans broad or ambiguous review requests before expensive repo reading.
-
-Input: `prompt`.
-Output: clarifying-question flag, optional suggested question, recommended next tools, recommended scope, estimated cost, and `explicit_full_repo`.
-Example:
-
-```json
-{ "prompt": "Gör en komplett fullständig analys av hela repo:t" }
-```
-
 ### `repo_prepare_codex_task`
 
 Renders a Codex-optimized task prompt without writing files. Use this only when the user explicitly asks for a Codex prompt, Codex task, delegation to Codex, or a prompt they can review/copy into Codex. Direct ChatGPT implementation remains the default for normal "fix" or "implement" requests.
@@ -533,6 +521,7 @@ Queue visibility:
 
 - The local worker drains pending run directories one at a time.
 - `repo_runner_status`, `agent_runner_status`, and the `repo_list_roots.runner_status` fallback expose `queue_entries`.
+- `repo_runner_status` defaults to `detail: "summary"` so normal health checks stay compact. Use `detail: "full"` only when the complete queue list, result bodies, event payloads, or live-tail text are needed.
 - Each queue entry includes `run_id`, `state`, prompt/run/result/lock paths, `result_status`, `result_md_exists`, `ready_result_available`, and whether the entry is terminal.
 - ChatGPT should use `queue_entries` to distinguish pending, active, stale, blocked, and completed work without creating duplicate replacement runs.
 
@@ -736,7 +725,7 @@ Recover bad reviewed changes:
 
 Broad review:
 
-1. `repo_plan_review` for broad or ambiguous requests.
+1. `repo_project_brief` for broad or ambiguous requests.
 2. For explicit full-repo review, follow staged project brief, task inventory, decision memory, tree/search, then bounded read batches.
 
 Write one file:

@@ -68,7 +68,7 @@ The advisory tools are read-only:
 - Project memory: `repo_decision_memory`
 - Implementation/refactor/debug planning: `repo_decision_memory` when conventions matter -> `repo_change_plan` -> targeted `repo_search`/`repo_fetch_file`/`repo_read_many`
 - Current-change review: `repo_git_status` -> `repo_git_diff`
-- Broad or ambiguous review: `repo_plan_review` before broad reading
+- Broad or ambiguous review: `repo_project_brief` before broad reading
 
 `repo_next_action` recommends next work; it does not execute tests. `repo_change_plan` proposes implementation steps; it does not write files.
 

@@ -78,7 +78,7 @@ describe("MCP contract", () => {
       const liveTail = surface.find((tool) => tool.name === "repo_run_live_tail");
       const runnerStatus = surface.find((tool) => tool.name === "repo_runner_status");
 
-      expect(names).toHaveLength(41);
+      expect(names).toHaveLength(40);
       expect(names).toContain("repo_bridge_concierge");
       expect(names).toContain("repo_run_live_tail");
       expect(names).toContain("repo_runner_status");
@@ -87,6 +87,7 @@ describe("MCP contract", () => {
       expect(names).toContain("repo_write_codex_tasks_batch");
       expect(names).toContain("agent_runner_status");
       expect(runnerStatus?.inputKeys).toEqual([
+        "detail",
         "heartbeat_stale_seconds",
         "live_tail_max_events",
         "poll_count",
@@ -95,6 +96,9 @@ describe("MCP contract", () => {
         "stale_lock_seconds"
       ]);
       expect(runnerStatus?.outputKeys).toContain("active_run_live_tail");
+      expect(runnerStatus?.outputKeys).toContain("detail_level");
+      expect(runnerStatus?.outputKeys).toContain("details_truncated");
+      expect(runnerStatus?.outputKeys).toContain("full_detail_hint");
       expect(runnerStatus?.outputKeys).toContain("max_parallel_runs");
       expect(runnerStatus?.outputKeys).toContain("worker_slots");
       expect(runnerStatus?.outputKeys).toContain("queued_because_at_capacity");
@@ -653,7 +657,6 @@ function representativeCalls(head: string): Record<string, Record<string, unknow
   repo_decision_memory: { repo_id: "fixture" },
   repo_change_plan: { repo_id: "fixture", goal: "Add fixture validation", planning_depth: "quick" },
   repo_next_action: { repo_id: "fixture", mode: "plan", horizon: "today" },
-  repo_plan_review: { prompt: "Granska mina ändringar" },
   repo_prepare_codex_task: {
     repo_id: "fixture",
     title: "Fix fixture docs",

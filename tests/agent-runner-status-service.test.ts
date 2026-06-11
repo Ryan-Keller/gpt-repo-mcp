@@ -31,7 +31,8 @@ describe("AgentRunnerStatusService", () => {
     const status = await new AgentRunnerStatusService(root).status({
       repo_id: "fixture",
       heartbeat_stale_seconds: 60,
-      stale_lock_seconds: 900
+      stale_lock_seconds: 900,
+      detail: "full"
     });
 
     expect(status.runner).toBe("alive");
@@ -62,7 +63,8 @@ describe("AgentRunnerStatusService", () => {
     const status = await new AgentRunnerStatusService(root).status({
       repo_id: "fixture",
       heartbeat_stale_seconds: 60,
-      stale_lock_seconds: 900
+      stale_lock_seconds: 900,
+      detail: "full"
     });
 
     expect(status.ok).toBe(true);
@@ -115,7 +117,8 @@ describe("AgentRunnerStatusService", () => {
     const status = await new AgentRunnerStatusService(root).status({
       repo_id: "fixture",
       heartbeat_stale_seconds: 60,
-      stale_lock_seconds: 900
+      stale_lock_seconds: 900,
+      detail: "full"
     });
 
     expect(status.active_count).toBe(0);
@@ -154,7 +157,8 @@ describe("AgentRunnerStatusService", () => {
     const status = await new AgentRunnerStatusService(root).status({
       repo_id: "fixture",
       heartbeat_stale_seconds: 60,
-      stale_lock_seconds: 900
+      stale_lock_seconds: 900,
+      detail: "full"
     });
 
     expect(status.ready_results[0]).toMatchObject({
@@ -165,6 +169,47 @@ describe("AgentRunnerStatusService", () => {
     expect(status.ready_results[0]?.preview_urls).toContain("http://desktop-bqnfjch.tail0eaf06.ts.net:8083/");
     expect(status.plain_text).toContain(`Ready result: ${productRun}`);
     expect(status.plain_text).toContain("Preview URL: http://desktop-bqnfjch.tail0eaf06.ts.net:8083/");
+  });
+
+  test("defaults to compact status payload while preserving full detail on request", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agent-runner-status-compact-"));
+    const runId = "2026-06-07T081500Z-large-result";
+    const longBody = "FULL_DETAIL_MARKER ".repeat(1200);
+    await writeRun(root, runId, true, [
+      "# CODEX_RESULT",
+      "status: completed",
+      "summary: Large result finished.",
+      longBody
+    ].join("\n"));
+    await mkdir(join(root, "projects/agent-runner/reports"), { recursive: true });
+    await writeFile(join(root, "projects/agent-runner/reports/runner-heartbeat.json"), JSON.stringify({
+      schema_version: 1,
+      updated_at: new Date().toISOString(),
+      status: "polling",
+      active_run_id: ""
+    }));
+
+    const compact = await new AgentRunnerStatusService(root).status({
+      repo_id: "fixture",
+      heartbeat_stale_seconds: 60,
+      stale_lock_seconds: 900
+    });
+    const full = await new AgentRunnerStatusService(root).status({
+      repo_id: "fixture",
+      heartbeat_stale_seconds: 60,
+      stale_lock_seconds: 900,
+      detail: "full"
+    });
+
+    expect(compact.detail_level).toBe("summary");
+    expect(compact.details_truncated).toBe(true);
+    expect(compact.full_detail_hint).toContain("detail: \"full\"");
+    expect(compact.ready_results[0]?.result_text).toContain("summary: Large result finished.");
+    expect(compact.ready_results[0]?.result_text).not.toContain("FULL_DETAIL_MARKER FULL_DETAIL_MARKER FULL_DETAIL_MARKER");
+    expect(compact.queue_entries).toHaveLength(1);
+    expect(full.detail_level).toBe("full");
+    expect(full.details_truncated).toBe(false);
+    expect(full.ready_results[0]?.result_text).toContain("FULL_DETAIL_MARKER FULL_DETAIL_MARKER FULL_DETAIL_MARKER");
   });
 
   test("returns blocked result text for ChatGPT handoff when a run writes blocked RESULT.md", async () => {
@@ -189,7 +234,8 @@ describe("AgentRunnerStatusService", () => {
     const status = await new AgentRunnerStatusService(root).status({
       repo_id: "fixture",
       heartbeat_stale_seconds: 60,
-      stale_lock_seconds: 900
+      stale_lock_seconds: 900,
+      detail: "full"
     });
 
     expect(status.blocked_count).toBe(1);
@@ -231,7 +277,8 @@ describe("AgentRunnerStatusService", () => {
     const status = await new AgentRunnerStatusService(root).status({
       repo_id: "fixture",
       heartbeat_stale_seconds: 60,
-      stale_lock_seconds: 900
+      stale_lock_seconds: 900,
+      detail: "full"
     });
 
     expect(status.runner_state).toBe("alive");
@@ -344,7 +391,8 @@ describe("AgentRunnerStatusService", () => {
     const status = await new AgentRunnerStatusService(root).status({
       repo_id: "fixture",
       heartbeat_stale_seconds: 60,
-      stale_lock_seconds: 900
+      stale_lock_seconds: 900,
+      detail: "full"
     });
 
     expect(status.active_count).toBe(2);
@@ -452,6 +500,11 @@ describe("AgentRunnerStatusService", () => {
       JSON.stringify({ timestamp: "2026-06-07T12:00:01Z", event_type: "run_claimed", summary: "Run claimed with Authorization: Bearer abc123" }),
       JSON.stringify({ timestamp: "2026-06-07T12:00:02Z", event_type: "prompt_loaded", summary: "Prompt loaded", path: `.chatgpt/codex-runs/${runId}/PROMPT.md` })
     ].join("\n") + "\n");
+    await mkdir(join(root, "projects/agent-runner/reports/codex-exec", runId), { recursive: true });
+    await writeFile(join(root, "projects/agent-runner/reports/codex-exec", runId, "events.jsonl"), [
+      JSON.stringify({ timestamp: "2026-06-07T12:00:03Z", event_type: "codex_stdout", summary: "stdout line token=abc123", source_stream: "codex_stdout" }),
+      JSON.stringify({ timestamp: "2026-06-07T12:00:04Z", event_type: "codex_stderr", summary: "stderr line secret=hide", source_stream: "codex_stderr" })
+    ].join("\n") + "\n");
     await mkdir(join(root, "projects/agent-runner/reports"), { recursive: true });
     await writeFile(join(root, "projects/agent-runner/reports/runner-heartbeat.json"), JSON.stringify({
       schema_version: 1,
@@ -465,7 +518,8 @@ describe("AgentRunnerStatusService", () => {
     const status = await new AgentRunnerStatusService(root).status({
       repo_id: "fixture",
       heartbeat_stale_seconds: 60,
-      stale_lock_seconds: 900
+      stale_lock_seconds: 900,
+      detail: "full"
     });
 
     expect(status.active_run_live_tail).toEqual([
@@ -478,11 +532,25 @@ describe("AgentRunnerStatusService", () => {
         sequence: 2,
         event_type: "prompt_loaded",
         path: `.chatgpt/codex-runs/${runId}/PROMPT.md`
+      }),
+      expect.objectContaining({
+        sequence: 3,
+        event_type: "codex_stdout",
+        summary: expect.stringContaining("stdout line")
+      }),
+      expect.objectContaining({
+        sequence: 4,
+        event_type: "codex_stderr",
+        summary: expect.stringContaining("stderr line")
       })
     ]);
+    expect(status.active_run_live_tail.map((event) => event.summary).join("\n")).not.toContain("abc123");
+    expect(status.active_run_live_tail.map((event) => event.summary).join("\n")).not.toContain("hide");
     expect(status.plain_text).toContain("Live tail for 2026-06-07T120000Z-active-live-tail:");
     expect(status.plain_text).toContain("1 run_claimed: Run claimed with Authorization=[REDACTED]");
     expect(status.plain_text).toContain("2 prompt_loaded: Prompt loaded");
+    expect(status.plain_text).toContain("3 codex_stdout: stdout line");
+    expect(status.plain_text).toContain("4 codex_stderr: stderr line");
   });
 
   test("polls active runner status internally and returns compact live-tail deltas", async () => {
@@ -737,6 +805,91 @@ describe("AgentRunnerStatusService", () => {
     ]));
     expect(status.unresolved_event_count).toBe(status.unresolved_events.length);
     expect(status.event_cursor).toBe(status.recent_events[0]?.event_id);
+  });
+
+  test("summarizes long structured live-tail bodies without exposing full body by default", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agent-runner-status-live-tail-summary-"));
+    const runId = "2026-06-11T110000Z-long-structured-event";
+    await writeRun(root, runId, false);
+    await mkdir(join(root, ".chatgpt/codex-runs", runId), { recursive: true });
+    const longBody = {
+      id: "dropoff-123",
+      area: "kitchen",
+      state: "ready",
+      result: "validator contract drafted for review",
+      body: "FULL_BODY_SHOULD_NOT_APPEAR ".repeat(80),
+      details: {
+        nested: "NESTED_FULL_BODY_SHOULD_NOT_APPEAR ".repeat(30)
+      }
+    };
+    await writeFile(join(root, ".chatgpt/codex-runs", runId, "events.jsonl"), JSON.stringify({
+      timestamp: "2026-06-11T11:00:00.000Z",
+      event_type: "work_dropoff",
+      body: longBody
+    }) + "\n");
+
+    const service = new AgentRunnerStatusService(root);
+    const tail = await service.liveTail({
+      repo_id: "fixture",
+      run_id: runId,
+      max_events: 10
+    });
+
+    expect(tail.events[0]).toMatchObject({
+      event_type: "work_dropoff",
+      summary: "id=dropoff-123; area=kitchen; state=ready; result=validator contract drafted for review"
+    });
+    expect(JSON.stringify(tail.events)).not.toContain("FULL_BODY_SHOULD_NOT_APPEAR");
+    expect(JSON.stringify(tail.events)).not.toContain("NESTED_FULL_BODY_SHOULD_NOT_APPEAR");
+  });
+
+  test("default status plain text summarizes structured live-tail bodies compactly", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agent-runner-status-compact-live-tail-"));
+    const runId = "2026-06-11T111500Z-active-structured-event";
+    await writeRun(root, runId, false);
+    await writeFile(join(root, ".chatgpt/codex-runs", runId, "RESULT.md.lock"), JSON.stringify({
+      runner_pid: process.pid,
+      run_id: runId
+    }));
+    await mkdir(join(root, "projects/agent-runner/reports"), { recursive: true });
+    await writeFile(join(root, "projects/agent-runner/reports/runner-heartbeat.json"), JSON.stringify({
+      schema_version: 1,
+      updated_at: new Date().toISOString(),
+      status: "running",
+      active_run_id: runId,
+      active_run_ids: [runId],
+      runner: "projects/agent-runner/agent_runner.py",
+      pid: process.pid
+    }));
+    await writeFile(join(root, ".chatgpt/codex-runs", runId, "events.jsonl"), JSON.stringify({
+      timestamp: "2026-06-11T11:15:00.000Z",
+      event_type: "bounded_work_dropoff",
+      body: {
+        id: "slice-456",
+        area: "status-surface",
+        state: "queued",
+        result: "compact reporting note prepared",
+        payload: "STATUS_FULL_BODY_SHOULD_NOT_APPEAR ".repeat(100)
+      }
+    }) + "\n");
+
+    const status = await new AgentRunnerStatusService(root).status({
+      repo_id: "fixture",
+      heartbeat_stale_seconds: 60,
+      stale_lock_seconds: 900
+    });
+
+    expect(status.plain_text).toContain("Live tail: 1 events available");
+    expect(status.active_run_live_tail[0]).toMatchObject({
+      event_type: "bounded_work_dropoff",
+      summary: "id=slice-456; area=status-surface; state=queued; result=compact reporting note prepared"
+    });
+    expect(JSON.stringify(status.active_run_live_tail)).not.toContain("STATUS_FULL_BODY_SHOULD_NOT_APPEAR");
+    expect(status.pending_count).toBe(0);
+    expect(status.active_count).toBe(1);
+    expect(status.completed_count).toBe(0);
+    expect(status.blocked_count).toBe(0);
+    expect(status.stale_lock_count).toBe(0);
   });
 
   test("emits stale_lock_recovered when a previously stale run becomes terminal", async () => {

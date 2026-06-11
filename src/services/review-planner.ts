@@ -8,11 +8,11 @@ export function recommendToolForPrompt(prompt: string): string {
   if (/(varför|decisions|conventions|architecture decisions|projektminne|project memory|mönster|patterns)/i.test(prompt)) return "repo_decision_memory";
   if (/(struktur|tree|träd|visa strukturen)/i.test(prompt)) return "repo_tree";
   if (/(granska mina ändringar|diff|ändringar|changes)/i.test(prompt)) return "repo_git_diff";
-  if (/(komplett|fullständig|hela repo|förbättringsförslag|review my repo|granska mitt repo)/i.test(prompt)) return "repo_plan_review";
+  if (/(komplett|fullständig|hela repo|förbättringsförslag|review my repo|granska mitt repo)/i.test(prompt)) return "repo_project_brief";
   if (/(läs alla|alla controllers|read many|controllers)/i.test(lower)) return "repo_read_many";
   if (/(läs|read|visa).+\.[a-z0-9]+/i.test(prompt)) return "repo_fetch_file";
   if (/(hitta|sök|find|search|usages|raw fetch)/i.test(prompt)) return "repo_search";
-  return "repo_plan_review";
+  return "repo_project_brief";
 }
 
 export class ReviewPlanner {

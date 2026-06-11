@@ -36,6 +36,7 @@ type PollHistoryEntry = AgentRunnerStatusResult["poll_history"][number];
 type WorkerSlot = AgentRunnerStatusResult["worker_slots"][number];
 type MonitoringStopReason = AgentRunnerStatusResult["monitoring_stop_reason"];
 type StatusSnapshot = Omit<AgentRunnerStatusResult, "poll_count" | "poll_interval_seconds" | "monitoring_stop_reason" | "poll_history">;
+type DetailLevel = AgentRunnerStatusResult["detail_level"];
 type StatusServiceOptions = {
   sleep?: (milliseconds: number) => Promise<void>;
 };
@@ -92,9 +93,10 @@ export class AgentRunnerStatusService {
 
   async status(input: AgentRunnerStatusInput): Promise<AgentRunnerStatusResult> {
     const polling = normalizePolling(input);
+    const detail = normalizeDetail(input);
     if (polling.count <= 1) {
       const snapshot = await this.readStatusSnapshot(input);
-      return withPollingFields(snapshot, polling, [], "single_shot");
+      return withPollingFields(applyDetailLevel(snapshot, detail), polling, [], "single_shot");
     }
 
     const pollHistory: PollHistoryEntry[] = [];
@@ -104,7 +106,7 @@ export class AgentRunnerStatusService {
     let stopReason: MonitoringStopReason | "" = "";
 
     for (let pollIndex = 1; pollIndex <= polling.count; pollIndex += 1) {
-      finalSnapshot = await this.readStatusSnapshot(input);
+      finalSnapshot = applyDetailLevel(await this.readStatusSnapshot(input), detail);
       monitoredRunId = monitoredRunId || finalSnapshot.active_run_id || finalSnapshot.active_run_ids[0] || "";
       pollHistory.push(buildPollHistoryEntry(finalSnapshot, pollIndex, monitoredRunId, liveTailCursors));
       stopReason = monitoringStopReason(finalSnapshot, monitoredRunId);
@@ -117,7 +119,7 @@ export class AgentRunnerStatusService {
     }
 
     if (!finalSnapshot) {
-      finalSnapshot = await this.readStatusSnapshot(input);
+      finalSnapshot = applyDetailLevel(await this.readStatusSnapshot(input), detail);
     }
     return withPollingFields(finalSnapshot, polling, pollHistory, stopReason || "poll_count_reached");
   }
@@ -280,6 +282,9 @@ export class AgentRunnerStatusService {
     return {
       ok: true,
       repo_id: input.repo_id,
+      detail_level: "full",
+      details_truncated: false,
+      full_detail_hint: "Full detail included.",
       connector_status: connector.connector_status,
       last_connector_success_at: connector.last_connector_success_at,
       last_connector_error_at: connector.last_connector_error_at,
@@ -408,6 +413,21 @@ export class AgentRunnerStatusService {
 
   private async readRunLiveEvents(runId: string): Promise<LiveTailEvent[]> {
     const eventPath = join(this.repoRoot, ".chatgpt/codex-runs", runId, "events.jsonl");
+    const execEventPath = join(this.repoRoot, "projects/agent-runner/reports/codex-exec", runId, "events.jsonl");
+    const events = [
+      ...await this.readLiveEventFile(eventPath),
+      ...await this.readLiveEventFile(execEventPath)
+    ];
+    return events
+      .sort((left, right) => compareLiveTailEvents(left, right))
+      .map((event, index) => ({
+        ...event,
+        sequence: index + 1,
+        cursor: String(index + 1)
+      }));
+  }
+
+  private async readLiveEventFile(eventPath: string): Promise<LiveTailEvent[]> {
     let raw = "";
     try {
       raw = await readFile(eventPath, "utf8");
@@ -426,7 +446,7 @@ export class AgentRunnerStatusService {
         const parsed = JSON.parse(trimmed) as Record<string, unknown>;
         const eventType = safeEventText(parsed.event_type, "unknown_event");
         const timestamp = safeEventText(parsed.timestamp, "");
-        const summary = redactLiveTailText(safeEventText(parsed.summary, eventType));
+        const summary = compactLiveEventSummary(parsed, eventType);
         const path = safeRepoPath(typeof parsed.path === "string" ? parsed.path : "");
         events.push({
           sequence,
@@ -443,7 +463,7 @@ export class AgentRunnerStatusService {
           event_type: "invalid_event",
           summary: "Skipped malformed live-tail event.",
           cursor: String(sequence)
-        });
+          });
       }
     }
     return events;
@@ -660,12 +680,16 @@ export class AgentRunnerStatusService {
         run_id: run.run_id,
         result_status: run.result_status ?? run.state,
         result_path: resultPath,
-        result_text: tail(resultText, 16000),
+        result_text: resultText.length > 16000 ? `${resultText.slice(0, 4000)}\n\n[...RESULT.md truncated in status payload...]\n\n${tail(resultText, 12000)}` : resultText,
         preview_urls: extractUrls(resultText)
       };
     }));
     return ready;
   }
+}
+
+function normalizeDetail(input: AgentRunnerStatusInput): DetailLevel {
+  return input.detail === "full" ? "full" : "summary";
 }
 
 function normalizePolling(input: AgentRunnerStatusInput): { count: number; intervalSeconds: number } {
@@ -678,6 +702,168 @@ function normalizePolling(input: AgentRunnerStatusInput): { count: number; inter
     ? boundedInteger(raw.poll_interval_seconds, DEFAULT_POLL_INTERVAL_SECONDS, MIN_POLL_INTERVAL_SECONDS, MAX_POLL_INTERVAL_SECONDS)
     : 0;
   return { count, intervalSeconds };
+}
+
+function applyDetailLevel(snapshot: StatusSnapshot, detail: DetailLevel): StatusSnapshot {
+  if (detail === "full") {
+    return {
+      ...snapshot,
+      detail_level: "full",
+      details_truncated: false,
+      full_detail_hint: "Full detail included."
+    };
+  }
+
+  const activeOrAttentionEntries = snapshot.queue_entries
+    .filter((entry) => {
+      const state = queueEntryValue(entry, "state");
+      return state === "pending" || state === "active_locked" || state === "stale_locked" || state === "completed_with_lock_warning";
+    })
+    .slice(0, 10);
+  const lastRunEntry = queueEntryForRun(snapshot as AgentRunnerStatusResult, snapshot.last_run_id);
+  const queueEntries = uniqueQueueEntries(lastRunEntry ? [...activeOrAttentionEntries, lastRunEntry] : activeOrAttentionEntries);
+
+  return {
+    ...snapshot,
+    detail_level: "summary",
+    details_truncated: true,
+    full_detail_hint: "Call repo_runner_status with detail: \"full\" only when you need full ready result text, complete queue entries, or complete event payloads.",
+    ready_results: snapshot.ready_results.slice(0, 1).map((result) => ({
+      ...result,
+      result_text: summarizeResultText(result.result_text)
+    })),
+    queue_entries: queueEntries,
+    recent_events: snapshot.recent_events.slice(0, 3).map(summarizeEvent),
+    unresolved_events: snapshot.unresolved_events.slice(0, 3).map(summarizeEvent),
+    active_run_live_tail: snapshot.active_run_live_tail.slice(-5),
+    plain_text: compactPlainText(snapshot)
+  };
+}
+
+function compactLiveEventSummary(event: Record<string, unknown>, eventType: string): string {
+  const structured = structuredEventBody(event);
+  if (structured) {
+    return structured;
+  }
+  return tail(redactLiveTailText(safeEventText(event.summary, eventType)).replace(/\s+/g, " ").trim(), 500);
+}
+
+function structuredEventBody(event: Record<string, unknown>): string {
+  const body = firstRecord(event.body, event.payload, event.data, event.result);
+  if (!body) {
+    return "";
+  }
+
+  const id = shortField(body.id ?? body.event_id ?? body.run_id ?? body.slice_id ?? body.portal_id);
+  const area = shortField(body.area ?? body.surface ?? body.surface_id ?? body.category ?? body.kind);
+  const state = shortField(body.state ?? body.status ?? body.result_status);
+  const result = shortField(body.short_result ?? body.result_summary ?? body.result ?? body.summary ?? body.message, 140);
+  const parts = [
+    id ? `id=${id}` : "",
+    area ? `area=${area}` : "",
+    state ? `state=${state}` : "",
+    result ? `result=${result}` : ""
+  ].filter(Boolean);
+  return parts.length > 0 ? parts.join("; ") : "";
+}
+
+function firstRecord(...values: unknown[]): Record<string, unknown> | undefined {
+  return values.find((value): value is Record<string, unknown> => Boolean(value) && typeof value === "object" && !Array.isArray(value));
+}
+
+function shortField(value: unknown, maxLength = 80): string {
+  if (value === undefined || value === null) {
+    return "";
+  }
+  const text = redactLiveTailText(String(value)).replace(/\s+/g, " ").trim();
+  if (!text) {
+    return "";
+  }
+  return text.length > maxLength ? `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…` : text;
+}
+
+function compactPlainText(snapshot: StatusSnapshot): string {
+  const lines = [
+    `Runner: ${snapshot.runner_state}`,
+    `Connector: ${snapshot.connector_status}`,
+    `Runtime assessment: ${snapshot.runtime_assessment}`,
+    `Last heartbeat: ${snapshot.heartbeat_age_seconds === null ? "unknown" : `${Math.round(Number(snapshot.heartbeat_age_seconds))} sec ago`}`,
+    `Heartbeat status: ${snapshot.heartbeat_status}`,
+    `Worker slots: ${snapshot.active_worker_slots} active / ${snapshot.idle_worker_slots} idle`,
+    `Queued because at capacity: ${snapshot.queued_because_at_capacity ? "yes" : "no"}`,
+    `Pending: ${snapshot.pending_count}`,
+    `Active: ${snapshot.active_count}`,
+    `Stale locks: ${snapshot.stale_lock_count}`,
+    `Completed: ${snapshot.completed_count}`,
+    `Blocked: ${snapshot.blocked_count}`,
+    `Last run: ${snapshot.last_run_id || "none"}; status: ${snapshot.last_run_status || "none"}`
+  ];
+  for (const activeRun of snapshot.active_runs.slice(0, 3)) {
+    lines.push(`Active run: ${activeRun.run_id}; source: ${activeRun.source}`);
+  }
+  if (snapshot.active_run_live_tail.length > 0) {
+    lines.push(`Live tail: ${snapshot.active_run_live_tail.length} events available; request detail: "full" for event text.`);
+  }
+  const readyResult = snapshot.ready_results[0];
+  if (readyResult) {
+    lines.push(`Ready result: ${readyResult.run_id}`);
+    lines.push(`Ready result status: ${readyResult.result_status}`);
+    lines.push(`Ready result path: ${readyResult.result_path}`);
+    const previewUrl = readyResult.preview_urls.find((url) => !url.includes("127.0.0.1")) ?? readyResult.preview_urls[0];
+    if (previewUrl) {
+      lines.push(`Preview URL: ${previewUrl}`);
+    }
+  }
+  for (const staleLock of snapshot.stale_locks.slice(0, 2)) {
+    lines.push(`Stale run: ${String(staleLock.run_id)}; reason: ${String(staleLock.stale_reason ?? "")}; pid_status: ${String(staleLock.pid_status ?? "")}`);
+    lines.push(`Suggested next action: ${String(staleLock.suggested_next_action ?? "")}`);
+  }
+  lines.push("Detail: summary; request detail: \"full\" for full result text, queue entries, events, and live tail.");
+  return lines.join("\n");
+}
+
+function summarizeResultText(text: string): string {
+  const summary = text.match(/^summary:\s*(.+)$/im)?.[1]?.trim();
+  const status = text.match(/^status:\s*(.+)$/im)?.[1]?.trim();
+  const fallback = text.replace(/\s+/g, " ").trim().slice(0, 500);
+  return [
+    status ? `status: ${status}` : "",
+    summary ? `summary: ${summary}` : fallback
+  ].filter(Boolean).join("\n");
+}
+
+function summarizeEvent(event: unknown): unknown {
+  if (!event || typeof event !== "object") {
+    return event;
+  }
+  const record = event as Record<string, unknown>;
+  return {
+    event_id: record.event_id,
+    event_type: record.event_type,
+    repo_id: record.repo_id,
+    run_id: record.run_id,
+    result_status: record.result_status,
+    result_path: record.result_path,
+    severity: record.severity,
+    summary: record.summary,
+    observed_at: record.observed_at ?? record.timestamp,
+    suggested_next_action: record.suggested_next_action,
+    acknowledged: record.acknowledged,
+    unread: record.unread,
+    dedupe_key: record.dedupe_key
+  };
+}
+
+function uniqueQueueEntries(entries: AgentRunnerStatusResult["queue_entries"]): AgentRunnerStatusResult["queue_entries"] {
+  const seen = new Set<string>();
+  return entries.filter((entry) => {
+    const runId = queueEntryValue(entry, "run_id");
+    if (!runId || seen.has(runId)) {
+      return false;
+    }
+    seen.add(runId);
+    return true;
+  });
 }
 
 function boundedInteger(value: unknown, fallback: number, min: number, max: number): number {
@@ -745,10 +931,10 @@ function monitoringStopReason(status: StatusSnapshot, monitoredRunId: string): M
     return "no_active_run";
   }
   const queueEntry = queueEntryForRun(status, monitoredRunId);
-  if (Boolean(queueEntryValue(queueEntry, "result_md_exists"))) {
+  if (queueEntryValue(queueEntry, "result_md_exists")) {
     return "result_md_exists";
   }
-  if (Boolean(queueEntryValue(queueEntry, "terminal"))) {
+  if (queueEntryValue(queueEntry, "terminal")) {
     return "terminal_result";
   }
   return "";
@@ -838,6 +1024,18 @@ function safeRepoPath(path: string): string {
     return "[redacted-path]";
   }
   return normalized.slice(0, 240);
+}
+
+function compareLiveTailEvents(left: LiveTailEvent, right: LiveTailEvent): number {
+  const leftTime = Date.parse(left.timestamp);
+  const rightTime = Date.parse(right.timestamp);
+  if (Number.isFinite(leftTime) && Number.isFinite(rightTime) && leftTime !== rightTime) {
+    return leftTime - rightTime;
+  }
+  if (left.timestamp !== right.timestamp) {
+    return left.timestamp.localeCompare(right.timestamp);
+  }
+  return left.sequence - right.sequence;
 }
 
 function redactLiveTailText(value: string): string {

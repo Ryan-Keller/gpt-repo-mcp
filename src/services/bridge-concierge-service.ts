@@ -45,11 +45,11 @@ export class BridgeConciergeService {
     const terms = tokenize(request);
     const mode = isDigestRequest(request) ? "workspace_digest" : "destination_status";
     const projects = await this.readProjects(warnings);
-    const statusNotes = await this.readStatusNotes(terms, mode, warnings);
-    const project = this.chooseProject(projects, terms, statusNotes);
+    const statusNotes = prioritizeStatusNotes(await this.readStatusNotes(terms, mode, warnings), terms, mode);
+    const project = mode === "workspace_digest" ? undefined : this.chooseProject(projects, terms, statusNotes);
     const destination = project
       ? destinationFromProject(project, statusNotes)
-      : destinationFromStatus(statusNotes, request, mode);
+      : destinationFromStatus(statusNotes, request, terms, mode);
     const currentStatus = currentStatusFor(project, statusNotes, mode);
     const latestProgress = latestProgressFor(project, statusNotes, mode);
     const openIssues = openIssuesFor(project, statusNotes);
@@ -153,15 +153,15 @@ export class BridgeConciergeService {
         best = { project, score };
       }
     }
-    if (best && best.score > 0) {
+    const topNoteScore = notes[0]?.score ?? 0;
+    if (best && best.score > 0 && best.score >= topNoteScore + 3) {
       return best.project;
     }
     const topNote = notes[0];
     if (!topNote) {
       return projects.find((project) => project.key === "bridge" || project.id === "bridge") ?? projects[0];
     }
-    const noteTerms = tokenize(topNote.title);
-    return projects.find((project) => scoreText([project.key, project.label, project.name, project.product_track, project.summary].join(" "), noteTerms) > 0);
+    return undefined;
   }
 }
 
@@ -179,19 +179,20 @@ function destinationFromProject(project: MemoryProject, notes: StatusNote[]): Br
   };
 }
 
-function destinationFromStatus(notes: StatusNote[], request: string, mode: "destination_status" | "workspace_digest"): BridgeConciergeResult["destination"] {
+function destinationFromStatus(notes: StatusNote[], request: string, terms: string[], mode: "destination_status" | "workspace_digest"): BridgeConciergeResult["destination"] {
   const top = notes[0];
-  const label = mode === "workspace_digest" ? "Shared Agent Bridge" : top?.title ?? titleize(request);
+  const destination = mode === "workspace_digest" ? undefined : semanticDestination(notes, terms);
+  const label = mode === "workspace_digest" ? "Shared Agent Bridge" : destination?.label ?? top?.title ?? titleize(request);
   return {
-    id: slug(label),
+    id: destination?.id ?? slug(label),
     label,
-    kind: mode === "workspace_digest" ? "workspace" : "capability",
+    kind: mode === "workspace_digest" ? "workspace" : destination?.kind ?? "capability",
     status: top?.status ?? "unknown",
-    phase: "status-derived",
-    product_track: "Derived from recent status notes.",
+    phase: destination?.phase ?? "status-derived",
+    product_track: destination?.product_track ?? "Derived from recent status notes.",
     confidence: top ? "medium" : "low",
     match_confidence: top ? "medium" : "low",
-    match_reason: top ? "Matched recent status note text." : "No direct destination match found; returned safest workspace-level packet."
+    match_reason: destination?.match_reason ?? (top ? "Matched recent status note text." : "No direct destination match found; returned safest workspace-level packet.")
   };
 }
 
@@ -283,17 +284,53 @@ function parseStatusNote(path: string, text: string, terms: string[], mode: stri
   const summary = section(text, "Summary") || firstParagraph(lines) || status;
   const nextText = section(text, "Next Recommended Slice") || section(text, "Future Work") || section(text, "Recommended Next Action");
   const issueText = section(text, "Boundaries") || section(text, "Boundary") || section(text, "Open Issues") || section(text, "Future Work");
-  const score = mode === "workspace_digest" ? dateScore(date) : scoreText(`${path} ${title} ${text}`, terms) + dateScore(date);
+  const next = bullets(nextText).slice(0, 3);
+  const issues = bullets(issueText).slice(0, 4);
+  const score = mode === "workspace_digest"
+    ? dateScore(date)
+    : scoreText(`${path} ${title}`, terms) * 5 + scoreText(summary, terms) * 2 + scoreText([...next, ...issues].join(" "), terms) + dateScore(date);
   return {
     path,
     title,
     status,
     date,
     summary: compact(summary),
-    next: bullets(nextText).slice(0, 3),
-    issues: bullets(issueText).slice(0, 4),
+    next,
+    issues,
     score
   };
+}
+
+function prioritizeStatusNotes(notes: StatusNote[], terms: string[], mode: "destination_status" | "workspace_digest"): StatusNote[] {
+  if (mode === "workspace_digest" || !semanticDestination(notes, terms)) {
+    return notes;
+  }
+  const semanticNotes = notes.filter(isVisualStreamingNote).sort((left, right) => right.date.localeCompare(left.date) || right.score - left.score);
+  const remaining = notes.filter((note) => !isVisualStreamingNote(note));
+  return [...semanticNotes, ...remaining].slice(0, MAX_STATUS_NOTES);
+}
+
+function semanticDestination(notes: StatusNote[], terms: string[]): Pick<BridgeConciergeResult["destination"], "id" | "label" | "kind" | "phase" | "product_track" | "match_reason"> | undefined {
+  const haystack = notes.slice(0, 5).map((note) => `${note.path} ${note.title} ${note.summary}`).join(" ");
+  const noteTerms = tokenSet(haystack);
+  const wantsVisualStreaming = ["visual", "stream", "streaming", "video", "camera", "witness"].some((term) => terms.includes(term));
+  const hasVisualStreamingEvidence = ["visual", "stream", "video"].every((term) => noteTerms.has(term))
+    || notes.some((note) => /visual-stream|streaming-video|stream-first-video|video-frame/i.test(note.path));
+  if (wantsVisualStreaming && hasVisualStreamingEvidence) {
+    return {
+      id: "visual-streaming-project",
+      label: "Visual Streaming Project",
+      kind: "project",
+      phase: "status-derived capability cluster",
+      product_track: "Streaming video, visual witness, and renderer-facing perception work.",
+      match_reason: "Grouped matching visual, video, stream, camera, witness, and renderer status notes into the user-facing destination."
+    };
+  }
+  return undefined;
+}
+
+function isVisualStreamingNote(note: StatusNote): boolean {
+  return /visual-stream|streaming-video|stream-first-video|video-frame|renderer-witness/i.test(`${note.path} ${note.title}`);
 }
 
 function field(lines: string[], name: string): string {
@@ -369,12 +406,45 @@ function renderPlainText(input: {
 }
 
 function tokenize(value: string): string[] {
-  return dedupe(value.toLowerCase().replace(/[^a-z0-9]+/g, " ").split(/\s+/).filter((term) => term.length > 2 && !["the", "and", "for", "what", "how", "with", "status"].includes(term)));
+  const terms = baseTokens(value).filter((term) => ![
+    "the",
+    "and",
+    "for",
+    "what",
+    "how",
+    "with",
+    "status",
+    "check",
+    "doing",
+    "thing",
+    "currently",
+    "should"
+  ].includes(term));
+  const stems = terms.map(stem).filter((term) => term.length > 2);
+  if (terms.includes("camera")) {
+    terms.push("visual", "video", "stream", "capture");
+  }
+  if (terms.includes("workers") || terms.includes("worker")) {
+    terms.push("runner", "heartbeat", "queue");
+  }
+  if (terms.includes("witness")) {
+    terms.push("visual", "renderer");
+  }
+  return dedupe([...terms, ...stems]);
 }
 
 function scoreText(text: string, terms: string[]): number {
-  const haystack = text.toLowerCase();
-  return terms.reduce((score, term) => score + (haystack.includes(term) ? 3 : 0) + (haystack.includes(stem(term)) ? 1 : 0), 0);
+  const haystack = tokenSet(text);
+  return terms.reduce((score, term) => score + (haystack.has(term) ? 3 : 0), 0);
+}
+
+function baseTokens(value: string): string[] {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").split(/\s+/).filter((term) => term.length > 2);
+}
+
+function tokenSet(value: string): Set<string> {
+  const tokens = baseTokens(value);
+  return new Set([...tokens, ...tokens.map(stem).filter((term) => term.length > 2)]);
 }
 
 function dateScore(date: string): number {
@@ -385,7 +455,7 @@ function dateScore(date: string): number {
 }
 
 function isDigestRequest(request: string): boolean {
-  return /overnight|what happened|work on next|next\?|next$|today|recent/i.test(request);
+  return /overnight|what happened|work on next|currently blocked|what.*blocked|next\?|next$|today|recent/i.test(request);
 }
 
 function confidence(value: string | undefined): "high" | "medium" | "low" {

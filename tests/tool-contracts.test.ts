@@ -84,7 +84,6 @@ describe("tool catalog contracts", () => {
       "repo_decision_memory",
       "repo_change_plan",
       "repo_next_action",
-      "repo_plan_review",
       "repo_prepare_codex_task",
       "repo_write_codex_task",
       "repo_write_codex_tasks_batch",
@@ -303,6 +302,7 @@ describe("tool catalog contracts", () => {
     expect(tool).toBeDefined();
 
     expect(Object.keys(tool?.inputSchema.shape ?? {}).sort()).toEqual([
+      "detail",
       "heartbeat_stale_seconds",
       "live_tail_max_events",
       "poll_count",
@@ -313,7 +313,8 @@ describe("tool catalog contracts", () => {
     expect(tool?.inputSchema.safeParse({
       repo_id: "fixture",
       poll_count: 4,
-      poll_interval_seconds: 15
+      poll_interval_seconds: 15,
+      detail: "full"
     }).success).toBe(true);
     expect(tool?.inputSchema.safeParse({
       repo_id: "fixture",
@@ -807,7 +808,9 @@ describe("tool catalog contracts", () => {
   });
 
   test("every tool uses the central contract objects", () => {
-    expect(toolCatalog.map((tool) => tool.name).sort()).toEqual(Object.keys(toolContracts).sort());
+    expect(toolCatalog.map((tool) => tool.name).sort()).toEqual(
+      Object.keys(toolContracts).filter((name) => name !== "repo_plan_review").sort()
+    );
 
     for (const tool of toolCatalog) {
       const contract = toolContracts[tool.name];
@@ -830,7 +833,7 @@ describe("tool catalog contracts", () => {
     const liveTail = surface.find((tool) => tool.name === "repo_run_live_tail");
     const runnerStatus = surface.find((tool) => tool.name === "repo_runner_status");
 
-    expect(names).toHaveLength(41);
+    expect(names).toHaveLength(40);
     expect(names).toContain("repo_bridge_concierge");
     expect(names).toContain("repo_run_live_tail");
     expect(names).toContain("repo_runner_status");
@@ -858,6 +861,7 @@ describe("tool catalog contracts", () => {
       "warnings"
     ]);
     expect(runnerStatus?.inputKeys).toEqual([
+      "detail",
       "heartbeat_stale_seconds",
       "live_tail_max_events",
       "poll_count",
@@ -867,6 +871,9 @@ describe("tool catalog contracts", () => {
     ]);
       expect(runnerStatus?.outputKeys).toContain("active_run_live_tail");
       expect(runnerStatus?.outputKeys).toContain("connector_identity");
+      expect(runnerStatus?.outputKeys).toContain("detail_level");
+      expect(runnerStatus?.outputKeys).toContain("details_truncated");
+      expect(runnerStatus?.outputKeys).toContain("full_detail_hint");
       expect(runnerStatus?.outputKeys).toContain("max_parallel_runs");
     expect(runnerStatus?.outputKeys).toContain("worker_slots");
     expect(runnerStatus?.outputKeys).toContain("queued_because_at_capacity");

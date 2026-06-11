@@ -143,7 +143,7 @@ Codex is done. Review the Codex result and the git diff for <repo_id>.
 | Repo discovery | `repo_list_roots`, `repo_tree`, `repo_search`, `repo_fetch_file`, `repo_read_many` |
 | Destination concierge | `repo_bridge_concierge` |
 | Policy help | `repo_policy_explain` |
-| Planning | `repo_project_brief`, `repo_task_inventory`, `repo_decision_memory`, `repo_change_plan`, `repo_next_action`, `repo_plan_review` |
+| Planning | `repo_project_brief`, `repo_task_inventory`, `repo_decision_memory`, `repo_change_plan`, `repo_next_action` |
 | Git review | `repo_git_status`, `repo_git_diff`, `repo_git_review` |
 | File writes | `repo_write_file`, `repo_write_changes` |
 | ChatGPT session continuity | `repo_write_handoff`, `repo_last_write` |
@@ -220,9 +220,10 @@ pushes, deletes, clears locks, restores files, or resets state.
 
 It returns heartbeat fields, worker status, pending/active/stale/completed/
 blocked counts, active lock paths and ages, runner PIDs when available,
-evidence-based runtime assessments for active runs, durable `queue_entries`
-for every discovered run, and recent `ready_results` with completed or blocked
-`RESULT.md` text and preview URLs.
+evidence-based runtime assessments for active runs, and concise ready-result
+and queue evidence. The default `detail: "summary"` keeps normal health checks
+small by truncating result bodies, queue entries, events, and live-tail text.
+Use `detail: "full"` only when debugging or reviewing detailed evidence.
 
 `repo_write_codex_task` refuses to overwrite an existing run id once any of
 `PROMPT.md`, `run.json`, `RESULT.md`, `RESULT.md.lock`, or
