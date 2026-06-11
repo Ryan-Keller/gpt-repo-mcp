@@ -3,6 +3,7 @@ import { readOnlyAnnotations, writeAnnotations } from "./annotations.js";
 import { toolContracts, type ToolContract, type ToolName } from "./contracts.js";
 import {
   changePlanHandler,
+  bridgeConciergeHandler,
   cleanupPathsHandler,
   agentRunnerStatusHandler,
   connectorWhoamiHandler,
@@ -63,6 +64,15 @@ export const toolCatalog: ToolDefinition[] = [
     outputSchema: toolContracts.repo_list_roots.output,
     annotations: readOnlyAnnotations,
     handler: listRootsHandler
+  },
+  {
+    name: "repo_bridge_concierge",
+    title: "Resolve intent to bridge destination",
+    description: descriptions.repo_bridge_concierge,
+    inputSchema: toolContracts.repo_bridge_concierge.input,
+    outputSchema: toolContracts.repo_bridge_concierge.output,
+    annotations: readOnlyAnnotations,
+    handler: bridgeConciergeHandler
   },
   {
     name: "agent_runner_status",

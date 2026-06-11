@@ -1,6 +1,8 @@
 export const descriptions = {
   repo_list_roots:
     "Use this when the user asks which approved repositories are available. Does not read file contents.",
+  repo_bridge_concierge:
+    "Use this when the user asks about a project, capability, goal, problem, latest progress, overnight changes, or what to work on next and should not need to know files, artifacts, run IDs, or storage paths. Resolves the human intention to a destination packet with identity, status, latest truth, next action, known/inferred/unknown, and evidence. Read-only; never launches Codex, mutates files, stages, commits, pushes, deletes, clears locks, runs shell commands, or hides evidence.",
   agent_runner_status:
     "Use this when the user asks whether the Shared Agent Bridge Codex runner is alive, pending, stale, locked, blocked, or completed. Compatibility alias for repo_runner_status; returns the same status including active-run live tail text when available.",
   repo_runner_status:

@@ -1,3 +1,4 @@
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import type { AgentRunnerStatusInput, AgentRunnerStatusResult, RunLiveTailInput, RunLiveTailResult } from "../contracts/agent-runner.contract.js";
@@ -1136,7 +1137,7 @@ async function readEventLog(repoRoot: string): Promise<BridgeEvent[]> {
 
 async function writeEventLog(repoRoot: string, events: BridgeEvent[]): Promise<void> {
   const eventPath = join(repoRoot, EVENT_LOG_PATH);
-  const tmpPath = `${eventPath}.tmp`;
+  const tmpPath = `${eventPath}.${process.pid}.${randomUUID()}.tmp`;
   await mkdir(join(repoRoot, ".chatgpt/events"), { recursive: true });
   await writeFile(tmpPath, events.map((event) => JSON.stringify(event)).join("\n") + (events.length ? "\n" : ""), "utf8");
   await rename(tmpPath, eventPath);

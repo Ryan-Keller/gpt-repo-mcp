@@ -6,8 +6,10 @@ export const PathInputSchema = z.object({
 });
 
 export const GlobScopeSchema = z.object({
-  include_globs: z.array(z.string()).optional(),
+  include_globs: z.array(z.string()).optional()
+    .describe("Optional repo-relative glob patterns to include, such as docs/**/*.md. Omit for the tool default scope."),
   exclude_globs: z.array(z.string()).optional()
+    .describe("Optional repo-relative glob patterns to exclude from a scan, such as node_modules/** or dist/**.")
 });
 
 export const FetchFileInputSchema = RepoInputSchema.extend({

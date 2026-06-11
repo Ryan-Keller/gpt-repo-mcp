@@ -1,11 +1,12 @@
 import { z } from "zod";
-import { RepoInputSchema } from "./repo.contract.js";
+import { DefaultReadOnlyRepoInputSchema } from "./repo.contract.js";
 
 export const DecisionSourceSchema = z.enum(["docs", "readme", "agents", "comments", "package"]);
 export const ConfidenceSchema = z.enum(["low", "medium", "high"]);
 
-export const DecisionLogInputSchema = RepoInputSchema.extend({
+export const DecisionLogInputSchema = DefaultReadOnlyRepoInputSchema.extend({
   include_sources: z.array(DecisionSourceSchema).optional()
+    .describe("Optional documentation source types to include. Omit this to use all safe decision-memory sources.")
 });
 
 export const DecisionEvidenceSchema = z.object({

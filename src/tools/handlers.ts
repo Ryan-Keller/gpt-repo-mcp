@@ -1,6 +1,7 @@
 import type { CallToolResult } from "@modelcontextprotocol/sdk/types.js";
 import { z } from "zod";
 import { AgentRunnerStatusService } from "../services/agent-runner-status-service.js";
+import { BridgeConciergeService } from "../services/bridge-concierge-service.js";
 import { PathSandbox } from "../services/path-sandbox.js";
 import { CleanupService } from "../services/cleanup-service.js";
 import { RepoTreeService } from "../services/repo-tree-service.js";
@@ -36,6 +37,7 @@ import { getConnectorDiagnostics } from "../runtime/connector-session.js";
 import { buildConnectorIdentitySnapshot } from "../runtime/connector-identity.js";
 import type { RuntimeContext } from "../runtime/context.js";
 import type { AgentRunnerStatusInput, RunLiveTailInput } from "../contracts/agent-runner.contract.js";
+import type { BridgeConciergeInput } from "../contracts/bridge-concierge.contract.js";
 import type { SearchOptions } from "../services/search-service.js";
 import type { FetchFileOptions } from "../services/file-reader.js";
 import type { TreeOptions } from "../services/repo-tree-service.js";
@@ -153,6 +155,25 @@ export const listRootsHandler: ToolHandler = async (_input, context) => {
   }).join("\n\n");
   return createSuccessEnvelope({ repos: reposWithFallbacks, bridge_observability: bridgeObservability }, `${repos.length} approved repositories available.\n\n${runnerSummaries}`);
 };
+
+export const bridgeConciergeHandler: ToolHandler = async (input, context) => safeTool<BridgeConciergeInput>("repo_bridge_concierge", input, context, async (args) => {
+  const repo = context.registry.get(args.repo_id);
+  const result = await new BridgeConciergeService(repo).answer({
+    request: args.request,
+    include_evidence: args.include_evidence
+  });
+  audit({
+    tool: "repo_bridge_concierge",
+    repo_id: args.repo_id,
+    counts: {
+      evidence: result.evidence.length,
+      latest_progress: result.latest_progress.length,
+      open_issues: result.open_issues.length
+    },
+    warnings: result.warnings
+  });
+  return createSuccessEnvelope(result, result.plain_text, { warnings: result.warnings });
+});
 
 export const agentRunnerStatusHandler: ToolHandler = async (input, context) => safeTool<AgentRunnerStatusInput>("repo_runner_status", input, context, async (args) => {
   const repo = context.registry.get(args.repo_id);
@@ -452,10 +473,12 @@ export const cleanupPathsHandler: ToolHandler = async (input, context) => safeTo
 });
 
 export const projectBriefHandler: ToolHandler = async (input, context) => safeTool<ProjectBriefInput>("repo_project_brief", input, context, async (args) => {
-  const repo = context.registry.get(args.repo_id);
+  const repoId = readOnlyRepoId(args.repo_id);
+  const effectiveArgs = { ...args, repo_id: repoId };
+  const repo = context.registry.get(repoId);
   const sandbox = new PathSandbox(repo.root);
-  const result = await new ProjectBriefService(repo, sandbox).brief(args);
-  audit({ tool: "repo_project_brief", repo_id: args.repo_id, counts: { docs: result.key_docs.length, scripts: result.scripts.length }, truncated: result.truncated, warnings: result.warnings });
+  const result = await new ProjectBriefService(repo, sandbox).brief(effectiveArgs);
+  audit({ tool: "repo_project_brief", repo_id: repoId, counts: { docs: result.key_docs.length, scripts: result.scripts.length }, truncated: result.truncated, warnings: result.warnings });
   return createSuccessEnvelope(result, `Returned project brief for ${repo.display_name}.`);
 });
 
@@ -482,20 +505,23 @@ export const projectMemoryHandler: ToolHandler = async (input, context) => safeT
 });
 
 export const taskInventoryHandler: ToolHandler = async (input, context) => safeTool<TaskInventoryInput>("repo_task_inventory", input, context, async (args) => {
-  const repo = context.registry.get(args.repo_id);
+  const repoId = readOnlyRepoId(args.repo_id);
+  const effectiveArgs = { ...args, repo_id: repoId };
+  const repo = context.registry.get(repoId);
   const sandbox = new PathSandbox(repo.root);
-  const result = await new TaskInventoryService(repo.root, sandbox).inventory(args);
-  audit({ tool: "repo_task_inventory", repo_id: args.repo_id, counts: { tasks: result.returned_count }, truncated: result.truncated, warnings: result.warnings });
+  const result = await new TaskInventoryService(repo.root, sandbox).inventory(effectiveArgs);
+  audit({ tool: "repo_task_inventory", repo_id: repoId, counts: { tasks: result.returned_count }, truncated: result.truncated, warnings: result.warnings });
   return createSuccessEnvelope(result, `Returned ${result.returned_count} task inventory items.`);
 });
 
 export const decisionMemoryHandler: ToolHandler = async (input, context) => safeTool<DecisionLogInput>("repo_decision_memory", input, context, async (args) => {
-  const repo = context.registry.get(args.repo_id);
+  const repoId = readOnlyRepoId(args.repo_id);
+  const repo = context.registry.get(repoId);
   const sandbox = new PathSandbox(repo.root);
   const result = await new DecisionLogService(repo.root, sandbox).decisionLog({
     include_sources: args.include_sources
   });
-  audit({ tool: "repo_decision_memory", repo_id: args.repo_id, counts: { decisions: result.decisions.length, conventions: result.conventions.length }, warnings: result.warnings });
+  audit({ tool: "repo_decision_memory", repo_id: repoId, counts: { decisions: result.decisions.length, conventions: result.conventions.length }, warnings: result.warnings });
   return createSuccessEnvelope(result, `Returned ${result.decisions.length} decisions and ${result.conventions.length} conventions.`);
 });
 
@@ -768,6 +794,10 @@ async function safeTool<TInput extends Record<string, unknown>>(
     audit({ tool, repo_id: typeof input === "object" && input && "repo_id" in input ? String(input.repo_id) : undefined, warnings: [repoError.code] });
     return createErrorEnvelope(repoError);
   }
+}
+
+function readOnlyRepoId(repoId: string | undefined): string {
+  return repoId && repoId.trim().length > 0 ? repoId : "shared-agent-bridge";
 }
 
 async function readHeadSha(root: string): Promise<string | undefined> {

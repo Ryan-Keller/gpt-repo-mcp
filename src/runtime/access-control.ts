@@ -33,6 +33,7 @@ export const ACCESS_MATRIX: Record<AccessTier, string[]> = {
   ],
   authenticated_read: [
     "repo_list_roots",
+    "repo_bridge_concierge",
     "agent_runner_status",
     "repo_runner_status",
     "repo_run_live_tail",
@@ -73,6 +74,7 @@ export const ACCESS_MATRIX: Record<AccessTier, string[]> = {
 
 const TOOL_ACCESS_TIERS: Record<string, AccessTier> = {
   repo_list_roots: "authenticated_read",
+  repo_bridge_concierge: "authenticated_read",
   agent_runner_status: "authenticated_read",
   repo_runner_status: "authenticated_read",
   repo_run_live_tail: "authenticated_read",

@@ -22,6 +22,7 @@ This project is not affiliated with OpenAI, ChatGPT, Anthropic, or the Model Con
 - Prepare focused Codex/Claude prompts in chat or as repo-local task files when you want another agent to implement.
 - Keep ChatGPT work organized with local session handoff notes for future ChatGPT chats.
 - Ask why a path is blocked with `repo_policy_explain`.
+- Ask project/capability questions through `repo_bridge_concierge` so ChatGPT answers from the intended destination instead of making you know folders, artifacts, run IDs, or file names.
 
 ## Core Workflow
 
@@ -140,6 +141,7 @@ Codex is done. Review the Codex result and the git diff for <repo_id>.
 | Category | Tools |
 | --- | --- |
 | Repo discovery | `repo_list_roots`, `repo_tree`, `repo_search`, `repo_fetch_file`, `repo_read_many` |
+| Destination concierge | `repo_bridge_concierge` |
 | Policy help | `repo_policy_explain` |
 | Planning | `repo_project_brief`, `repo_task_inventory`, `repo_decision_memory`, `repo_change_plan`, `repo_next_action`, `repo_plan_review` |
 | Git review | `repo_git_status`, `repo_git_diff`, `repo_git_review` |

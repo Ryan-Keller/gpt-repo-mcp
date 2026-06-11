@@ -5,6 +5,11 @@ export const RepoInputSchema = z.object({
   repo_id: z.string().min(1).describe("Stable approved repository id from repo_list_roots.")
 });
 
+export const DefaultReadOnlyRepoInputSchema = z.object({
+  repo_id: z.string().min(1).optional()
+    .describe("Approved repository id. For this Shared Agent Bridge app, omit this or use shared-agent-bridge unless repo_list_roots reports a different id.")
+});
+
 export const RepoTreeInputSchema = RepoInputSchema.extend({
   path: z.string().optional(),
   max_depth: z.number().int().positive().optional(),

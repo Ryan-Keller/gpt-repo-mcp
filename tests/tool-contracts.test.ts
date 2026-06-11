@@ -1,6 +1,7 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
 import { AgentRunnerStatusInputSchema, AgentRunnerStatusResultSchema } from "../src/contracts/agent-runner.contract.js";
+import { BridgeConciergeInputSchema, BridgeConciergeResultSchema } from "../src/contracts/bridge-concierge.contract.js";
 import {
   WriteChangesInputSchema,
   WriteChangesResultSchema,
@@ -28,7 +29,9 @@ import { GitReviewResultSchema } from "../src/contracts/git-review.contract.js";
 import { HandoffInputSchema, HandoffResultSchema } from "../src/contracts/handoff.contract.js";
 import { LastWriteInputSchema, LastWriteResultSchema } from "../src/contracts/operation-receipt.contract.js";
 import { PolicyExplainInputSchema, PolicyExplainResultSchema } from "../src/contracts/policy.contract.js";
+import { ProjectBriefInputSchema } from "../src/contracts/project.contract.js";
 import { RepoReaderConfigSchema } from "../src/config/schema.js";
+import { TaskInventoryInputSchema } from "../src/contracts/task.contract.js";
 import { readOnlyAnnotations, writeAnnotations } from "../src/tools/annotations.js";
 import { toolCatalog } from "../src/tools/catalog.js";
 import { toolContracts } from "../src/tools/contracts.js";
@@ -50,6 +53,7 @@ describe("tool catalog contracts", () => {
   test("all tools have required metadata and appropriate annotations", () => {
     expect(toolCatalog.map((tool) => tool.name)).toEqual([
       "repo_list_roots",
+      "repo_bridge_concierge",
       "agent_runner_status",
       "repo_runner_status",
       "repo_run_live_tail",
@@ -127,6 +131,7 @@ describe("tool catalog contracts", () => {
     const writeFile = toolCatalog.find((tool) => tool.name === "repo_write_file");
     const policyExplain = toolCatalog.find((tool) => tool.name === "repo_policy_explain");
     const repoRunnerStatus = toolCatalog.find((tool) => tool.name === "repo_runner_status");
+    const bridgeConcierge = toolCatalog.find((tool) => tool.name === "repo_bridge_concierge");
     const prepareCodexTask = toolCatalog.find((tool) => tool.name === "repo_prepare_codex_task");
     const writeCodexTask = toolCatalog.find((tool) => tool.name === "repo_write_codex_task");
     const writeCodexTasksBatch = toolCatalog.find((tool) => tool.name === "repo_write_codex_tasks_batch");
@@ -148,6 +153,10 @@ describe("tool catalog contracts", () => {
     expect(repoRunnerStatus?.inputSchema).toBe(AgentRunnerStatusInputSchema);
     expect(repoRunnerStatus?.outputSchema).toBe(AgentRunnerStatusResultSchema);
     expect(repoRunnerStatus?.annotations).toEqual(readOnlyAnnotations);
+    expect(bridgeConcierge).toBeDefined();
+    expect(bridgeConcierge?.inputSchema).toBe(BridgeConciergeInputSchema);
+    expect(bridgeConcierge?.outputSchema).toBe(BridgeConciergeResultSchema);
+    expect(bridgeConcierge?.annotations).toEqual(readOnlyAnnotations);
     expect(prepareCodexTask).toBeDefined();
     expect(prepareCodexTask?.inputSchema).toBe(CodexTaskInputSchema);
     expect(prepareCodexTask?.outputSchema).toBe(CodexTaskResultSchema);
@@ -225,6 +234,32 @@ describe("tool catalog contracts", () => {
     expect(agentRunnerStatus?.inputSchema).toBe(repoRunnerStatus?.inputSchema);
     expect(agentRunnerStatus?.outputSchema).toBe(repoRunnerStatus?.outputSchema);
     expect(agentRunnerStatus?.annotations).toEqual(readOnlyAnnotations);
+  });
+
+  test("read-only planning tools are friendly to the single-repo ChatGPT app", () => {
+    expect(ProjectBriefInputSchema.safeParse({}).success).toBe(true);
+    expect(TaskInventoryInputSchema.safeParse({}).success).toBe(true);
+    expect(DecisionLogInputSchema.safeParse({}).success).toBe(true);
+    expect(schemaDescription(ProjectBriefInputSchema.shape.repo_id)).toContain("omit this");
+    expect(JSON.stringify(ProjectBriefInputSchema.shape.repo_id)).not.toContain("shared-agent-bridge");
+
+    expectFieldDescriptions([
+      ["repo_project_brief.repo_id", ProjectBriefInputSchema.shape.repo_id],
+      ["repo_project_brief.include", ProjectBriefInputSchema.shape.include],
+      ["repo_task_inventory.repo_id", TaskInventoryInputSchema.shape.repo_id],
+      ["repo_task_inventory.include_globs", TaskInventoryInputSchema.shape.include_globs],
+      ["repo_task_inventory.exclude_globs", TaskInventoryInputSchema.shape.exclude_globs],
+      ["repo_task_inventory.labels", TaskInventoryInputSchema.shape.labels],
+      ["repo_task_inventory.max_results", TaskInventoryInputSchema.shape.max_results],
+      ["repo_decision_memory.repo_id", DecisionLogInputSchema.shape.repo_id],
+      ["repo_decision_memory.include_sources", DecisionLogInputSchema.shape.include_sources]
+    ]);
+
+    expect(GitCommitInputSchema.safeParse({
+      message: "test commit",
+      expected_head_sha: "0".repeat(40),
+      expected_staged_paths: ["docs/example.md"]
+    }).success).toBe(false);
   });
 
   test("handoff intent is routed to repo_write_handoff description only", () => {
@@ -791,16 +826,37 @@ describe("tool catalog contracts", () => {
       outputKeys: Object.keys(tool.outputSchema.shape).sort()
     }));
     const names = surface.map((tool) => tool.name);
+    const concierge = surface.find((tool) => tool.name === "repo_bridge_concierge");
     const liveTail = surface.find((tool) => tool.name === "repo_run_live_tail");
     const runnerStatus = surface.find((tool) => tool.name === "repo_runner_status");
 
-    expect(names).toHaveLength(40);
+    expect(names).toHaveLength(41);
+    expect(names).toContain("repo_bridge_concierge");
     expect(names).toContain("repo_run_live_tail");
     expect(names).toContain("repo_runner_status");
     expect(names).toContain("repo_connector_whoami");
     expect(names).toContain("repo_project_memory");
     expect(names).toContain("repo_write_codex_tasks_batch");
     expect(names).toContain("agent_runner_status");
+    expect(concierge?.inputKeys).toEqual(["include_evidence", "repo_id", "request"]);
+    expect(concierge?.outputKeys).toEqual([
+      "current_status",
+      "destination",
+      "evidence",
+      "inferred",
+      "known",
+      "latest_progress",
+      "mode",
+      "next_tool_hints",
+      "ok",
+      "open_issues",
+      "plain_text",
+      "recommended_next_action",
+      "repo_id",
+      "request",
+      "unknown",
+      "warnings"
+    ]);
     expect(runnerStatus?.inputKeys).toEqual([
       "heartbeat_stale_seconds",
       "live_tail_max_events",

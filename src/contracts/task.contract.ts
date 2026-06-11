@@ -1,15 +1,18 @@
 import { z } from "zod";
 import { GlobScopeSchema } from "./file.contract.js";
-import { RepoInputSchema } from "./repo.contract.js";
+import { DefaultReadOnlyRepoInputSchema } from "./repo.contract.js";
 
 export const TaskKindSchema = z.enum(["todo", "fixme", "hack", "checkbox", "roadmap"]);
 
-export const TaskInventoryInputSchema = RepoInputSchema
+export const TaskInventoryInputSchema = DefaultReadOnlyRepoInputSchema
   .merge(GlobScopeSchema)
   .extend({
-    labels: z.array(TaskKindSchema).optional(),
-    max_results: z.number().int().positive().optional(),
+    labels: z.array(TaskKindSchema).optional()
+      .describe("Optional task kinds to include. Omit this to scan all supported task-like signals."),
+    max_results: z.number().int().positive().optional()
+      .describe("Maximum number of task signals to return. Omit for the service default."),
     cursor: z.string().optional()
+      .describe("Pagination cursor returned by a previous task inventory response.")
   });
 
 export const TaskInventoryItemSchema = z.object({

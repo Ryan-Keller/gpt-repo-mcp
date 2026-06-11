@@ -11,6 +11,7 @@ describe("bridge access control", () => {
   test("classifies sensitive bridge tools into documented access tiers", () => {
     expect(ACCESS_MATRIX.public_safe).toEqual(expect.arrayContaining(["GET /health unauthenticated"]));
     expect(getToolAccessTier("repo_list_roots")).toBe("authenticated_read");
+    expect(getToolAccessTier("repo_bridge_concierge")).toBe("authenticated_read");
     expect(getToolAccessTier("repo_runner_status")).toBe("authenticated_read");
     expect(getToolAccessTier("ready_results")).toBe("authenticated_read");
     expect(getToolAccessTier("repo_write_codex_task")).toBe("privileged_write");

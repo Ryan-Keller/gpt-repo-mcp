@@ -68,6 +68,27 @@ Example:
 {}
 ```
 
+### `repo_bridge_concierge`
+
+Resolves a user intention to a bridge destination before broad storage
+discovery. Use it when the user asks about a project, capability, goal,
+problem, latest progress, overnight changes, or what to work on next.
+
+Input: `repo_id`, `request`, optional `include_evidence`.
+Output: `destination`, `current_status`, `latest_progress`, `open_issues`,
+`recommended_next_action`, `known`, `inferred`, `unknown`, `evidence`,
+`next_tool_hints`, and `plain_text`.
+Example:
+
+```json
+{ "repo_id": "shared-agent-bridge", "request": "check visual streaming" }
+```
+
+Boundary: read-only. It never launches Codex, mutates files, stages, commits,
+pushes, deletes, clears locks, or runs shell commands. Evidence is bounded to
+repo-relative paths and `known`, `inferred`, and `unknown` are separated in the
+result.
+
 ### `repo_policy_explain`
 
 Explains effective repository policy without reading or mutating files. Use it when a read, write, or cleanup policy question is blocked unexpectedly, or when the user asks what ChatGPT can access.

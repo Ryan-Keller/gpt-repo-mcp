@@ -48,7 +48,7 @@ export async function appendBridgeSecurityEvent(
   if (repos.length === 0) {
     return;
   }
-  await Promise.all(repos.map((repo) => appendEvent(repo.root, repo.repo_id, input)));
+  await Promise.allSettled(repos.map((repo) => appendEvent(repo.root, repo.repo_id, input)));
 }
 
 async function appendEvent(root: string, repoId: string, input: BridgeSecurityEventInput): Promise<void> {
@@ -99,7 +99,7 @@ async function readEventLog(root: string): Promise<unknown[]> {
 
 async function writeEventLog(root: string, events: unknown[]): Promise<void> {
   const eventPath = join(root, EVENT_LOG_PATH);
-  const tmpPath = `${eventPath}.tmp`;
+  const tmpPath = `${eventPath}.${process.pid}.${randomUUID()}.tmp`;
   await mkdir(join(root, ".chatgpt/events"), { recursive: true });
   await writeFile(tmpPath, events.map((event) => JSON.stringify(event)).join("\n") + "\n", "utf8");
   await rename(tmpPath, eventPath);

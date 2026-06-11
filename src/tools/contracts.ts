@@ -1,5 +1,6 @@
 import type { z } from "zod";
 import { AgentRunnerStatusInputSchema, AgentRunnerStatusResultSchema, RunLiveTailInputSchema, RunLiveTailResultSchema } from "../contracts/agent-runner.contract.js";
+import { BridgeConciergeInputSchema, BridgeConciergeResultSchema } from "../contracts/bridge-concierge.contract.js";
 import { ChangePlanInputSchema, ChangePlanResultSchema } from "../contracts/change-plan.contract.js";
 import { CleanupPathsInputSchema, CleanupPathsResultSchema } from "../contracts/cleanup.contract.js";
 import { CodexReviewInputSchema, CodexReviewResultSchema, CodexRunAndWaitInputSchema, CodexRunAndWaitResultSchema, CodexTaskBatchWriteInputSchema, CodexTaskBatchWriteResultSchema, CodexTaskInputSchema, CodexTaskResultSchema, CodexTaskWriteInputSchema, CodexTaskWriteResultSchema } from "../contracts/codex-task.contract.js";
@@ -25,6 +26,7 @@ import { WriteChangesInputSchema, WriteChangesResultSchema, WriteFileInputSchema
 
 export type ToolName =
   | "repo_list_roots"
+  | "repo_bridge_concierge"
   | "agent_runner_status"
   | "repo_runner_status"
   | "repo_run_live_tail"
@@ -74,6 +76,10 @@ export const toolContracts = {
   repo_list_roots: {
     input: RepoInputSchema.omit({ repo_id: true }),
     output: RepoListResultSchema
+  },
+  repo_bridge_concierge: {
+    input: BridgeConciergeInputSchema,
+    output: BridgeConciergeResultSchema
   },
   agent_runner_status: {
     input: AgentRunnerStatusInputSchema,

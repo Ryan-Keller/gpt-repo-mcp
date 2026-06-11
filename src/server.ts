@@ -218,7 +218,7 @@ function createMcpRequestContext(req: Request): RequestTelemetryContext {
     method === "tools/call" && typeof req.body?.params?.name === "string"
       ? req.body.params.name
       : undefined;
-  const publicTokenPath = req.path.startsWith("/t/") && req.path.endsWith("/mcp");
+  const publicTokenPath = req.path.startsWith("/t/");
 
   return {
     request_id: createRequestId(),

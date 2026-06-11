@@ -5,11 +5,14 @@ export function buildPublicMcpPath(token: string): string {
 }
 
 export function buildMcpRoutePatterns(token: string | undefined): string[] {
-  return token ? ["/mcp", "/t/:publicPathToken/mcp"] : ["/mcp"];
+  return token ? ["/mcp", "/t/:publicPathToken", "/t/:publicPathToken/mcp"] : ["/mcp"];
 }
 
-export function sanitizeMcpRouteForAudit(path: string): "/mcp" | "/t/[token]/mcp" {
-  return path.startsWith("/t/") && path.endsWith("/mcp") ? "/t/[token]/mcp" : "/mcp";
+export function sanitizeMcpRouteForAudit(path: string): "/mcp" | "/t/[token]" | "/t/[token]/mcp" {
+  if (path.startsWith("/t/")) {
+    return path.endsWith("/mcp") ? "/t/[token]/mcp" : "/t/[token]";
+  }
+  return "/mcp";
 }
 
 export function isAuthorizedMcpPath(path: string, token: string | undefined): boolean {
@@ -25,12 +28,12 @@ export function isAuthorizedMcpPath(path: string, token: string | undefined): bo
 }
 
 export function isPublicTokenMcpPath(path: string, token: string | undefined): boolean {
-  if (!token || !path.startsWith("/t/") || !path.endsWith("/mcp")) {
+  if (!token || !path.startsWith("/t/")) {
     return false;
   }
 
-  const expected = buildPublicMcpPath(token);
-  return safePathEqual(path, expected);
+  const encodedToken = encodeURIComponent(token);
+  return safePathEqual(path, `/t/${encodedToken}`) || safePathEqual(path, `/t/${encodedToken}/mcp`);
 }
 
 function safePathEqual(left: string, right: string): boolean {

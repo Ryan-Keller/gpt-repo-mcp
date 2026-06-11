@@ -1,10 +1,11 @@
 import { z } from "zod";
-import { RepoInputSchema } from "./repo.contract.js";
+import { DefaultReadOnlyRepoInputSchema } from "./repo.contract.js";
 
 export const ProjectBriefIncludeSchema = z.enum(["package", "readme", "architecture", "scripts", "recent_git", "todos"]);
 
-export const ProjectBriefInputSchema = RepoInputSchema.extend({
+export const ProjectBriefInputSchema = DefaultReadOnlyRepoInputSchema.extend({
   include: z.array(ProjectBriefIncludeSchema).optional()
+    .describe("Optional brief sections to include. Omit this for the normal bounded project brief.")
 });
 
 export const ProjectBriefResultSchema = z.object({

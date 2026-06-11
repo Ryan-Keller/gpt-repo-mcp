@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { toolCatalog } from "../tools/catalog.js";
@@ -169,12 +170,16 @@ export function sessionFingerprint(value: string | undefined): string {
 
 async function appendSessionEvent(repoRoot: string, event: ToolSessionEvent): Promise<void> {
   const eventPath = join(repoRoot, EVENT_LOG_PATH);
-  const tmpPath = `${eventPath}.tmp`;
-  await mkdir(join(repoRoot, ".chatgpt/events"), { recursive: true });
-  const existing = await readExisting(eventPath);
-  const rows = [...existing, JSON.stringify(event)];
-  await writeFile(tmpPath, rows.join("\n") + "\n", "utf8");
-  await rename(tmpPath, eventPath);
+  const tmpPath = `${eventPath}.${process.pid}.${randomUUID()}.tmp`;
+  try {
+    await mkdir(join(repoRoot, ".chatgpt/events"), { recursive: true });
+    const existing = await readExisting(eventPath);
+    const rows = [...existing, JSON.stringify(event)];
+    await writeFile(tmpPath, rows.join("\n") + "\n", "utf8");
+    await rename(tmpPath, eventPath);
+  } catch {
+    // Session observability is diagnostic only; it must not break MCP traffic.
+  }
 }
 
 async function readExisting(path: string): Promise<string[]> {
