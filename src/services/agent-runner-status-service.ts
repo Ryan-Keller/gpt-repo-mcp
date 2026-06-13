@@ -29,6 +29,9 @@ type ClassifiedRun = {
   result_path?: string;
   result_mtime_ms?: number;
   result_status?: string;
+  original_estimate?: Record<string, unknown>;
+  revised_estimate?: Record<string, unknown>;
+  effective_estimate?: Record<string, unknown>;
 };
 
 type LiveTailEvent = AgentRunnerStatusResult["active_run_live_tail"][number];
@@ -180,6 +183,9 @@ export class AgentRunnerStatusService {
         runner_pid: run.runner_pid ?? null,
         child_pid: run.child_pid ?? null,
         worker_slot_id: run.worker_slot_id ?? null,
+        original_estimate: run.original_estimate ?? {},
+        revised_estimate: run.revised_estimate ?? {},
+        effective_estimate: run.effective_estimate ?? {},
         result_md_exists: run.result_md_exists ?? false
       }));
     for (const lock of activeLocks) {
@@ -194,6 +200,9 @@ export class AgentRunnerStatusService {
         lock_path: run.lock_path ?? "",
         lock_age_seconds: run.lock_age_seconds ?? 0,
         runner_pid: run.runner_pid ?? null,
+        original_estimate: run.original_estimate ?? {},
+        revised_estimate: run.revised_estimate ?? {},
+        effective_estimate: run.effective_estimate ?? {},
         stale_reason: run.stale_reason ?? "",
         pid_status: run.pid_status ?? "",
         suggested_next_action: run.suggested_next_action ?? "write_blocked_result_and_clear_abandoned_lock",
@@ -217,6 +226,9 @@ export class AgentRunnerStatusService {
         runner_pid: run.runner_pid ?? null,
         child_pid: run.child_pid ?? null,
         worker_slot_id: run.worker_slot_id ?? null,
+        original_estimate: run.original_estimate ?? {},
+        revised_estimate: run.revised_estimate ?? {},
+        effective_estimate: run.effective_estimate ?? {},
         result_md_exists: true
       }));
     if (completedWithLockWarnings.length > 0) {
@@ -254,6 +266,17 @@ export class AgentRunnerStatusService {
     }
     for (const activeRun of activeRuns) {
       plainTextLines.push(`Active run: ${activeRun.run_id}; source: ${activeRun.source}`);
+      if (hasEstimate(activeRun.revised_estimate)) {
+        plainTextLines.push(`Revised estimate: ${activeRun.run_id}; eta: ${estimateEta(activeRun.revised_estimate)}; confidence: ${estimateConfidence(activeRun.revised_estimate)}; reason: ${estimateReason(activeRun.revised_estimate)}`);
+      } else if (hasEstimate(activeRun.original_estimate)) {
+        plainTextLines.push(`Original estimate: ${activeRun.run_id}; eta: ${estimateEta(activeRun.original_estimate)}; confidence: ${estimateConfidence(activeRun.original_estimate)}`);
+      }
+    }
+    for (const slot of workerSlots) {
+      const progressLine = progressPlainText(String(slot.run_id ?? ""), slot.progress);
+      if (progressLine) {
+        plainTextLines.push(progressLine);
+      }
     }
     for (const [tailRunId, tailEvents] of groupLiveTailByRun(activeRunLiveTail)) {
       if (tailEvents.length > 0) {
@@ -616,7 +639,9 @@ export class AgentRunnerStatusService {
         ]);
         const lockPath = join(runDir, "RESULT.md.lock");
         const lockInfo = lock ? await stat(lockPath) : null;
-        const lockMetadata = lock ? await readLockMetadata(lockPath) : {};
+        const lockMetadata = lock
+          ? await readLockMetadata(lockPath)
+          : { original_estimate: {}, revised_estimate: {}, effective_estimate: {} };
         runs.push({
           run_id: runId,
           state: status === "blocked" ? "blocked" : lock ? "completed_with_lock_warning" : "completed",
@@ -628,6 +653,9 @@ export class AgentRunnerStatusService {
           runner_pid: lockMetadata.runner_pid ?? null,
           child_pid: lockMetadata.child_pid ?? null,
           worker_slot_id: lockMetadata.worker_slot_id ?? null,
+          original_estimate: lockMetadata.original_estimate,
+          revised_estimate: lockMetadata.revised_estimate,
+          effective_estimate: lockMetadata.effective_estimate,
           result_md_exists: true
         });
       } else if (lock) {
@@ -649,6 +677,9 @@ export class AgentRunnerStatusService {
           runner_pid: lockPid,
           child_pid: lockMetadata.child_pid ?? null,
           worker_slot_id: lockMetadata.worker_slot_id ?? null,
+          original_estimate: lockMetadata.original_estimate,
+          revised_estimate: lockMetadata.revised_estimate,
+          effective_estimate: lockMetadata.effective_estimate,
           pid_status: pidStatus,
           stale_reason: staleReason,
           suggested_next_action: state === "stale_locked" ? "write_blocked_result_and_clear_abandoned_lock" : "wait_or_inspect_active_runner",
@@ -656,7 +687,14 @@ export class AgentRunnerStatusService {
           run_dir_recent_mtime_ms: recentMtime
         });
       } else if (prompt && runJson) {
-        runs.push({ run_id: runId, state: "pending", suggested_next_action: "wait_for_worker_or_start_runner" });
+        const originalEstimate = await readRunManifestEstimate(join(runDir, "run.json"));
+        runs.push({
+          run_id: runId,
+          state: "pending",
+          suggested_next_action: "wait_for_worker_or_start_runner",
+          original_estimate: originalEstimate,
+          effective_estimate: originalEstimate
+        });
       } else {
         runs.push({ run_id: runId, state: "blocked", suggested_next_action: "inspect_run_directory" });
       }
@@ -676,10 +714,19 @@ export class AgentRunnerStatusService {
     const ready = await Promise.all(readableResults.map(async (run) => {
       const resultPath = run.result_path ?? "";
       const resultText = await readFile(join(this.repoRoot, resultPath), "utf8");
+      const status = run.result_status ?? run.state;
+      const card = readyResultCard(resultText, status);
       return {
         run_id: run.run_id,
-        result_status: run.result_status ?? run.state,
+        status,
+        result_status: status,
         result_path: resultPath,
+        summary: card.summary,
+        changed_file_count: card.changed_file_count,
+        key_tests: card.key_tests,
+        blocker: card.blocker,
+        proof_layer: card.proof_layer,
+        next_action: card.next_action,
         result_text: resultText.length > 16000 ? `${resultText.slice(0, 4000)}\n\n[...RESULT.md truncated in status payload...]\n\n${tail(resultText, 12000)}` : resultText,
         preview_urls: extractUrls(resultText)
       };
@@ -714,28 +761,37 @@ function applyDetailLevel(snapshot: StatusSnapshot, detail: DetailLevel): Status
     };
   }
 
-  const activeOrAttentionEntries = snapshot.queue_entries
-    .filter((entry) => {
-      const state = queueEntryValue(entry, "state");
-      return state === "pending" || state === "active_locked" || state === "stale_locked" || state === "completed_with_lock_warning";
-    })
-    .slice(0, 10);
-  const lastRunEntry = queueEntryForRun(snapshot as AgentRunnerStatusResult, snapshot.last_run_id);
-  const queueEntries = uniqueQueueEntries(lastRunEntry ? [...activeOrAttentionEntries, lastRunEntry] : activeOrAttentionEntries);
-
   return {
     ...snapshot,
     detail_level: "summary",
     details_truncated: true,
-    full_detail_hint: "Call repo_runner_status with detail: \"full\" only when you need full ready result text, complete queue entries, or complete event payloads.",
-    ready_results: snapshot.ready_results.slice(0, 1).map((result) => ({
-      ...result,
-      result_text: summarizeResultText(result.result_text)
+    full_detail_hint: "Call repo_runner_status with detail: \"full\" only when you need worker slot inventory, lock records, full ready result text, queue entries, events, or live-tail text.",
+    worker_slots: [],
+    active_locks: [],
+    stale_locks: [],
+    completed_with_lock_warnings: [],
+    connector_identity: undefined,
+    active_runs: snapshot.active_runs.slice(0, 5).map((run) => ({
+      run_id: run.run_id,
+      source: run.source,
+      heartbeat_active: run.heartbeat_active,
+      lock_path: "",
+      lock_age_seconds: run.lock_age_seconds,
+      runner_pid: run.runner_pid,
+      result_md_exists: run.result_md_exists,
+      runtime_assessment: {
+        ...run.runtime_assessment,
+        evidence: {}
+      }
     })),
-    queue_entries: queueEntries,
-    recent_events: snapshot.recent_events.slice(0, 3).map(summarizeEvent),
-    unresolved_events: snapshot.unresolved_events.slice(0, 3).map(summarizeEvent),
-    active_run_live_tail: snapshot.active_run_live_tail.slice(-5),
+    ready_results: snapshot.ready_results.slice(0, 5).map((result) => ({
+      ...result,
+      result_text: ""
+    })),
+    queue_entries: [],
+    recent_events: [],
+    unresolved_events: [],
+    active_run_live_tail: [],
     plain_text: compactPlainText(snapshot)
   };
 }
@@ -779,7 +835,7 @@ function shortField(value: unknown, maxLength = 80): string {
   if (!text) {
     return "";
   }
-  return text.length > maxLength ? `${text.slice(0, Math.max(0, maxLength - 1)).trimEnd()}…` : text;
+  return text.length > maxLength ? `${text.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...` : text;
 }
 
 function compactPlainText(snapshot: StatusSnapshot): string {
@@ -801,14 +857,21 @@ function compactPlainText(snapshot: StatusSnapshot): string {
   for (const activeRun of snapshot.active_runs.slice(0, 3)) {
     lines.push(`Active run: ${activeRun.run_id}; source: ${activeRun.source}`);
   }
+  for (const slot of snapshot.worker_slots.slice(0, 3)) {
+    const progressLine = progressPlainText(String(slot.run_id ?? ""), slot.progress);
+    if (progressLine) {
+      lines.push(progressLine);
+    }
+  }
   if (snapshot.active_run_live_tail.length > 0) {
     lines.push(`Live tail: ${snapshot.active_run_live_tail.length} events available; request detail: "full" for event text.`);
   }
-  const readyResult = snapshot.ready_results[0];
-  if (readyResult) {
-    lines.push(`Ready result: ${readyResult.run_id}`);
-    lines.push(`Ready result status: ${readyResult.result_status}`);
-    lines.push(`Ready result path: ${readyResult.result_path}`);
+  const readyResults = snapshot.ready_results.slice(0, 5);
+  if (readyResults.length > 0) {
+    lines.push(`Ready result ids: ${readyResults.map((result) => result.run_id).join(", ")}`);
+    const readyResult = readyResults[0];
+    lines.push(`Latest ready result status: ${readyResult.result_status}`);
+    lines.push(`Latest ready result path: ${readyResult.result_path}`);
     const previewUrl = readyResult.preview_urls.find((url) => !url.includes("127.0.0.1")) ?? readyResult.preview_urls[0];
     if (previewUrl) {
       lines.push(`Preview URL: ${previewUrl}`);
@@ -818,52 +881,9 @@ function compactPlainText(snapshot: StatusSnapshot): string {
     lines.push(`Stale run: ${String(staleLock.run_id)}; reason: ${String(staleLock.stale_reason ?? "")}; pid_status: ${String(staleLock.pid_status ?? "")}`);
     lines.push(`Suggested next action: ${String(staleLock.suggested_next_action ?? "")}`);
   }
-  lines.push("Detail: summary; request detail: \"full\" for full result text, queue entries, events, and live tail.");
+  lines.push(`Next action: ${snapshot.suggested_next_action || (snapshot.active_count > 0 ? "observe_active_run" : snapshot.stale_lock_count > 0 ? "inspect_stale_lock" : snapshot.pending_count > 0 ? "wait_for_worker_or_start_runner" : "observe_only")}`);
+  lines.push("Detail: summary; request detail: \"full\" for worker slots, locks, full result text, queue entries, events, and live tail.");
   return lines.join("\n");
-}
-
-function summarizeResultText(text: string): string {
-  const summary = text.match(/^summary:\s*(.+)$/im)?.[1]?.trim();
-  const status = text.match(/^status:\s*(.+)$/im)?.[1]?.trim();
-  const fallback = text.replace(/\s+/g, " ").trim().slice(0, 500);
-  return [
-    status ? `status: ${status}` : "",
-    summary ? `summary: ${summary}` : fallback
-  ].filter(Boolean).join("\n");
-}
-
-function summarizeEvent(event: unknown): unknown {
-  if (!event || typeof event !== "object") {
-    return event;
-  }
-  const record = event as Record<string, unknown>;
-  return {
-    event_id: record.event_id,
-    event_type: record.event_type,
-    repo_id: record.repo_id,
-    run_id: record.run_id,
-    result_status: record.result_status,
-    result_path: record.result_path,
-    severity: record.severity,
-    summary: record.summary,
-    observed_at: record.observed_at ?? record.timestamp,
-    suggested_next_action: record.suggested_next_action,
-    acknowledged: record.acknowledged,
-    unread: record.unread,
-    dedupe_key: record.dedupe_key
-  };
-}
-
-function uniqueQueueEntries(entries: AgentRunnerStatusResult["queue_entries"]): AgentRunnerStatusResult["queue_entries"] {
-  const seen = new Set<string>();
-  return entries.filter((entry) => {
-    const runId = queueEntryValue(entry, "run_id");
-    if (!runId || seen.has(runId)) {
-      return false;
-    }
-    seen.add(runId);
-    return true;
-  });
 }
 
 function boundedInteger(value: unknown, fallback: number, min: number, max: number): number {
@@ -971,16 +991,60 @@ function parseWorkerSlots(value: unknown): WorkerSlot[] {
       : slots.length + 1;
     const rawState = typeof record.state === "string" ? record.state : "unknown";
     const state: WorkerSlot["state"] = rawState === "active" || rawState === "idle" ? rawState : "unknown";
+    const progress = normalizeProgressEnvelope(record.progress);
     slots.push({
       slot_id: slotId,
       state,
       run_id: typeof record.run_id === "string" ? record.run_id : "",
       pid: typeof record.pid === "number" && Number.isInteger(record.pid) && record.pid > 0 ? record.pid : null,
       started_at: typeof record.started_at === "string" ? record.started_at : "",
-      heartbeat_age_seconds: typeof record.heartbeat_age_seconds === "number" ? record.heartbeat_age_seconds : null
+      heartbeat_age_seconds: typeof record.heartbeat_age_seconds === "number" ? record.heartbeat_age_seconds : null,
+      original_estimate: normalizeEstimate(record.original_estimate),
+      revised_estimate: normalizeEstimate(record.revised_estimate),
+      effective_estimate: normalizeEstimate(record.effective_estimate),
+      ...(Object.keys(progress).length > 0 ? { progress } : {})
     });
   }
   return slots;
+}
+
+function normalizeProgressEnvelope(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) {
+    return {};
+  }
+  const progress: Record<string, unknown> = { schema_version: 1 };
+  const phase = shortField(value.phase, 80);
+  if (phase) {
+    progress.phase = phase;
+  }
+  if (typeof value.percent_complete === "number" && Number.isFinite(value.percent_complete)) {
+    progress.percent_complete = Math.max(0, Math.min(100, Math.round(value.percent_complete)));
+  }
+  const eta = shortField(value.eta, 120);
+  if (eta) {
+    progress.eta = eta;
+  }
+  const confidence = shortField(value.confidence, 40).toLowerCase();
+  if (confidence === "low" || confidence === "medium" || confidence === "high") {
+    progress.confidence = confidence;
+  }
+  const currentActivity = shortField(value.current_activity, 160);
+  if (currentActivity) {
+    progress.current_activity = currentActivity;
+  }
+  const nextCheckpoint = shortField(value.next_checkpoint, 160);
+  if (nextCheckpoint) {
+    progress.next_checkpoint = nextCheckpoint;
+  }
+  return Object.keys(progress).length > 1 ? progress : {};
+}
+
+function progressPlainText(runId: string, progress: unknown): string {
+  if (!isRecord(progress) || Object.keys(progress).length === 0) {
+    return "";
+  }
+  const percent = typeof progress.percent_complete === "number" ? `${progress.percent_complete}%` : "unknown";
+  return `Progress: ${runId}; phase: ${String(progress.phase ?? "unknown")}; percent: ${percent}; eta: ${String(progress.eta ?? "unknown")}; confidence: ${String(progress.confidence ?? "unknown")}`;
 }
 
 function queueEntryForRun(status: StatusSnapshot, runId: string): Record<string, unknown> | undefined {
@@ -1057,21 +1121,128 @@ async function readLockMetadata(path: string): Promise<{
   runner_pid?: number;
   child_pid?: number;
   worker_slot_id?: number;
+  original_estimate: Record<string, unknown>;
+  revised_estimate: Record<string, unknown>;
+  effective_estimate: Record<string, unknown>;
 }> {
   let parsed: Record<string, unknown>;
   try {
     parsed = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
   } catch {
-    return {};
+    return { original_estimate: {}, revised_estimate: {}, effective_estimate: {} };
   }
   const runnerPid = parsed.runner_pid ?? parsed.pid;
   const childPid = parsed.child_pid;
   const workerSlotId = parsed.worker_slot_id;
+  const originalEstimate = normalizeEstimate(parsed.original_estimate);
+  const revisedEstimate = normalizeEstimate(parsed.revised_estimate);
+  const parsedEffectiveEstimate = normalizeEstimate(parsed.effective_estimate);
+  const effectiveEstimate = hasEstimate(parsedEffectiveEstimate)
+    ? parsedEffectiveEstimate
+    : hasEstimate(revisedEstimate)
+      ? revisedEstimate
+      : originalEstimate;
   return {
     runner_pid: typeof runnerPid === "number" && Number.isInteger(runnerPid) && runnerPid > 0 ? runnerPid : undefined,
     child_pid: typeof childPid === "number" && Number.isInteger(childPid) && childPid > 0 ? childPid : undefined,
-    worker_slot_id: typeof workerSlotId === "number" && Number.isInteger(workerSlotId) && workerSlotId > 0 ? workerSlotId : undefined
+    worker_slot_id: typeof workerSlotId === "number" && Number.isInteger(workerSlotId) && workerSlotId > 0 ? workerSlotId : undefined,
+    original_estimate: originalEstimate,
+    revised_estimate: revisedEstimate,
+    effective_estimate: effectiveEstimate
   };
+}
+
+async function readRunManifestEstimate(path: string): Promise<Record<string, unknown>> {
+  try {
+    const parsed = JSON.parse(await readFile(path, "utf8")) as Record<string, unknown>;
+    return manifestOriginalEstimate(parsed);
+  } catch {
+    return {};
+  }
+}
+
+function manifestOriginalEstimate(manifest: Record<string, unknown>): Record<string, unknown> {
+  for (const candidate of [manifest.original_estimate, manifest.estimate, manifest.eta_estimate]) {
+    const estimate = normalizeEstimate(candidate);
+    if (hasEstimate(estimate)) {
+      return estimate;
+    }
+  }
+  const metadata = manifest.metadata;
+  if (isRecord(metadata)) {
+    for (const candidate of [metadata.original_estimate, metadata.estimate, metadata.eta_estimate]) {
+      const estimate = normalizeEstimate(candidate);
+      if (hasEstimate(estimate)) {
+        return estimate;
+      }
+    }
+  }
+  return normalizeEstimate(manifest);
+}
+
+function normalizeEstimate(value: unknown): Record<string, unknown> {
+  if (!isRecord(value)) {
+    return {};
+  }
+  const eta = firstNonEmpty(value.eta, value.eta_text, value.estimated_completion, value.estimated_completion_at);
+  const etaSeconds = value.eta_seconds;
+  const confidence = normalizeConfidence(firstNonEmpty(value.confidence_score, value.confidence));
+  const reason = firstNonEmpty(value.reason_for_change, value.reason, value.change_reason);
+  const estimate: Record<string, unknown> = {};
+  if (eta) {
+    estimate.eta = String(eta);
+  }
+  if (typeof etaSeconds === "number" && Number.isFinite(etaSeconds) && etaSeconds >= 0) {
+    estimate.eta_seconds = etaSeconds;
+  }
+  if (confidence !== undefined) {
+    estimate.confidence_score = confidence;
+  }
+  if (reason) {
+    estimate.reason_for_change = String(reason);
+  }
+  for (const key of ["source", "updated_at"]) {
+    const raw = value[key];
+    if (raw) {
+      estimate[key] = String(raw);
+    }
+  }
+  return estimate;
+}
+
+function firstNonEmpty(...values: unknown[]): unknown {
+  return values.find((value) => value !== undefined && value !== null && String(value).trim().length > 0) ?? "";
+}
+
+function normalizeConfidence(value: unknown): number | undefined {
+  if (value === undefined || value === null || value === "" || typeof value === "boolean") {
+    return undefined;
+  }
+  const score = Number(value);
+  if (!Number.isFinite(score)) {
+    return undefined;
+  }
+  return Math.max(0, Math.min(1, score));
+}
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function hasEstimate(value: unknown): value is Record<string, unknown> {
+  return isRecord(value) && Object.keys(value).length > 0;
+}
+
+function estimateEta(value: Record<string, unknown>): string {
+  return String(value.eta ?? value.eta_seconds ?? "unknown");
+}
+
+function estimateConfidence(value: Record<string, unknown>): string {
+  return value.confidence_score === undefined ? "unknown" : String(value.confidence_score);
+}
+
+function estimateReason(value: Record<string, unknown>): string {
+  return String(value.reason_for_change ?? "not recorded");
 }
 
 async function processIsAlive(pid: number): Promise<boolean> {
@@ -1134,6 +1305,9 @@ function queueEntriesForRuns(runs: ClassifiedRun[]): AgentRunnerStatusResult["qu
         runner_pid: run.runner_pid ?? null,
         child_pid: run.child_pid ?? null,
         worker_slot_id: run.worker_slot_id ?? null,
+        original_estimate: run.original_estimate ?? {},
+        revised_estimate: run.revised_estimate ?? {},
+        effective_estimate: run.effective_estimate ?? {},
         result_md_exists: resultMdExists,
         result_status: run.result_status ?? (resultMdExists ? run.state : ""),
         stale_reason: run.stale_reason ?? "",
@@ -1350,6 +1524,9 @@ function activeRunDetails(
     runner_pid: number | null;
     child_pid?: number | null;
     worker_slot_id?: number | null;
+    original_estimate?: Record<string, unknown>;
+    revised_estimate?: Record<string, unknown>;
+    effective_estimate?: Record<string, unknown>;
     result_md_exists: boolean;
   }>,
   runs: ClassifiedRun[],
@@ -1361,13 +1538,16 @@ function activeRunDetails(
 ): AgentRunnerStatusResult["active_runs"] {
   const lockIds = new Set(activeLocks.map((lock) => lock.run_id));
   const heartbeatIds = new Set(heartbeatActiveRunIds);
-  const details = activeLocks.map((lock) => ({
+  const details: AgentRunnerStatusResult["active_runs"] = activeLocks.map((lock) => ({
     run_id: lock.run_id,
     source: heartbeatIds.has(lock.run_id) ? "heartbeat_and_lock" as const : "lock" as const,
     heartbeat_active: heartbeatIds.has(lock.run_id),
     lock_path: lock.lock_path,
     lock_age_seconds: lock.lock_age_seconds,
     runner_pid: lock.runner_pid,
+    original_estimate: lock.original_estimate ?? {},
+    revised_estimate: lock.revised_estimate ?? {},
+    effective_estimate: lock.effective_estimate ?? {},
     result_md_exists: lock.result_md_exists,
     runtime_assessment: assessRun({
       run: runs.find((run) => run.run_id === lock.run_id),
@@ -1386,6 +1566,9 @@ function activeRunDetails(
       lock_path: "",
       lock_age_seconds: null,
       runner_pid: null,
+      original_estimate: heartbeatRun?.original_estimate ?? {},
+      revised_estimate: heartbeatRun?.revised_estimate ?? {},
+      effective_estimate: heartbeatRun?.effective_estimate ?? {},
       result_md_exists: heartbeatRun?.state === "completed" || heartbeatRun?.state === "blocked",
       runtime_assessment: assessRun({
         run: heartbeatRun,
@@ -1517,6 +1700,122 @@ function assessRuntime(
 function extractUrls(text: string): string[] {
   const urls = text.match(/https?:\/\/[^\s)]+/g) ?? [];
   return [...new Set(urls.map((url) => url.replace(/[.,;:]+$/g, "")))];
+}
+
+function extractResultField(text: string, field: string): string {
+  const escaped = field.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+  const pattern = new RegExp(`^\\s*(?:-\\s*)?${escaped}:\\s*(.+?)\\s*$`, "i");
+  for (const line of text.split(/\r?\n/)) {
+    const match = line.match(pattern);
+    if (match) {
+      return compactResultText(match[1]);
+    }
+  }
+  return "";
+}
+
+function resultSectionItems(text: string, section: string): string[] {
+  const items: string[] = [];
+  let inSection = false;
+  for (const line of text.split(/\r?\n/)) {
+    const stripped = line.trim();
+    if (!inSection) {
+      if (stripped.toLowerCase() === `${section.toLowerCase()}:`) {
+        inSection = true;
+      }
+      continue;
+    }
+    if (/^[a-z_]+:\s*$/i.test(stripped)) {
+      break;
+    }
+    const item = stripped.replace(/^-\s*/, "").replace(/^`|`$/g, "").trim();
+    const lowered = item.toLowerCase();
+    if (item && !["none", "none.", "n/a", "not run", "not applicable"].includes(lowered) && !lowered.startsWith("none for ")) {
+      items.push(compactResultText(item, 240));
+    }
+  }
+  return items;
+}
+
+function firstNonemptyLine(text: string): string {
+  const line = text.split(/\r?\n/).map((item) => item.trim()).find(Boolean) ?? "";
+  return compactResultText(line, 240);
+}
+
+function inferResultProofLayer(text: string, status: string, blocker: string): string {
+  const explicit = extractResultField(text, "proof_layer");
+  if (explicit) {
+    return explicit;
+  }
+  if (status.toLowerCase() === "blocked") {
+    return "blocked";
+  }
+  const lowered = text.toLowerCase();
+  for (const marker of [
+    "actual-model-output-verified",
+    "deterministic-fallback-only",
+    "phone-verified",
+    "chatgpt-session-visible",
+    "listener-live",
+    "local-live",
+    "source-tested"
+  ]) {
+    if (lowered.includes(marker)) {
+      return marker;
+    }
+  }
+  if (lowered.includes("live_verified") || lowered.includes("live verified")) {
+    return "local-live";
+  }
+  if (lowered.includes("deterministic fallback")) {
+    return "deterministic-fallback-only";
+  }
+  if (lowered.includes("actual model output") && lowered.includes("verified")) {
+    return "actual-model-output-verified";
+  }
+  if (lowered.includes("source tested")) {
+    return "source-tested";
+  }
+  if (blocker) {
+    return "blocked";
+  }
+  return "unknown";
+}
+
+function readyResultCard(text: string, status: string): {
+  summary: string;
+  changed_file_count: number;
+  key_tests: string[];
+  blocker: string;
+  proof_layer: string;
+  next_action: string;
+} {
+  const changedFiles = resultSectionItems(text, "changed_files");
+  const blockers = resultSectionItems(text, "blockers");
+  const followups = resultSectionItems(text, "followups");
+  let blocker = extractResultField(text, "blocker") || blockers[0] || "";
+  let nextAction = extractResultField(text, "next_action") || followups[0] || "";
+  if (!blocker && status.toLowerCase() === "blocked") {
+    blocker = "Blocked RESULT.md; review result_path for details.";
+  }
+  if (!nextAction) {
+    nextAction = status.toLowerCase() === "blocked"
+      ? "Review blocker and choose recovery path."
+      : "Review result and decide follow-up.";
+  }
+  return {
+    summary: extractResultField(text, "summary") || firstNonemptyLine(text),
+    changed_file_count: changedFiles.length,
+    key_tests: resultSectionItems(text, "tests").slice(0, 3),
+    blocker,
+    proof_layer: inferResultProofLayer(text, status, blocker),
+    next_action: nextAction
+  };
+}
+
+function compactResultText(value: string, maxLength = 240): string {
+  const text = redactLiveTailText(value).replace(/\s+/g, " ").trim();
+  return text.length > maxLength ? `${text.slice(0, Math.max(0, maxLength - 3)).trimEnd()}...` : text;
 }
 
 function tail(value: string, limit: number): string {

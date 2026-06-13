@@ -204,9 +204,12 @@ describe("AgentRunnerStatusService", () => {
     expect(compact.detail_level).toBe("summary");
     expect(compact.details_truncated).toBe(true);
     expect(compact.full_detail_hint).toContain("detail: \"full\"");
-    expect(compact.ready_results[0]?.result_text).toContain("summary: Large result finished.");
+    expect(compact.ready_results[0]?.result_text).toBe("");
     expect(compact.ready_results[0]?.result_text).not.toContain("FULL_DETAIL_MARKER FULL_DETAIL_MARKER FULL_DETAIL_MARKER");
-    expect(compact.queue_entries).toHaveLength(1);
+    expect(compact.queue_entries).toHaveLength(0);
+    expect(compact.worker_slots).toHaveLength(0);
+    expect(compact.recent_events).toHaveLength(0);
+    expect(compact.plain_text).toContain(`Ready result ids: ${runId}`);
     expect(full.detail_level).toBe("full");
     expect(full.details_truncated).toBe(false);
     expect(full.ready_results[0]?.result_text).toContain("FULL_DETAIL_MARKER FULL_DETAIL_MARKER FULL_DETAIL_MARKER");
@@ -311,7 +314,8 @@ describe("AgentRunnerStatusService", () => {
     const status = await new AgentRunnerStatusService(root).status({
       repo_id: "fixture",
       heartbeat_stale_seconds: 60,
-      stale_lock_seconds: 900
+      stale_lock_seconds: 900,
+      detail: "full"
     });
 
     expect(status.runtime_assessment).toBe("running_active_run");
@@ -419,6 +423,71 @@ describe("AgentRunnerStatusService", () => {
     expect(status.plain_text).toContain("Queued because at capacity: yes");
     expect(status.plain_text).toContain(`Live tail for ${firstRun}:`);
     expect(status.plain_text).toContain(`Live tail for ${secondRun}:`);
+  });
+
+  test("surfaces worker progress envelopes through runner status without arbitrary fields", async () => {
+    const root = await mkdtemp(join(tmpdir(), "agent-runner-status-progress-envelope-"));
+    const runId = "2026-06-11T180716Z-progress-envelope";
+    await writeRun(root, runId, false);
+    await writeFile(join(root, ".chatgpt/codex-runs", runId, "RESULT.md.lock"), JSON.stringify({
+      runner_pid: process.pid,
+      child_pid: 8101,
+      worker_slot_id: 1,
+      run_id: runId
+    }));
+    await mkdir(join(root, "projects/agent-runner/reports"), { recursive: true });
+    await writeFile(join(root, "projects/agent-runner/reports/runner-heartbeat.json"), JSON.stringify({
+      schema_version: 1,
+      updated_at: new Date().toISOString(),
+      status: "running",
+      active_run_id: runId,
+      active_run_ids: [runId],
+      max_parallel_runs: 1,
+      worker_slots: [
+        {
+          slot_id: 1,
+          state: "active",
+          run_id: runId,
+          pid: 8101,
+          started_at: "2026-06-11T18:30:00Z",
+          progress: {
+            schema_version: 1,
+            phase: "verifying",
+            percent_complete: 75,
+            eta: "2026-06-11T18:50:00Z",
+            confidence: "high",
+            current_activity: "Running focused tests.",
+            next_checkpoint: "Write RESULT.md.",
+            private_token: "SHOULD_NOT_APPEAR"
+          }
+        }
+      ],
+      runner: "projects/agent-runner/agent_runner.py",
+      pid: process.pid
+    }));
+
+    const status = await new AgentRunnerStatusService(root).status({
+      repo_id: "fixture",
+      heartbeat_stale_seconds: 60,
+      stale_lock_seconds: 900,
+      detail: "full"
+    });
+
+    expect(status.worker_slots[0]).toMatchObject({
+      slot_id: 1,
+      run_id: runId,
+      progress: {
+        schema_version: 1,
+        phase: "verifying",
+        percent_complete: 75,
+        eta: "2026-06-11T18:50:00Z",
+        confidence: "high",
+        current_activity: "Running focused tests.",
+        next_checkpoint: "Write RESULT.md."
+      }
+    });
+    expect(status.plain_text).toContain(`Progress: ${runId}; phase: verifying; percent: 75%; eta: 2026-06-11T18:50:00Z; confidence: high`);
+    expect(JSON.stringify(status.worker_slots)).not.toContain("SHOULD_NOT_APPEAR");
   });
 
   test("reports no heartbeat as unknown worker with missing heartbeat warning", async () => {
@@ -587,7 +656,8 @@ describe("AgentRunnerStatusService", () => {
       stale_lock_seconds: 900,
       live_tail_max_events: 10,
       poll_count: 2,
-      poll_interval_seconds: 5
+      poll_interval_seconds: 5,
+      detail: "full"
     });
 
     expect(sleeps).toEqual([5000]);
@@ -663,7 +733,8 @@ describe("AgentRunnerStatusService", () => {
     const status = await new AgentRunnerStatusService(root).status({
       repo_id: "fixture",
       heartbeat_stale_seconds: 60,
-      stale_lock_seconds: 60
+      stale_lock_seconds: 60,
+      detail: "full"
     });
 
     expect(status.stale_lock_count).toBe(1);
@@ -709,12 +780,14 @@ describe("AgentRunnerStatusService", () => {
     const first = await service.status({
       repo_id: "fixture",
       heartbeat_stale_seconds: 60,
-      stale_lock_seconds: 900
+      stale_lock_seconds: 900,
+      detail: "full"
     });
     const second = await service.status({
       repo_id: "fixture",
       heartbeat_stale_seconds: 60,
-      stale_lock_seconds: 900
+      stale_lock_seconds: 900,
+      detail: "full"
     });
 
     expect(first.event_log_path).toBe(".chatgpt/events/bridge-events.jsonl");
@@ -793,7 +866,8 @@ describe("AgentRunnerStatusService", () => {
     const status = await new AgentRunnerStatusService(root).status({
       repo_id: "fixture",
       heartbeat_stale_seconds: 60,
-      stale_lock_seconds: 900
+      stale_lock_seconds: 900,
+      detail: "full"
     });
 
     expect(status.event_count).toBeGreaterThanOrEqual(2);
@@ -880,16 +954,25 @@ describe("AgentRunnerStatusService", () => {
     });
 
     expect(status.plain_text).toContain("Live tail: 1 events available");
-    expect(status.active_run_live_tail[0]).toMatchObject({
-      event_type: "bounded_work_dropoff",
-      summary: "id=slice-456; area=status-surface; state=queued; result=compact reporting note prepared"
-    });
+    expect(status.active_run_live_tail).toEqual([]);
     expect(JSON.stringify(status.active_run_live_tail)).not.toContain("STATUS_FULL_BODY_SHOULD_NOT_APPEAR");
     expect(status.pending_count).toBe(0);
     expect(status.active_count).toBe(1);
     expect(status.completed_count).toBe(0);
     expect(status.blocked_count).toBe(0);
     expect(status.stale_lock_count).toBe(0);
+
+    const full = await new AgentRunnerStatusService(root).status({
+      repo_id: "fixture",
+      heartbeat_stale_seconds: 60,
+      stale_lock_seconds: 900,
+      detail: "full"
+    });
+    expect(full.active_run_live_tail[0]).toMatchObject({
+      event_type: "bounded_work_dropoff",
+      summary: "id=slice-456; area=status-surface; state=queued; result=compact reporting note prepared"
+    });
+    expect(JSON.stringify(full.active_run_live_tail)).not.toContain("STATUS_FULL_BODY_SHOULD_NOT_APPEAR");
   });
 
   test("emits stale_lock_recovered when a previously stale run becomes terminal", async () => {
@@ -926,12 +1009,14 @@ describe("AgentRunnerStatusService", () => {
     const first = await service.status({
       repo_id: "fixture",
       heartbeat_stale_seconds: 60,
-      stale_lock_seconds: 900
+      stale_lock_seconds: 900,
+      detail: "full"
     });
     const second = await service.status({
       repo_id: "fixture",
       heartbeat_stale_seconds: 60,
-      stale_lock_seconds: 900
+      stale_lock_seconds: 900,
+      detail: "full"
     });
 
     expect(first.unresolved_events).toEqual(expect.arrayContaining([
@@ -968,7 +1053,8 @@ describe("AgentRunnerStatusService", () => {
     const status = await new AgentRunnerStatusService(root).status({
       repo_id: "fixture",
       heartbeat_stale_seconds: 60,
-      stale_lock_seconds: 900
+      stale_lock_seconds: 900,
+      detail: "full"
     });
 
     expect(status.runner).toBe("stale");
@@ -1005,7 +1091,8 @@ describe("AgentRunnerStatusService", () => {
     const status = await new AgentRunnerStatusService(root).status({
       repo_id: "fixture",
       heartbeat_stale_seconds: 60,
-      stale_lock_seconds: 900
+      stale_lock_seconds: 900,
+      detail: "full"
     });
 
     expect(status.completed_count).toBe(1);

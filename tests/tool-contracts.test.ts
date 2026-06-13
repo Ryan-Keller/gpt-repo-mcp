@@ -1,6 +1,6 @@
 import { readFileSync } from "node:fs";
 import { describe, expect, test } from "vitest";
-import { AgentRunnerStatusInputSchema, AgentRunnerStatusResultSchema } from "../src/contracts/agent-runner.contract.js";
+import { AgentRunnerStatusInputSchema, AgentRunnerStatusReferenceResultSchema, AgentRunnerStatusResultSchema } from "../src/contracts/agent-runner.contract.js";
 import { BridgeConciergeInputSchema, BridgeConciergeResultSchema } from "../src/contracts/bridge-concierge.contract.js";
 import {
   WriteChangesInputSchema,
@@ -150,7 +150,8 @@ describe("tool catalog contracts", () => {
     expect(policyExplain?.annotations).toEqual(readOnlyAnnotations);
     expect(repoRunnerStatus).toBeDefined();
     expect(repoRunnerStatus?.inputSchema).toBe(AgentRunnerStatusInputSchema);
-    expect(repoRunnerStatus?.outputSchema).toBe(AgentRunnerStatusResultSchema);
+    expect(repoRunnerStatus?.outputSchema).toBe(AgentRunnerStatusReferenceResultSchema);
+    expect(AgentRunnerStatusResultSchema.shape.poll_history).toBeDefined();
     expect(repoRunnerStatus?.annotations).toEqual(readOnlyAnnotations);
     expect(bridgeConcierge).toBeDefined();
     expect(bridgeConcierge?.inputSchema).toBe(BridgeConciergeInputSchema);
@@ -302,6 +303,7 @@ describe("tool catalog contracts", () => {
     expect(tool).toBeDefined();
 
     expect(Object.keys(tool?.inputSchema.shape ?? {}).sort()).toEqual([
+      "capability_id",
       "detail",
       "heartbeat_stale_seconds",
       "live_tail_max_events",
@@ -312,6 +314,7 @@ describe("tool catalog contracts", () => {
     ]);
     expect(tool?.inputSchema.safeParse({
       repo_id: "fixture",
+      capability_id: "town_portal",
       poll_count: 4,
       poll_interval_seconds: 15,
       detail: "full"
@@ -324,13 +327,22 @@ describe("tool catalog contracts", () => {
       repo_id: "fixture",
       poll_interval_seconds: 4
     }).success).toBe(false);
-    expect(tool?.outputSchema.shape.poll_history).toBeDefined();
+    expect(tool?.outputSchema.shape.poll_history).toBeUndefined();
+    expect(tool?.outputSchema.shape.worker_slots).toBeUndefined();
+    expect(tool?.outputSchema.shape.active_run_live_tail).toBeUndefined();
+    expect(tool?.outputSchema.shape.ready_results).toBeDefined();
 
     const serialized = JSON.stringify(tool?.outputSchema.toJSONSchema?.() ?? tool?.outputSchema.shape);
 
+    expect(serialized).toContain("module_registry");
     expect(serialized).not.toContain("anyOf");
     expect(serialized).not.toContain("propertyNames");
-    expect(serialized.length).toBeLessThan(9000);
+    expect(serialized).not.toContain("safe_actions");
+    expect(serialized).not.toContain("result_text");
+    expect(serialized).not.toContain("worker_slots");
+    expect(serialized).not.toContain("active_run_live_tail");
+    expect(serialized).not.toContain("poll_history");
+    expect(serialized.length).toBeLessThan(7500);
   });
 
   test("repo_git_review audit metadata omits changed path lists", () => {
@@ -861,6 +873,7 @@ describe("tool catalog contracts", () => {
       "warnings"
     ]);
     expect(runnerStatus?.inputKeys).toEqual([
+      "capability_id",
       "detail",
       "heartbeat_stale_seconds",
       "live_tail_max_events",
@@ -869,15 +882,27 @@ describe("tool catalog contracts", () => {
       "repo_id",
       "stale_lock_seconds"
     ]);
-      expect(runnerStatus?.outputKeys).toContain("active_run_live_tail");
-      expect(runnerStatus?.outputKeys).toContain("connector_identity");
-      expect(runnerStatus?.outputKeys).toContain("detail_level");
-      expect(runnerStatus?.outputKeys).toContain("details_truncated");
-      expect(runnerStatus?.outputKeys).toContain("full_detail_hint");
-      expect(runnerStatus?.outputKeys).toContain("max_parallel_runs");
-    expect(runnerStatus?.outputKeys).toContain("worker_slots");
-    expect(runnerStatus?.outputKeys).toContain("queued_because_at_capacity");
-    expect(runnerStatus?.outputKeys).toContain("poll_history");
+    expect(runnerStatus?.outputKeys).toEqual([
+      "active_count",
+      "active_run_id",
+      "active_run_ids",
+      "blocked_count",
+      "capability_summary",
+      "completed_count",
+      "detail_level",
+      "details_truncated",
+      "full_detail_hint",
+      "ok",
+      "pending_count",
+      "plain_text",
+      "ready_results",
+      "repo_id",
+      "runner",
+      "runtime_assessment",
+      "stale_lock_count",
+      "warnings",
+      "worker"
+    ]);
     expect(liveTail).toMatchObject({
       title: "Show Codex run live tail",
       inputKeys: ["cursor", "max_events", "repo_id", "run_id"],

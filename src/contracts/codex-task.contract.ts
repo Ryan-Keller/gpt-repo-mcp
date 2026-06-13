@@ -23,6 +23,24 @@ const CodexRunIdSchema = z.string()
   .regex(/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z-[a-z0-9][a-z0-9-]{0,79}$/)
   .describe("Stable repo-local Codex run id. Generated when omitted.");
 
+const GoalLaneSchema = z.object({
+  enabled: z.boolean().describe("Whether this run participates in the Codex Goal Lane workflow."),
+  goal_id: z.string()
+    .min(1)
+    .max(120)
+    .regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,119}$/)
+    .optional()
+    .describe("Optional compact stable goal identifier. Do not include secrets, raw prompts, URLs, or payloads."),
+  goal_title: z.string()
+    .min(1)
+    .max(160)
+    .optional()
+    .describe("Optional short human-readable goal label."),
+  mode: z.enum(["goal"]).optional().describe("Goal Lane mode. Currently only compact goal runs are accepted."),
+  origin: z.enum(["repo_write_codex_task", "repo_write_codex_tasks_batch"]).optional().describe("Tool route that created the Goal Lane metadata."),
+  status_policy: z.enum(["compact"]).optional().describe("Goal Lane status policy. Full payloads are not accepted here.")
+}).strict().describe("Bounded compact Goal Lane metadata preserved in run.json for runner pickup.");
+
 export const CodexTaskInputSchema = RepoInputSchema.extend({
   title: NonEmptyStringSchema.describe("Short human-readable task title used in the prompt and generated run id."),
   objective: NonEmptyStringSchema.describe("Concrete implementation objective for Codex."),
@@ -37,6 +55,7 @@ export const CodexTaskInputSchema = RepoInputSchema.extend({
   input_assets: z.array(InputAssetSchema).default([]).describe("Repo-local input assets to write under this run's inputs folder."),
   acceptance_criteria: z.array(z.string().min(1)).default([]).describe("Criteria Codex should satisfy before finishing."),
   verification_commands: z.array(z.string().min(1)).default([]).describe("Commands Codex should run when feasible and report in RESULT.md."),
+  goal_lane: GoalLaneSchema.optional().describe("Optional bounded Codex Goal Lane metadata stored in run.json for runner pickup."),
   run_id: CodexRunIdSchema.optional()
 });
 

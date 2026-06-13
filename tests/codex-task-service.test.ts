@@ -77,6 +77,66 @@ describe("Codex task services", () => {
       objective: "Read src/auth.ts and implement.",
       created_at: "2026-06-04T081500Z"
     });
+    expect(manifest).not.toHaveProperty("goal_lane");
+  });
+
+  test("write stores bounded goal lane metadata in the manifest without echoing it in the receipt", async () => {
+    const fixture = await createRepoFixture();
+    const service = createTaskService(fixture.root);
+
+    const result = await service.write({
+      repo_id: "demo",
+      title: "Implement compact goal lane",
+      objective: "Preserve goal lane metadata for runner pickup.",
+      inspect_first: ["src/auth.ts"],
+      allowed_paths: ["src/**"],
+      run_id: "2026-06-12T211800Z-compact-goal-lane",
+      goal_lane: {
+        enabled: true,
+        goal_id: "goal-lane-v0",
+        goal_title: "Keep goal lane metadata compact",
+        mode: "goal",
+        origin: "repo_write_codex_task",
+        status_policy: "compact"
+      },
+      dry_run: false
+    });
+
+    const manifest = JSON.parse(await readFile(join(fixture.root, result.manifest_path), "utf8")) as {
+      goal_lane?: unknown;
+    };
+    expect(manifest.goal_lane).toEqual({
+      enabled: true,
+      goal_id: "goal-lane-v0",
+      goal_title: "Keep goal lane metadata compact",
+      mode: "goal",
+      origin: "repo_write_codex_task",
+      status_policy: "compact"
+    });
+    expect(result.receipt).not.toHaveProperty("goal_lane");
+    expect(JSON.stringify(result)).not.toContain("Keep goal lane metadata compact");
+  });
+
+  test("goal lane schema is bounded", () => {
+    expect(() => CodexTaskInputSchema.parse({
+      repo_id: "demo",
+      title: "Task",
+      objective: "Do work.",
+      goal_lane: {
+        enabled: true,
+        goal_id: "x".repeat(121)
+      }
+    })).toThrow();
+
+    expect(() => CodexTaskInputSchema.parse({
+      repo_id: "demo",
+      title: "Task",
+      objective: "Do work.",
+      goal_lane: {
+        enabled: true,
+        status_policy: "full payloads please"
+      }
+    })).toThrow();
   });
 
   test("write returns a compact receipt without echoing the generated prompt", async () => {
@@ -213,6 +273,46 @@ describe("Codex task services", () => {
     await expect(readFile(join(fixture.root, result.created[0].prompt_path), "utf8")).resolves.toContain("summarize queue state");
     await expect(readFile(join(fixture.root, result.created[1].manifest_path), "utf8")).resolves.toContain("Brief worker status");
     expect(JSON.stringify(result)).not.toContain("Read shared/state/CURRENT_STATE.md and summarize queue state.");
+  });
+
+  test("writeBatch stores goal lane metadata from seeds in each manifest", async () => {
+    const fixture = await createRepoFixture();
+    const service = createTaskService(fixture.root);
+
+    const result = await service.writeBatch({
+      repo_id: "demo",
+      seeds: [
+        {
+          title: "Survey goal lane",
+          objective: "Read shared/state/CURRENT_STATE.md and summarize goal lane metadata.",
+          inspect_first: ["shared/state/CURRENT_STATE.md"],
+          allowed_paths: ["shared/status/**"],
+          run_id: "2026-06-12T211800Z-survey-goal-lane",
+          goal_lane: {
+            enabled: true,
+            goal_id: "goal-lane-batch",
+            goal_title: "Batch goal lane",
+            mode: "goal",
+            origin: "repo_write_codex_tasks_batch",
+            status_policy: "compact"
+          }
+        }
+      ],
+      dry_run: false
+    });
+
+    const manifest = JSON.parse(await readFile(join(fixture.root, result.created[0].manifest_path), "utf8")) as {
+      goal_lane?: unknown;
+    };
+    expect(manifest.goal_lane).toEqual({
+      enabled: true,
+      goal_id: "goal-lane-batch",
+      goal_title: "Batch goal lane",
+      mode: "goal",
+      origin: "repo_write_codex_tasks_batch",
+      status_policy: "compact"
+    });
+    expect(JSON.stringify(result)).not.toContain("Batch goal lane");
   });
 
   test("writeBatch rejects equivalent duplicate titles before writing any seed", async () => {

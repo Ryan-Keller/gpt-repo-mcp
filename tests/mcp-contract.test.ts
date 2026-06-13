@@ -13,6 +13,10 @@ import { toolCatalog } from "../src/tools/catalog.js";
 import { isMutatingToolName } from "../src/tools/mutating-tools.js";
 
 const execFileAsync = promisify(execFile);
+function firstContent(result: unknown): unknown {
+  const record = typeof result === "object" && result !== null ? result as { content?: unknown } : {};
+  return Array.isArray(record.content) ? record.content[0] : undefined;
+}
 
 describe("MCP contract", () => {
   test("initialize exposes server instructions and tool capability", async () => {
@@ -87,6 +91,7 @@ describe("MCP contract", () => {
       expect(names).toContain("repo_write_codex_tasks_batch");
       expect(names).toContain("agent_runner_status");
       expect(runnerStatus?.inputKeys).toEqual([
+        "capability_id",
         "detail",
         "heartbeat_stale_seconds",
         "live_tail_max_events",
@@ -95,14 +100,33 @@ describe("MCP contract", () => {
         "repo_id",
         "stale_lock_seconds"
       ]);
-      expect(runnerStatus?.outputKeys).toContain("active_run_live_tail");
-      expect(runnerStatus?.outputKeys).toContain("detail_level");
-      expect(runnerStatus?.outputKeys).toContain("details_truncated");
-      expect(runnerStatus?.outputKeys).toContain("full_detail_hint");
-      expect(runnerStatus?.outputKeys).toContain("max_parallel_runs");
-      expect(runnerStatus?.outputKeys).toContain("worker_slots");
-      expect(runnerStatus?.outputKeys).toContain("queued_because_at_capacity");
-      expect(runnerStatus?.outputKeys).toContain("poll_history");
+      expect(runnerStatus?.outputKeys).toEqual([
+        "active_count",
+        "active_run_id",
+        "active_run_ids",
+        "blocked_count",
+        "capability_summary",
+        "completed_count",
+        "detail_level",
+        "details_truncated",
+        "full_detail_hint",
+        "ok",
+        "pending_count",
+        "plain_text",
+        "ready_results",
+        "repo_id",
+        "runner",
+        "runtime_assessment",
+        "stale_lock_count",
+        "warnings",
+        "worker"
+      ]);
+      const runnerStatusSchema = JSON.stringify(listed.tools.find((tool) => tool.name === "repo_runner_status")?.outputSchema);
+      expect(runnerStatusSchema).not.toContain("result_text");
+      expect(runnerStatusSchema).not.toContain("worker_slots");
+      expect(runnerStatusSchema).not.toContain("active_run_live_tail");
+      expect(runnerStatusSchema).not.toContain("poll_history");
+      expect(runnerStatusSchema.length).toBeLessThan(8_500);
       expect(liveTail).toMatchObject({
         title: "Show Codex run live tail",
         inputKeys: ["cursor", "max_events", "repo_id", "run_id"],
@@ -150,11 +174,11 @@ describe("MCP contract", () => {
           })
         })
       });
-      expect(result.content?.[0]).toMatchObject({
+      expect(firstContent(result)).toMatchObject({
         type: "text",
         text: expect.stringContaining("1 approved repositories available.")
       });
-      expect(result.content?.[0]).toMatchObject({
+      expect(firstContent(result)).toMatchObject({
         type: "text",
         text: expect.stringContaining("Runner:")
       });
@@ -193,7 +217,7 @@ describe("MCP contract", () => {
           }
         ]
       });
-      expect(result.content?.[0]).toMatchObject({
+      expect(firstContent(result)).toMatchObject({
         type: "text",
         text: expect.stringContaining("Runner:")
       });
@@ -253,8 +277,9 @@ describe("MCP contract", () => {
   });
 
   test("repo_list_roots includes compact vision discovery and existing-tool helper fallback", async () => {
-    const { client, close } = await connectFixtureServer();
+    const { client, root, close } = await connectFixtureServer();
     try {
+      await writeCapabilityToc(root);
       const result = await client.callTool({
         name: "repo_list_roots",
         arguments: {}
@@ -295,7 +320,7 @@ describe("MCP contract", () => {
             },
             vision_capabilities: {
               has_configured_vision_route: expect.any(Boolean),
-              available_routes: expect.any(Array),
+              route_status: expect.stringMatching(/^(ready|blocked)$/),
               missing_capabilities: expect.any(Array),
               helper: {
                 tool: "repo_write_codex_task",
@@ -305,34 +330,79 @@ describe("MCP contract", () => {
               }
             },
             capability_summary: {
-              codex_handoff: {
+              expansion: {
+                mode: "skeletal",
+                focused: false
+              },
+              bridge_compass: {
+                current_route: "repo_runner_status.capability_summary.bridge_compass",
+                runner_state: {
+                  runner: expect.any(String),
+                  worker: expect.any(String),
+                  runtime_assessment: expect.any(String),
+                  pending_count: expect.any(Number),
+                  active_count: expect.any(Number),
+                  stale_lock_count: expect.any(Number)
+                },
+                active_lane: {
+                  state: expect.stringMatching(/^(active|queued|ready_result_review|idle|blocked)$/),
+                  run_id: expect.any(String),
+                  lane: expect.any(String)
+                },
+                top_blocker: {
+                  status: expect.stringMatching(/^(none|blocked)$/),
+                  source: expect.any(String),
+                  summary: expect.any(String)
+                },
+                module_handles: [
+                  {
+                    module_id: "save_crystal",
+                    status: "documented_draft",
+                    class: "protocol_backed"
+                  },
+                  {
+                    module_id: "town_portal",
+                    status: "documented_experimental",
+                    class: "validator_needed"
+                  }
+                ],
+                proof_layer: expect.stringMatching(/^(source-tested|local-live|blocked|unknown)$/),
+                next_safe_action: expect.any(String),
+                context_budget_hint: expect.stringContaining("Use bridge_compass first")
+              },
+              capability_toc: {
                 state: "available",
-                tools: expect.arrayContaining(["repo_write_codex_task", "codex_run_and_wait"])
+                capability_count: 1,
+                returned_count: 1,
+                capabilities: [
+                  expect.objectContaining({
+                    capability_id: "town_portal",
+                    status: "documented_experimental"
+                  })
+                ]
               },
-              runner: {
-                state: expect.stringMatching(/^(available|unavailable|unknown|blocked)$/),
-                runner: expect.any(String),
-                worker: expect.any(String)
-              },
-              image_assets: {
+              module_registry: {
                 state: "available",
-                input_assets: true
+                module_count: 2,
+                returned_count: 2,
+                modules: [
+                  {
+                    module_id: "save_crystal",
+                    status: "documented_draft",
+                    class: "protocol_backed"
+                  },
+                  {
+                    module_id: "town_portal",
+                    status: "documented_experimental",
+                    class: "validator_needed"
+                  }
+                ]
               },
-              vision_route_detection: {
-                state: "available",
-                tool: "repo_vision_routes"
-              },
-              ollama: {
-                state: expect.stringMatching(/^(available|unavailable|unknown|blocked)$/)
-              },
-              gemma_image_route: {
-                state: expect.stringMatching(/^(available|unavailable|unknown|blocked)$/)
-              },
-              latest_validation: {
-                state: expect.stringMatching(/^(available|unavailable|unknown|blocked)$/)
-              },
-              full_vision_helper: {
-                state: "blocked"
+              states: {
+                codex_handoff: "available",
+                runner: expect.stringMatching(/^(available|unavailable|unknown|blocked)$/),
+                image_assets: "available",
+                vision_route_detection: "available"
               }
             }
           }
@@ -340,15 +410,461 @@ describe("MCP contract", () => {
       });
       const serialized = JSON.stringify(result.structuredContent);
       expect(serialized).not.toContain("content_base64");
+      expect(serialized).not.toContain("completed_result_template");
+      expect(serialized).not.toContain("safe_operations");
+      expect(serialized).not.toContain("safe_actions");
+      expect(serialized).not.toContain("source_path");
       expect(serialized).not.toMatch(/sk-[A-Za-z0-9]/);
-      expect(result.content?.[0]).toMatchObject({
+      expect(serialized.length).toBeLessThan(22_000);
+      expect(firstContent(result)).toMatchObject({
         type: "text",
-        text: expect.stringContaining("Vision helper: repo_write_codex_task")
+        text: expect.stringContaining("Detail: summary; request detail: \"full\"")
       });
-      expect(result.content?.[0]).toMatchObject({
+      expect(firstContent(result)).toMatchObject({
         type: "text",
-        text: expect.stringContaining("Capabilities: handoff=available")
+        text: expect.stringContaining("Capabilities: toc=available")
       });
+      expect(firstContent(result)).toMatchObject({
+        type: "text",
+        text: expect.stringContaining("Bridge compass:")
+      });
+    } finally {
+      await close();
+    }
+  });
+
+  test("repo_list_roots expands runner, capability, and vision diagnostics with detail full", async () => {
+    const { client, root, close } = await connectFixtureServer();
+    try {
+      await writeCapabilityToc(root);
+      const result = await client.callTool({
+        name: "repo_list_roots",
+        arguments: { detail: "full" }
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.structuredContent).toMatchObject({
+        repos: [
+          {
+            runner_status: {
+              detail_level: "full",
+              details_truncated: false
+            },
+            vision_capabilities: {
+              available_routes: expect.any(Array),
+              helper: {
+                completed_result_template: expect.any(String),
+                blocked_result_template: expect.any(String)
+              }
+            },
+            capability_summary: {
+              expansion: {
+                mode: "full"
+              },
+              capability_toc: {
+                capabilities: [
+                  expect.objectContaining({
+                    capability_id: "town_portal",
+                    safe_operations: ["display_only_knowledge_record"]
+                  })
+                ]
+              },
+              module_registry: {
+                modules: expect.arrayContaining([
+                  expect.objectContaining({
+                    module_id: "save_crystal",
+                    safe_actions: ["inspect_status"]
+                  })
+                ])
+              },
+              codex_handoff: {
+                evidence: expect.any(Array),
+                safe_operations: expect.any(Array)
+              }
+            }
+          }
+        ]
+      });
+    } finally {
+      await close();
+    }
+  });
+
+  test("repo_list_roots expands one exact capability without returning the full catalog", async () => {
+    const { client, root, close } = await connectFixtureServer();
+    try {
+      await writeCapabilityToc(root);
+      await writeFile(join(root, "shared", "capabilities", "BRIDGE_CAPABILITY_TOC_V0.json"), JSON.stringify({
+        generated_at: "2026-06-12T08:46:28Z",
+        capabilities: [
+          {
+            capability_id: "town_portal",
+            status: "documented_experimental",
+            summary: "Single-use continuation handle.",
+            existing_tool_or_hub_route: "repo_runner_status.capability_summary.capability_toc",
+            docs_protocol_refs: ["shared/protocols/TOWN_PORTAL_PRIMITIVE_V0.md"],
+            safe_operations: ["display_only_knowledge_record"],
+            blocked_operations: ["queue_codex_runs"],
+            suggested_next_action: "Implement read-only hub summary first."
+          },
+          {
+            capability_id: "atlas_lookup",
+            status: "implemented_read_only",
+            summary: "Read-only atlas lookup.",
+            existing_tool_or_hub_route: "repo_bridge_concierge evidence",
+            docs_protocol_refs: ["docs/openclaw/CONCEPT_ATLAS_GRAPH_V0.json"],
+            safe_operations: ["read_graph_nodes"],
+            blocked_operations: ["rewrite_atlas_graph"],
+            suggested_next_action: "Use concierge evidence first."
+          }
+        ]
+      }));
+
+      const skeletal = await client.callTool({
+        name: "repo_list_roots",
+        arguments: {}
+      });
+      const focused = await client.callTool({
+        name: "repo_list_roots",
+        arguments: { capability_id: "atlas_lookup" }
+      });
+      const full = await client.callTool({
+        name: "repo_list_roots",
+        arguments: { detail: "full" }
+      });
+
+      expect(focused.isError).toBeUndefined();
+      expect(focused.structuredContent).toMatchObject({
+        repos: [
+          {
+            capability_summary: {
+              expansion: {
+                mode: "focused",
+                capability_id: "atlas_lookup",
+                found: true
+              },
+              capability_toc: {
+                capability_count: 2,
+                returned_count: 1,
+                capabilities: [
+                  expect.objectContaining({
+                    capability_id: "atlas_lookup",
+                    safe_operations: ["read_graph_nodes"]
+                  })
+                ]
+              }
+            }
+          }
+        ]
+      });
+      const focusedJson = JSON.stringify(focused.structuredContent);
+      const skeletalJson = JSON.stringify(skeletal.structuredContent);
+      const fullJson = JSON.stringify(full.structuredContent);
+      const focusedContent = focused.structuredContent as {
+        repos: Array<{
+          capability_summary: {
+            capability_toc: {
+              capabilities: Array<{ capability_id: string }>;
+            };
+          };
+        }>;
+      };
+      expect(focusedContent.repos[0]?.capability_summary.capability_toc.capabilities).toHaveLength(1);
+      expect(focusedContent.repos[0]?.capability_summary.capability_toc.capabilities[0]?.capability_id).toBe("atlas_lookup");
+      expect(focusedJson).not.toContain("safe_actions");
+      expect(skeletalJson).not.toContain("safe_operations");
+      expect(skeletalJson.length).toBeLessThan(22_000);
+      expect(skeletalJson.length).toBeLessThan(fullJson.length);
+      expect(focusedJson.length).toBeLessThan(fullJson.length);
+    } finally {
+      await close();
+    }
+  });
+
+  test("repo_runner_status includes capability_toc through existing status hub", async () => {
+    const { client, root, close } = await connectFixtureServer();
+    try {
+      await writeCapabilityToc(root);
+      const result = await client.callTool({
+        name: "repo_runner_status",
+        arguments: { repo_id: "fixture" }
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.structuredContent).toMatchObject({
+        repo_id: "fixture",
+        detail_level: "summary",
+        details_truncated: true,
+        runner: expect.any(String),
+        worker: expect.any(String),
+        runtime_assessment: expect.any(String),
+        active_count: expect.any(Number),
+        pending_count: expect.any(Number),
+        stale_lock_count: expect.any(Number),
+        completed_count: expect.any(Number),
+        blocked_count: expect.any(Number),
+        active_run_ids: expect.any(Array),
+        ready_results: expect.any(Array),
+        warnings: expect.any(Array),
+        plain_text: expect.stringContaining("Detail: summary; request detail: \"full\""),
+        capability_summary: {
+          expansion: {
+            mode: "skeletal",
+            focused: false
+          },
+          bridge_compass: {
+            current_route: "repo_runner_status.capability_summary.bridge_compass",
+            runner_state: {
+              runner: expect.any(String),
+              worker: expect.any(String),
+              runtime_assessment: expect.any(String),
+              pending_count: expect.any(Number),
+              active_count: expect.any(Number),
+              stale_lock_count: expect.any(Number)
+            },
+            active_lane: {
+              state: expect.stringMatching(/^(active|queued|ready_result_review|idle|blocked)$/),
+              run_id: expect.any(String),
+              lane: expect.any(String)
+            },
+            top_blocker: {
+              status: expect.stringMatching(/^(none|blocked)$/),
+              source: expect.any(String),
+              summary: expect.any(String)
+            },
+            module_handles: [
+              {
+                module_id: "save_crystal",
+                status: "documented_draft",
+                class: "protocol_backed"
+              },
+              {
+                module_id: "town_portal",
+                status: "documented_experimental",
+                class: "validator_needed"
+              }
+            ],
+            proof_layer: expect.stringMatching(/^(source-tested|local-live|blocked|unknown)$/),
+            next_safe_action: expect.any(String),
+            context_budget_hint: expect.stringContaining("Use bridge_compass first")
+          },
+          capability_toc: {
+            state: "available",
+            capability_count: 1,
+            capabilities: [
+              expect.objectContaining({
+                capability_id: "town_portal",
+                status: "documented_experimental"
+              })
+            ]
+          },
+          module_registry: {
+            state: "available",
+            module_count: 2,
+            modules: [
+              {
+                module_id: "save_crystal",
+                status: "documented_draft",
+                class: "protocol_backed"
+              },
+              {
+                module_id: "town_portal",
+                status: "documented_experimental",
+                class: "validator_needed"
+              }
+            ]
+          }
+        }
+      });
+      const serialized = JSON.stringify(result.structuredContent);
+      expect(serialized).not.toContain("connector_identity");
+      expect(serialized).not.toContain("safe_operations");
+      expect(serialized).not.toContain("safe_actions");
+      expect(serialized).not.toContain("next_action_hints");
+      expect(serialized).not.toContain("source_path");
+      expect(serialized.length).toBeLessThan(8_000);
+      expect(result.structuredContent).not.toHaveProperty("worker_slots");
+      expect(result.structuredContent).not.toHaveProperty("active_locks");
+      expect(result.structuredContent).not.toHaveProperty("stale_locks");
+      expect(result.structuredContent).not.toHaveProperty("queue_entries");
+      expect(result.structuredContent).not.toHaveProperty("recent_events");
+      expect(result.structuredContent).not.toHaveProperty("unresolved_events");
+      expect(result.structuredContent).not.toHaveProperty("active_run_live_tail");
+    } finally {
+      await close();
+    }
+  });
+
+  test("repo_runner_status expands capability_toc detail with detail full", async () => {
+    const { client, root, close } = await connectFixtureServer();
+    try {
+      await writeCapabilityToc(root);
+      const result = await client.callTool({
+        name: "repo_runner_status",
+        arguments: { repo_id: "fixture", detail: "full" }
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.structuredContent).toMatchObject({
+        repo_id: "fixture",
+        detail_level: "full",
+        details_truncated: false,
+        capability_summary: {
+          expansion: {
+            mode: "full"
+          },
+          bridge_compass: {
+            current_route: "repo_runner_status.capability_summary.bridge_compass",
+            module_handles: expect.arrayContaining([
+              expect.objectContaining({ module_id: "town_portal" })
+            ]),
+            proof_layer: expect.stringMatching(/^(source-tested|local-live|blocked|unknown)$/),
+            next_safe_action: expect.any(String)
+          },
+          capability_toc: {
+            capabilities: [
+              expect.objectContaining({
+                capability_id: "town_portal",
+                safe_operations: ["display_only_knowledge_record"]
+              })
+            ]
+          },
+          module_registry: {
+            modules: expect.arrayContaining([
+              expect.objectContaining({
+                module_id: "town_portal",
+                safe_actions: ["display_only_knowledge_record"]
+              })
+            ])
+          }
+        }
+      });
+    } finally {
+      await close();
+    }
+  });
+
+  test("repo_runner_status expands one exact capability by id", async () => {
+    const { client, root, close } = await connectFixtureServer();
+    try {
+      await writeCapabilityToc(root);
+      const result = await client.callTool({
+        name: "repo_runner_status",
+        arguments: { repo_id: "fixture", capability_id: "town_portal" }
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.structuredContent).toMatchObject({
+        repo_id: "fixture",
+        detail_level: "summary",
+        capability_summary: {
+          expansion: {
+            mode: "focused",
+            capability_id: "town_portal",
+            found: true
+          },
+          capability_toc: {
+            returned_count: 1,
+            capabilities: [
+              expect.objectContaining({
+                capability_id: "town_portal",
+                docs_protocol_refs: ["shared/protocols/TOWN_PORTAL_PRIMITIVE_V0.md"],
+                safe_operations: ["display_only_knowledge_record"]
+              })
+            ]
+          }
+        }
+      });
+      const serialized = JSON.stringify(result.structuredContent);
+      expect(serialized).toContain("safe_operations");
+      expect(serialized).not.toContain("completed_result_template");
+      expect(serialized.length).toBeLessThan(8_000);
+    } finally {
+      await close();
+    }
+  });
+
+  test("repo_runner_status exposes compact ready result cards without result text by default", async () => {
+    const { client, root, close } = await connectFixtureServer();
+    const completedId = "2026-06-13T020100Z-compact-ready-card";
+    const blockedId = "2026-06-13T020200Z-blocked-ready-card";
+    try {
+      for (const runId of [completedId, blockedId]) {
+        const runDir = join(root, ".chatgpt", "codex-runs", runId);
+        await mkdir(runDir, { recursive: true });
+        await writeFile(join(runDir, "PROMPT.md"), "# Prompt\n");
+        await writeFile(join(runDir, "run.json"), JSON.stringify({
+          schema_version: 1,
+          repo_id: "fixture",
+          run_id: runId,
+          prompt_path: `.chatgpt/codex-runs/${runId}/PROMPT.md`,
+          result_path: `.chatgpt/codex-runs/${runId}/RESULT.md`
+        }));
+      }
+      await writeFile(join(root, ".chatgpt", "codex-runs", completedId, "RESULT.md"), [
+        "# CODEX_RESULT",
+        "status: completed",
+        "summary: Added compact ready result cards.",
+        "changed_files:",
+        "- projects/agent-runner/agent_runner.py",
+        "- gpt-repo-mcp/src/services/agent-runner-status-service.ts",
+        "tests:",
+        "- PASS: python -m pytest projects/agent-runner/tests/test_agent_runner.py -q -k result",
+        "- PASS: npm test -- tests/mcp-contract.test.ts",
+        "blockers:",
+        "- None",
+        "followups:",
+        "- Restart GPT Repo MCP before claiming live ChatGPT visibility.",
+        "proof_layer: source-tested",
+        ""
+      ].join("\n"));
+      await writeFile(join(root, ".chatgpt", "codex-runs", blockedId, "RESULT.md"), [
+        "# CODEX_RESULT",
+        "status: blocked",
+        "summary: Could not prove actual model output.",
+        "changed_files:",
+        "- shared/status/model-proof.md",
+        "tests:",
+        "- PASS: deterministic fallback refreshed",
+        "blockers:",
+        "- Actual model output artifact is missing.",
+        "followups:",
+        "- Run guarded model proof once output route is fixed.",
+        ""
+      ].join("\n"));
+
+      const result = await client.callTool({
+        name: "repo_runner_status",
+        arguments: { repo_id: "fixture" }
+      });
+
+      expect(result.isError).toBeUndefined();
+      const content = result.structuredContent as {
+        ready_results: Array<Record<string, unknown>>;
+      };
+      const cards = new Map(content.ready_results.map((card) => [card.run_id, card]));
+      expect(cards.get(completedId)).toMatchObject({
+        run_id: completedId,
+        status: "completed",
+        result_status: "completed",
+        summary: "Added compact ready result cards.",
+        changed_file_count: 2,
+        key_tests: [
+          "PASS: python -m pytest projects/agent-runner/tests/test_agent_runner.py -q -k result",
+          "PASS: npm test -- tests/mcp-contract.test.ts"
+        ],
+        blocker: "",
+        proof_layer: "source-tested",
+        next_action: "Restart GPT Repo MCP before claiming live ChatGPT visibility."
+      });
+      expect(cards.get(blockedId)).toMatchObject({
+        run_id: blockedId,
+        status: "blocked",
+        blocker: "Actual model output artifact is missing.",
+        proof_layer: "blocked",
+        next_action: "Run guarded model proof once output route is fixed."
+      });
+      expect(JSON.stringify(result.structuredContent)).not.toContain("result_text");
     } finally {
       await close();
     }
@@ -381,7 +897,7 @@ describe("MCP contract", () => {
           active_count: 0
         }
       });
-      expect(result.content?.[0]).toMatchObject({
+      expect(firstContent(result)).toMatchObject({
         type: "text",
         text: expect.stringContaining("Runner:")
       });
@@ -795,4 +1311,48 @@ async function createRepoRoot() {
   await writeFile(join(root, ".chatgpt", "tool-tests", "cleanup.txt"), "temporary\n");
   await execFileAsync("git", ["add", "--", "docs/staged.md"], { cwd: root, env: { PATH: process.env.PATH ?? "" } });
   return root;
+}
+
+async function writeCapabilityToc(root: string): Promise<void> {
+  await mkdir(join(root, "shared", "capabilities"), { recursive: true });
+  await writeFile(join(root, "shared", "capabilities", "BRIDGE_CAPABILITY_TOC_V0.json"), JSON.stringify({
+    generated_at: "2026-06-12T08:46:28Z",
+    capabilities: [{
+      capability_id: "town_portal",
+      status: "documented_experimental",
+      summary: "Single-use continuation handle.",
+      existing_tool_or_hub_route: "repo_runner_status.capability_summary.capability_toc",
+      docs_protocol_refs: ["shared/protocols/TOWN_PORTAL_PRIMITIVE_V0.md"],
+      safe_operations: ["display_only_knowledge_record"],
+      blocked_operations: ["queue_codex_runs"],
+      suggested_next_action: "Implement read-only hub summary first."
+    }]
+  }));
+  await writeFile(join(root, "shared", "capabilities", "BRIDGE_MODULE_REGISTRY_V0.json"), JSON.stringify({
+    generated_at: "2026-06-13T00:48:49Z",
+    modules: [
+      {
+        module_id: "save_crystal",
+        status: "documented_draft",
+        class: "protocol_backed",
+        summary: "Checkpoint detection and helper packaging.",
+        source_refs: ["shared/protocols/AUTONOMOUS_SAVE_CRYSTAL_LANE_V0.md"],
+        groups_capabilities: ["fresh_state_preflight"],
+        public_surface: "existing hub/status/repo review routes only; no new tool name",
+        safe_actions: ["inspect_status"],
+        blocked_actions: ["push"]
+      },
+      {
+        module_id: "town_portal",
+        status: "documented_experimental",
+        class: "validator_needed",
+        summary: "Single-use continuation handle.",
+        source_refs: ["shared/protocols/TOWN_PORTAL_PRIMITIVE_V0.md"],
+        groups_capabilities: ["town_portal"],
+        public_surface: "capability hub summary",
+        safe_actions: ["display_only_knowledge_record"],
+        blocked_actions: ["queue_codex_runs"]
+      }
+    ]
+  }));
 }

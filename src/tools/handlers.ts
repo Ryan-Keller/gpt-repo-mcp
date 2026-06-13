@@ -80,7 +80,14 @@ type GitDiffInput = RepoInput & {
 
 export type ToolHandler = (input: unknown, context: RuntimeContext) => Promise<CallToolResult>;
 
-export const listRootsHandler: ToolHandler = async (_input, context) => {
+const RepoListRootsInput = z.object({
+  capability_id: z.string().min(1).optional(),
+  detail: z.enum(["summary", "full"]).optional()
+});
+
+export const listRootsHandler: ToolHandler = async (input, context) => {
+  const args = RepoListRootsInput.parse(input ?? {});
+  const detail = args.detail ?? "summary";
   const repos = context.registry.list();
   context.diagnostics?.recordSuccess();
   const connectorDiagnostics = getConnectorDiagnostics();
@@ -118,7 +125,7 @@ export const listRootsHandler: ToolHandler = async (_input, context) => {
   };
   const reposWithFallbacks = await Promise.all(repos.map(async (repo) => {
     const [runnerStatus, visionRoutes] = await Promise.all([
-      new AgentRunnerStatusService(repo.root).status({ repo_id: repo.repo_id }),
+      new AgentRunnerStatusService(repo.root).status({ repo_id: repo.repo_id, detail }),
       new VisionRouteService().detect()
     ]);
     const capabilitySummary = await buildCapabilitySummary({
@@ -127,18 +134,35 @@ export const listRootsHandler: ToolHandler = async (_input, context) => {
       runner_status: runnerStatus,
       vision_routes: visionRoutes
     });
+    const hasVisionRoute = visionRoutes.has_configured_vision_route;
     return {
       ...repo,
       bridge_observability: bridgeObservability,
       runner_status: runnerStatus,
-      capability_summary: capabilitySummary,
-      vision_capabilities: {
-        has_configured_vision_route: visionRoutes.has_configured_vision_route,
-        available_routes: visionRoutes.available_routes,
-        missing_capabilities: visionRoutes.missing_capabilities,
-        warnings: visionRoutes.warnings.map(redactSecretLike),
-        helper: buildVisionAnalysisFallback(visionRoutes)
-      }
+      capability_summary: capabilitySummaryForResponse(capabilitySummary, {
+        detail,
+        capabilityId: args.capability_id
+      }),
+      vision_capabilities: detail === "full"
+        ? {
+            has_configured_vision_route: hasVisionRoute,
+            available_routes: visionRoutes.available_routes,
+            missing_capabilities: visionRoutes.missing_capabilities,
+            warnings: visionRoutes.warnings.map(redactSecretLike),
+            helper: buildVisionAnalysisFallback(visionRoutes)
+          }
+        : {
+            has_configured_vision_route: hasVisionRoute,
+            route_status: hasVisionRoute ? "ready" : "blocked",
+            missing_capabilities: visionRoutes.missing_capabilities.slice(0, 4),
+            warnings: visionRoutes.warnings.map(redactSecretLike).slice(0, 3),
+            helper: {
+              tool: "repo_write_codex_task",
+              input_assets_required: true,
+              result_visibility: "repo_list_roots.ready_results",
+              route_status: hasVisionRoute ? "ready" : "blocked"
+            }
+          }
     };
   }));
   const runnerSummaries = reposWithFallbacks.map((repo) => {
@@ -148,9 +172,14 @@ export const listRootsHandler: ToolHandler = async (_input, context) => {
     return [
       repo.repo_id,
       repo.runner_status.plain_text,
-      `Capabilities: handoff=${repo.capability_summary.codex_handoff.state}; runner=${repo.capability_summary.runner.state}; image_assets=${repo.capability_summary.image_assets.state}; gemma_image_route=${repo.capability_summary.gemma_image_route.state}; latest_validation=${repo.capability_summary.latest_validation.state}`,
+      `Bridge compass: lane=${repo.capability_summary.bridge_compass.active_lane.lane}; blocker=${repo.capability_summary.bridge_compass.top_blocker.status}; next=${repo.capability_summary.bridge_compass.next_safe_action}`,
+      `Capabilities: toc=${repo.capability_summary.capability_toc.state}; expansion=${repo.capability_summary.expansion.mode}`,
+      `Capability TOC: ${repo.capability_summary.capability_toc.state}; count=${repo.capability_summary.capability_toc.capability_count}; ids=${repo.capability_summary.capability_toc.capabilities.map((entry: { capability_id: string }) => entry.capability_id).join(", ") || "none"}`,
+      `Module registry: ${repo.capability_summary.module_registry.state}; count=${repo.capability_summary.module_registry.module_count}; ids=${repo.capability_summary.module_registry.modules.map((entry: { module_id: string }) => entry.module_id).join(", ") || "none"}`,
       `Vision routes: ${visionStatus}`,
-      "Vision helper: repo_write_codex_task with input_assets; results appear in repo_list_roots.ready_results."
+      detail === "full"
+        ? "Vision helper: repo_write_codex_task with input_assets; results appear in repo_list_roots.ready_results."
+        : "Detail: summary; request detail: \"full\" for runner, capability, and vision diagnostics."
     ].join("\n");
   }).join("\n\n");
   return createSuccessEnvelope({ repos: reposWithFallbacks, bridge_observability: bridgeObservability }, `${repos.length} approved repositories available.\n\n${runnerSummaries}`);
@@ -177,7 +206,53 @@ export const bridgeConciergeHandler: ToolHandler = async (input, context) => saf
 
 export const agentRunnerStatusHandler: ToolHandler = async (input, context) => safeTool<AgentRunnerStatusInput>("repo_runner_status", input, context, async (args) => {
   const repo = context.registry.get(args.repo_id);
-  const result = await new AgentRunnerStatusService(repo.root).status(args);
+  const [result, visionRoutes] = await Promise.all([
+    new AgentRunnerStatusService(repo.root).status(args),
+    new VisionRouteService().detect()
+  ]);
+  const capabilitySummary = await buildCapabilitySummary({
+    repo_id: repo.repo_id,
+    repo_root: repo.root,
+    runner_status: result,
+    vision_routes: visionRoutes
+  });
+  const resultWithCapabilities = {
+    ok: result.ok,
+    repo_id: result.repo_id,
+    detail_level: result.detail_level,
+    details_truncated: result.details_truncated,
+    full_detail_hint: result.full_detail_hint,
+    runner: result.runner,
+    worker: result.worker,
+    runtime_assessment: result.runtime_assessment,
+    active_run_id: result.active_run_id,
+    active_run_ids: result.active_run_ids,
+    pending_count: result.pending_count,
+    active_count: result.active_count,
+    stale_lock_count: result.stale_lock_count,
+    completed_count: result.completed_count,
+    blocked_count: result.blocked_count,
+    ready_results: result.ready_results.map((readyResult) => ({
+      run_id: readyResult.run_id,
+      status: readyResult.status,
+      result_status: readyResult.result_status,
+      result_path: readyResult.result_path,
+      summary: readyResult.summary,
+      changed_file_count: readyResult.changed_file_count,
+      key_tests: readyResult.key_tests,
+      blocker: readyResult.blocker,
+      proof_layer: readyResult.proof_layer,
+      next_action: readyResult.next_action,
+      preview_urls: readyResult.preview_urls
+    })),
+    plain_text: result.plain_text,
+    warnings: result.warnings,
+    capability_summary: capabilitySummaryForResponse(capabilitySummary, {
+      detail: result.detail_level,
+      capabilityId: args.capability_id,
+      runnerStatusSurface: true
+    })
+  };
   audit({
     tool: "repo_runner_status",
     repo_id: args.repo_id,
@@ -189,7 +264,7 @@ export const agentRunnerStatusHandler: ToolHandler = async (input, context) => s
     },
     warnings: result.warnings
   });
-  return createSuccessEnvelope(result, result.plain_text, { warnings: result.warnings });
+  return createSuccessEnvelope(resultWithCapabilities, result.plain_text, { warnings: result.warnings });
 });
 
 export const runLiveTailHandler: ToolHandler = async (input, context) => safeTool<RunLiveTailInput>("repo_run_live_tail", input, context, async (args) => {
@@ -798,6 +873,122 @@ async function safeTool<TInput extends Record<string, unknown>>(
 
 function readOnlyRepoId(repoId: string | undefined): string {
   return repoId && repoId.trim().length > 0 ? repoId : "shared-agent-bridge";
+}
+
+type CapabilitySummaryResult = Awaited<ReturnType<typeof buildCapabilitySummary>>;
+
+function capabilitySummaryForResponse(
+  summary: CapabilitySummaryResult,
+  options: { detail: "summary" | "full"; capabilityId?: string; runnerStatusSurface?: boolean }
+) {
+  const capabilityId = normalizeCapabilityId(options.capabilityId);
+  if (capabilityId) {
+    return focusedCapabilitySummary(summary, capabilityId);
+  }
+  if (options.detail === "full") {
+    return {
+      expansion: {
+        mode: "full",
+        detail: "full",
+        focused: false,
+        full_detail_hint: "Full capability diagnostics included."
+      },
+      ...summary
+    };
+  }
+  return skeletalCapabilitySummary(summary, options.runnerStatusSurface === true);
+}
+
+function skeletalCapabilitySummary(summary: CapabilitySummaryResult, runnerStatusSurface: boolean) {
+  const tocCapabilities = summary.capability_toc.capabilities.map((entry) => ({
+    capability_id: entry.capability_id,
+    status: entry.status
+  }));
+  const moduleHandles = summary.module_registry.modules.map((entry) => ({
+    module_id: entry.module_id,
+    status: entry.status,
+    class: entry.class
+  }));
+  const base = {
+    expansion: {
+      mode: "skeletal",
+      detail: "summary",
+      focused: false,
+      full_detail_hint: "Pass capability_id for one focused capability, or detail: \"full\" for full diagnostics."
+    },
+    bridge_compass: summary.bridge_compass,
+    capability_toc: {
+      state: summary.capability_toc.state,
+      capability_count: summary.capability_toc.capability_count,
+      returned_count: tocCapabilities.length,
+      capabilities: tocCapabilities,
+      ...(summary.capability_toc.blocker ? { blocker: summary.capability_toc.blocker } : {})
+    },
+    module_registry: {
+      state: summary.module_registry.state,
+      module_count: summary.module_registry.module_count,
+      returned_count: moduleHandles.length,
+      modules: moduleHandles,
+      ...(summary.module_registry.blocker ? { blocker: summary.module_registry.blocker } : {})
+    }
+  };
+  if (runnerStatusSurface) {
+    return base;
+  }
+  return {
+    ...base,
+    states: {
+      codex_handoff: summary.codex_handoff.state,
+      runner: summary.runner.state,
+      durable_queue: summary.durable_queue.state,
+      event_inbox: summary.event_inbox.state,
+      image_assets: summary.image_assets.state,
+      vision_route_detection: summary.vision_route_detection.state,
+      latest_validation: summary.latest_validation.state,
+      git_review: summary.git_review.state,
+      git_stage_commit: summary.git_stage_commit.state
+    }
+  };
+}
+
+function focusedCapabilitySummary(summary: CapabilitySummaryResult, capabilityId: string) {
+  const capability = summary.capability_toc.capabilities.find((entry) => entry.capability_id === capabilityId);
+  const moduleHandles = summary.module_registry.modules.map((entry) => ({
+    module_id: entry.module_id,
+    status: entry.status,
+    class: entry.class
+  }));
+  return {
+    expansion: {
+      mode: "focused",
+      detail: "capability_id",
+      focused: true,
+      capability_id: capabilityId,
+      found: Boolean(capability),
+      full_detail_hint: "This focused response expands one named capability. Use detail: \"full\" without capability_id for full diagnostics."
+    },
+    bridge_compass: summary.bridge_compass,
+    capability_toc: {
+      state: capability ? summary.capability_toc.state : "blocked",
+      source_path: summary.capability_toc.source_path,
+      generated_at: summary.capability_toc.generated_at,
+      capability_count: summary.capability_toc.capability_count,
+      returned_count: capability ? 1 : 0,
+      capabilities: capability ? [capability] : [],
+      ...(capability ? {} : { blocker: `Capability id not found: ${capabilityId}` })
+    },
+    module_registry: {
+      state: summary.module_registry.state,
+      module_count: summary.module_registry.module_count,
+      returned_count: moduleHandles.length,
+      modules: moduleHandles,
+      ...(summary.module_registry.blocker ? { blocker: summary.module_registry.blocker } : {})
+    }
+  };
+}
+
+function normalizeCapabilityId(value: string | undefined): string {
+  return typeof value === "string" ? value.trim() : "";
 }
 
 async function readHeadSha(root: string): Promise<string | undefined> {

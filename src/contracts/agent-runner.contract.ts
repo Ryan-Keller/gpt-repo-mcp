@@ -13,6 +13,8 @@ export const AgentRunnerStatusInputSchema = RepoInputSchema.extend({
     .describe("Number of fresh internal status polls to perform. Defaults to 1; maximum 4."),
   poll_interval_seconds: z.number().int().min(5).max(15).optional()
     .describe("Seconds to wait between internal polls when poll_count is greater than 1. Defaults to 10."),
+  capability_id: z.string().min(1).optional()
+    .describe("Optional exact capability id to expand inside capability_summary without returning the full capability catalog."),
   detail: z.enum(["summary", "full"]).optional()
     .describe("Payload detail level. Defaults to summary, which keeps status concise and omits bulky result/event bodies. Use full only when debugging or reviewing detailed evidence.")
 });
@@ -22,6 +24,106 @@ export const RunLiveTailInputSchema = RepoInputSchema.extend({
   cursor: z.string().optional().describe("Optional sequence cursor returned by a previous live-tail call."),
   max_events: z.number().int().positive().max(100).optional().describe("Maximum events to return. Defaults to 20.")
 });
+
+const CapabilityHandleSchema = z.object({
+  capability_id: z.string(),
+  status: z.string()
+}).passthrough();
+
+const ModuleHandleSchema = z.object({
+  module_id: z.string(),
+  status: z.string(),
+  class: z.string()
+}).passthrough();
+
+const BridgeCompassSchema = z.object({
+  current_route: z.string(),
+  runner_state: z.object({
+    runner: z.enum(["alive", "dead", "stale", "unknown"]),
+    worker: z.enum(["running", "not_running", "unknown"]),
+    runtime_assessment: z.enum(["offline", "idle", "running_active_run", "attention_needed"]),
+    pending_count: z.number().int(),
+    active_count: z.number().int(),
+    stale_lock_count: z.number().int()
+  }).passthrough(),
+  active_lane: z.object({
+    state: z.enum(["active", "queued", "ready_result_review", "idle", "blocked"]),
+    run_id: z.string(),
+    lane: z.string()
+  }).passthrough(),
+  latest_ready_result: z.object({
+    run_id: z.string(),
+    result_status: z.string(),
+    result_path: z.string()
+  }).passthrough(),
+  top_blocker: z.object({
+    status: z.enum(["none", "blocked"]),
+    source: z.string(),
+    summary: z.string()
+  }).passthrough(),
+  module_handles: z.array(ModuleHandleSchema),
+  proof_layer: z.enum(["source-tested", "local-live", "blocked", "unknown"]),
+  next_safe_action: z.string(),
+  context_budget_hint: z.string()
+}).passthrough();
+
+const CapabilityReferenceSummarySchema = z.object({
+  expansion: z.object({
+    mode: z.enum(["skeletal", "focused", "full"]).optional(),
+    detail: z.string().optional(),
+    focused: z.boolean().optional(),
+    capability_id: z.string().optional(),
+    found: z.boolean().optional(),
+    full_detail_hint: z.string().optional()
+  }).passthrough().optional(),
+  bridge_compass: BridgeCompassSchema.optional(),
+  capability_toc: z.object({
+    state: z.string().optional(),
+    capability_count: z.number().int().nonnegative().optional(),
+    returned_count: z.number().int().nonnegative().optional(),
+    capabilities: z.array(CapabilityHandleSchema).optional()
+  }).passthrough().optional(),
+  module_registry: z.object({
+    state: z.string().optional(),
+    module_count: z.number().int().nonnegative().optional(),
+    returned_count: z.number().int().nonnegative().optional(),
+    modules: z.array(ModuleHandleSchema).optional()
+  }).passthrough().optional()
+}).passthrough();
+
+export const AgentRunnerStatusReferenceResultSchema = z.object({
+  ok: z.boolean().optional(),
+  repo_id: z.string().optional(),
+  detail_level: z.enum(["summary", "full"]).optional(),
+  details_truncated: z.boolean().optional(),
+  full_detail_hint: z.string().optional(),
+  runner: z.enum(["alive", "dead", "stale", "unknown"]).optional(),
+  worker: z.enum(["running", "not_running", "unknown"]).optional(),
+  runtime_assessment: z.enum(["offline", "idle", "running_active_run", "attention_needed"]).optional(),
+  active_run_id: z.string().optional(),
+  active_run_ids: z.array(z.string()).optional(),
+  pending_count: z.number().int().optional(),
+  active_count: z.number().int().optional(),
+  stale_lock_count: z.number().int().optional(),
+  completed_count: z.number().int().optional(),
+  blocked_count: z.number().int().optional(),
+  ready_results: z.array(z.object({
+    run_id: z.string().optional(),
+    status: z.string().optional(),
+    result_status: z.string().optional(),
+    result_path: z.string().optional(),
+    summary: z.string().optional(),
+    changed_file_count: z.number().int().nonnegative().optional(),
+    key_tests: z.array(z.string()).optional(),
+    blocker: z.string().optional(),
+    proof_layer: z.string().optional(),
+    next_action: z.string().optional(),
+    preview_urls: z.array(z.string()).optional()
+  }).passthrough()).optional(),
+  capability_summary: CapabilityReferenceSummarySchema.optional(),
+  plain_text: z.string().optional(),
+  warnings: z.array(z.string()).optional()
+}).passthrough();
 
 const JsonValueSchema = z.any();
 const EvidenceSchema = z.object({}).catchall(JsonValueSchema);
@@ -34,15 +136,7 @@ const RuntimeAssessmentSchema = z.object({
   summary: z.string()
 });
 
-const LockInfoSchema = z.object({
-  run_id: z.string(),
-  lock_path: z.string(),
-  lock_age_seconds: JsonValueSchema,
-  runner_pid: JsonValueSchema,
-  child_pid: JsonValueSchema.optional(),
-  worker_slot_id: JsonValueSchema.optional(),
-  result_md_exists: z.boolean()
-});
+const LockInfoSchema = z.object({}).passthrough();
 
 export const LiveTailEventSchema = z.object({
   run_id: z.string().optional(),
@@ -54,14 +148,7 @@ export const LiveTailEventSchema = z.object({
   cursor: z.string()
 });
 
-const WorkerSlotSchema = z.object({
-  slot_id: z.number().int().positive(),
-  state: z.enum(["active", "idle", "unknown"]),
-  run_id: z.string(),
-  pid: JsonValueSchema,
-  started_at: z.string(),
-  heartbeat_age_seconds: JsonValueSchema
-});
+const WorkerSlotSchema = z.object({}).passthrough();
 
 const QueueEntrySchema = z.object({}).passthrough();
 const RunnerEventSchema = JsonValueSchema;
@@ -100,7 +187,7 @@ export const AgentRunnerStatusResultSchema = z.object({
   tool_catalog_hash: z.string(),
   contract_schema_version: z.string(),
   auth_status: z.string(),
-  connector_identity: ConnectorIdentitySnapshotSchema,
+  connector_identity: ConnectorIdentitySnapshotSchema.optional(),
   runner_state: z.enum(["alive", "dead", "stale"]),
   runner: z.enum(["alive", "dead", "stale", "unknown"]),
   worker: z.enum(["running", "not_running", "unknown"]),
@@ -128,6 +215,9 @@ export const AgentRunnerStatusResultSchema = z.object({
     lock_path: z.string(),
     lock_age_seconds: JsonValueSchema,
     runner_pid: JsonValueSchema,
+    original_estimate: EvidenceSchema.optional(),
+    revised_estimate: EvidenceSchema.optional(),
+    effective_estimate: EvidenceSchema.optional(),
     result_md_exists: z.boolean(),
     runtime_assessment: RuntimeAssessmentSchema
   })),
@@ -140,8 +230,15 @@ export const AgentRunnerStatusResultSchema = z.object({
   last_run_status: z.string(),
   ready_results: z.array(z.object({
     run_id: z.string(),
+    status: z.string(),
     result_status: z.string(),
     result_path: z.string(),
+    summary: z.string(),
+    changed_file_count: z.number().int().nonnegative(),
+    key_tests: z.array(z.string()),
+    blocker: z.string(),
+    proof_layer: z.string(),
+    next_action: z.string(),
     result_text: z.string(),
     preview_urls: z.array(z.string())
   })),
@@ -158,6 +255,7 @@ export const AgentRunnerStatusResultSchema = z.object({
   poll_interval_seconds: z.number().int().nonnegative(),
   monitoring_stop_reason: z.enum(["single_shot", "poll_count_reached", "no_active_run", "terminal_result", "result_md_exists"]),
   poll_history: z.array(PollHistoryEntrySchema),
+  capability_summary: z.object({}).passthrough().optional(),
   plain_text: z.string(),
   warnings: z.array(z.string())
 });

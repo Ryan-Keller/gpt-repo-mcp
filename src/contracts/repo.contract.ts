@@ -1,6 +1,13 @@
 import { z } from "zod";
 import { ConnectorIdentitySnapshotSchema } from "./connector-identity.contract.js";
 
+export const RepoListInputSchema = z.object({
+  capability_id: z.string().min(1).optional()
+    .describe("Optional exact capability id to expand inside capability_summary without returning the full capability catalog."),
+  detail: z.enum(["summary", "full"]).optional()
+    .describe("Payload detail level. Defaults to summary, which keeps repo roots compact. Use full only for runner, capability, and vision diagnostics.")
+});
+
 export const RepoInputSchema = z.object({
   repo_id: z.string().min(1).describe("Stable approved repository id from repo_list_roots.")
 });
@@ -21,7 +28,7 @@ export const RepoTreeInputSchema = RepoInputSchema.extend({
   cursor: z.string().optional()
 });
 
-const VisionCapabilitySummarySchema = z.object({
+export const VisionCapabilitySummarySchema = z.object({
   has_configured_vision_route: z.boolean(),
   available_routes: z.array(z.object({
     route: z.enum(["gemini_api", "vertex_gemini", "ollama_local"]),
@@ -63,8 +70,83 @@ const CapabilityMetadataSchema = z.object({
   suggested_validation_command: z.string()
 });
 
-const CapabilitySummarySchema = z.object({
+const CapabilityTocSchema = z.object({
+  state: CapabilityStateSchema,
+  source_path: z.literal("shared/capabilities/BRIDGE_CAPABILITY_TOC_V0.json"),
+  generated_at: z.string(),
+  capability_count: z.number().int().nonnegative(),
+  capabilities: z.array(z.object({
+    capability_id: z.string(),
+    status: z.string(),
+    summary: z.string(),
+    existing_tool_or_hub_route: z.string(),
+    safe_operations: z.array(z.string()),
+    blocked_operations: z.array(z.string()),
+    suggested_next_action: z.string(),
+    docs_protocol_refs: z.array(z.string()).optional()
+  })),
+  blocker: z.string().optional()
+});
+
+const ModuleRegistrySchema = z.object({
+  state: CapabilityStateSchema,
+  source_path: z.literal("shared/capabilities/BRIDGE_MODULE_REGISTRY_V0.json"),
+  generated_at: z.string(),
+  module_count: z.number().int().nonnegative(),
+  modules: z.array(z.object({
+    module_id: z.string(),
+    status: z.string(),
+    class: z.string(),
+    summary: z.string(),
+    source_refs: z.array(z.string()),
+    groups_capabilities: z.array(z.string()),
+    public_surface: z.string(),
+    safe_actions: z.array(z.string()),
+    blocked_actions: z.array(z.string())
+  })),
+  blocker: z.string().optional()
+});
+
+const BridgeCompassSchema = z.object({
+  current_route: z.string(),
+  runner_state: z.object({
+    runner: z.enum(["alive", "dead", "stale", "unknown"]),
+    worker: z.enum(["running", "not_running", "unknown"]),
+    runtime_assessment: z.enum(["offline", "idle", "running_active_run", "attention_needed"]),
+    pending_count: z.number().int(),
+    active_count: z.number().int(),
+    stale_lock_count: z.number().int()
+  }).passthrough(),
+  active_lane: z.object({
+    state: z.enum(["active", "queued", "ready_result_review", "idle", "blocked"]),
+    run_id: z.string(),
+    lane: z.string()
+  }).passthrough(),
+  latest_ready_result: z.object({
+    run_id: z.string(),
+    result_status: z.string(),
+    result_path: z.string()
+  }).passthrough(),
+  top_blocker: z.object({
+    status: z.enum(["none", "blocked"]),
+    source: z.string(),
+    summary: z.string()
+  }).passthrough(),
+  module_handles: z.array(z.object({
+    module_id: z.string(),
+    status: z.string(),
+    class: z.string()
+  }).passthrough()),
+  proof_layer: z.enum(["source-tested", "local-live", "blocked", "unknown"]),
+  next_safe_action: z.string(),
+  context_budget_hint: z.string()
+}).passthrough();
+
+export const CapabilitySummarySchema = z.object({
   state_values: z.array(CapabilityStateSchema),
+  bridge_compass: BridgeCompassSchema,
+  capability_toc: CapabilityTocSchema,
+  module_registry: ModuleRegistrySchema,
   codex_handoff: z.object({
     state: CapabilityStateSchema,
     tools: z.array(z.string()),
@@ -148,11 +230,90 @@ export const RepoSummarySchema = z.object({
   root: z.string(),
   bridge_observability: BridgeObservabilitySchema.optional(),
   runner_status: z.object({}).passthrough().optional(),
-  capability_summary: CapabilitySummarySchema.optional(),
-  vision_capabilities: VisionCapabilitySummarySchema.optional()
+  capability_summary: z.object({}).passthrough().optional(),
+  vision_capabilities: z.object({}).passthrough().optional()
 });
 
 export const RepoListResultSchema = z.object({
   repos: z.array(RepoSummarySchema),
   bridge_observability: BridgeObservabilitySchema.optional()
 });
+
+const CapabilityHandleSchema = z.object({
+  capability_id: z.string(),
+  status: z.string()
+}).passthrough();
+
+const ModuleHandleSchema = z.object({
+  module_id: z.string(),
+  status: z.string(),
+  class: z.string()
+}).passthrough();
+
+const CapabilityReferenceSummarySchema = z.object({
+  expansion: z.object({
+    mode: z.enum(["skeletal", "focused", "full"]).optional(),
+    detail: z.string().optional(),
+    focused: z.boolean().optional(),
+    capability_id: z.string().optional(),
+    found: z.boolean().optional(),
+    full_detail_hint: z.string().optional()
+  }).passthrough().optional(),
+  bridge_compass: BridgeCompassSchema.optional(),
+  capability_toc: z.object({
+    state: z.string().optional(),
+    capability_count: z.number().int().nonnegative().optional(),
+    returned_count: z.number().int().nonnegative().optional(),
+    capabilities: z.array(CapabilityHandleSchema).optional()
+  }).passthrough().optional(),
+  module_registry: z.object({
+    state: z.string().optional(),
+    module_count: z.number().int().nonnegative().optional(),
+    returned_count: z.number().int().nonnegative().optional(),
+    modules: z.array(ModuleHandleSchema).optional()
+  }).passthrough().optional()
+}).passthrough();
+
+const RunnerStatusReferenceSchema = z.object({
+  ok: z.boolean().optional(),
+  repo_id: z.string().optional(),
+  detail_level: z.enum(["summary", "full"]).optional(),
+  details_truncated: z.boolean().optional(),
+  runner: z.enum(["alive", "dead", "stale", "unknown"]).optional(),
+  worker: z.enum(["running", "not_running", "unknown"]).optional(),
+  runtime_assessment: z.enum(["offline", "idle", "running_active_run", "attention_needed"]).optional(),
+  active_run_ids: z.array(z.string()).optional(),
+  pending_count: z.number().int().optional(),
+  active_count: z.number().int().optional(),
+  stale_lock_count: z.number().int().optional(),
+  completed_count: z.number().int().optional(),
+  blocked_count: z.number().int().optional(),
+  plain_text: z.string().optional(),
+  warnings: z.array(z.string()).optional()
+}).passthrough();
+
+export const RepoListReferenceResultSchema = z.object({
+  repos: z.array(z.object({
+    repo_id: z.string(),
+    display_name: z.string(),
+    root: z.string(),
+    runner_status: RunnerStatusReferenceSchema.optional(),
+    capability_summary: CapabilityReferenceSummarySchema.optional(),
+    vision_capabilities: z.object({
+      has_configured_vision_route: z.boolean().optional(),
+      route_status: z.string().optional(),
+      missing_capabilities: z.array(z.string()).optional(),
+      warnings: z.array(z.string()).optional(),
+      helper: z.object({
+        tool: z.string().optional(),
+        input_assets_required: z.boolean().optional(),
+        result_visibility: z.string().optional(),
+        route_status: z.string().optional()
+      }).passthrough().optional()
+    }).passthrough().optional()
+  }).passthrough()),
+  bridge_observability: z.object({
+    transport_type: z.string().optional(),
+    suggested_next_action: z.string().optional()
+  }).passthrough().optional()
+}).passthrough();

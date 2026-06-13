@@ -1,5 +1,5 @@
 import type { z } from "zod";
-import { AgentRunnerStatusInputSchema, AgentRunnerStatusResultSchema, RunLiveTailInputSchema, RunLiveTailResultSchema } from "../contracts/agent-runner.contract.js";
+import { AgentRunnerStatusInputSchema, AgentRunnerStatusReferenceResultSchema, RunLiveTailInputSchema, RunLiveTailResultSchema } from "../contracts/agent-runner.contract.js";
 import { BridgeConciergeInputSchema, BridgeConciergeResultSchema } from "../contracts/bridge-concierge.contract.js";
 import { ChangePlanInputSchema, ChangePlanResultSchema } from "../contracts/change-plan.contract.js";
 import { CleanupPathsInputSchema, CleanupPathsResultSchema } from "../contracts/cleanup.contract.js";
@@ -16,7 +16,7 @@ import { LastWriteInputSchema, LastWriteResultSchema } from "../contracts/operat
 import { PolicyExplainInputSchema, PolicyExplainResultSchema } from "../contracts/policy.contract.js";
 import { ProjectBriefInputSchema, ProjectBriefResultSchema } from "../contracts/project.contract.js";
 import { ProjectMemoryDashboardResultSchema, ProjectMemoryInputSchema } from "../contracts/project-memory.contract.js";
-import { RepoInputSchema, RepoListResultSchema, RepoTreeInputSchema } from "../contracts/repo.contract.js";
+import { RepoInputSchema, RepoListInputSchema, RepoListReferenceResultSchema, RepoTreeInputSchema } from "../contracts/repo.contract.js";
 import { PlanReviewInputSchema, PlanReviewResultSchema } from "../contracts/review.contract.js";
 import { SearchInputSchema, SearchResponseSchema } from "../contracts/search.contract.js";
 import { TaskInventoryInputSchema, TaskInventoryResultSchema } from "../contracts/task.contract.js";
@@ -74,8 +74,8 @@ export type ToolContract = {
 
 export const toolContracts = {
   repo_list_roots: {
-    input: RepoInputSchema.omit({ repo_id: true }),
-    output: RepoListResultSchema
+    input: RepoListInputSchema,
+    output: RepoListReferenceResultSchema
   },
   repo_bridge_concierge: {
     input: BridgeConciergeInputSchema,
@@ -83,11 +83,11 @@ export const toolContracts = {
   },
   agent_runner_status: {
     input: AgentRunnerStatusInputSchema,
-    output: AgentRunnerStatusResultSchema
+    output: AgentRunnerStatusReferenceResultSchema
   },
   repo_runner_status: {
     input: AgentRunnerStatusInputSchema,
-    output: AgentRunnerStatusResultSchema
+    output: AgentRunnerStatusReferenceResultSchema
   },
   repo_run_live_tail: {
     input: RunLiveTailInputSchema,

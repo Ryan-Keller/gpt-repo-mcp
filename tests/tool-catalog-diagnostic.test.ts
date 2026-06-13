@@ -32,7 +32,7 @@ describe("tool catalog diagnostic", () => {
 
   test("catalog hash changes when an exposed tool schema changes", () => {
     const baseTool = {
-      name: "repo_git_status",
+      name: "repo_git_status" as const,
       title: "Read git status",
       description: "Use this when testing schema-sensitive diagnostics.",
       inputSchema: z.object({ repo_id: z.string() }),

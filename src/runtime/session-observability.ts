@@ -5,7 +5,8 @@ import { join } from "node:path";
 import { toolCatalog } from "../tools/catalog.js";
 import { buildToolCatalogDiagnostic } from "./tool-catalog-diagnostic.js";
 import { getRequestTelemetry, type RequestTelemetryContext } from "./telemetry.js";
-import { buildConnectorIdentitySnapshot, type ConnectorIdentitySnapshot } from "./connector-identity.js";
+import { buildConnectorIdentitySnapshot } from "./connector-identity.js";
+import type { ConnectorIdentitySnapshot } from "../contracts/connector-identity.contract.js";
 
 const EVENT_LOG_PATH = ".chatgpt/events/bridge-events.jsonl";
 

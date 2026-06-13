@@ -508,6 +508,7 @@ function renderManifest(input: CodexTaskWrite, prepared: CodexTaskResult): strin
     allowed_paths: input.allowed_paths,
     forbidden_paths: input.forbidden_paths,
     verification_commands: input.verification_commands,
+    ...(input.goal_lane ? { goal_lane: input.goal_lane } : {}),
     created_at: prepared.run_id.match(/^[0-9]{4}-[0-9]{2}-[0-9]{2}T[0-9]{6}Z/)?.[0] ?? null
   }, null, 2)}\n`;
 }
