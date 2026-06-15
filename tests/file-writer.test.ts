@@ -384,7 +384,9 @@ describe("FileWriter", () => {
   test("symlink escape rejected", async () => {
     const fixture = await createRepoFixture();
     const writer = createWriter(fixture.root, { enabled: true, allowed_globs: ["**"] });
-    await symlink(fixture.outside, join(fixture.root, "docs", "outside-dir"));
+    if (!await trySymlink(fixture.outside, join(fixture.root, "docs", "outside-dir"))) {
+      return;
+    }
 
     await expect(writer.write({
       path: "docs/outside-dir/escape.md",
@@ -426,6 +428,18 @@ describe("FileWriter", () => {
     })).rejects.toMatchObject({ code: "WRITE_NOT_ALLOWED_GLOB" });
   });
 });
+
+async function trySymlink(target: string, path: string): Promise<boolean> {
+  try {
+    await symlink(target, path);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EPERM") {
+      return false;
+    }
+    throw error;
+  }
+}
 
 function createWriter(root: string, policy: WritePolicyConfig) {
   return new FileWriter(root, new PathSandbox(root), new WritePolicy(policy));

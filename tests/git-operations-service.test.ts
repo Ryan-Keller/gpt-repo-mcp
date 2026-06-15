@@ -8,6 +8,7 @@ import { GitOperationsService } from "../src/services/git-operations-service.js"
 import { OperationsPolicy } from "../src/services/operations-policy.js";
 
 const execFileAsync = promisify(execFile);
+const normalizeNewlines = (value: string) => value.replace(/\r\n/g, "\n");
 
 describe("GitOperationsService", () => {
   test("dry_run stage reports explicit path and does not change index", async () => {
@@ -303,7 +304,7 @@ describe("GitOperationsService", () => {
     });
 
     expect(result.restored_paths).toEqual(["docs/a.md"]);
-    await expect(readFile(join(fixture.root, "docs", "a.md"), "utf8")).resolves.toBe("A\n");
+    await expect(readFile(join(fixture.root, "docs", "a.md"), "utf8").then(normalizeNewlines)).resolves.toBe("A\n");
     await expect(worktreePaths(fixture.root)).resolves.not.toContain("docs/a.md");
   });
 
@@ -317,8 +318,8 @@ describe("GitOperationsService", () => {
     });
 
     expect(result.restored_paths).toEqual(["docs/a.md", "docs/b.md"]);
-    await expect(readFile(join(fixture.root, "docs", "a.md"), "utf8")).resolves.toBe("A\n");
-    await expect(readFile(join(fixture.root, "docs", "b.md"), "utf8")).resolves.toBe("B\n");
+    await expect(readFile(join(fixture.root, "docs", "a.md"), "utf8").then(normalizeNewlines)).resolves.toBe("A\n");
+    await expect(readFile(join(fixture.root, "docs", "b.md"), "utf8").then(normalizeNewlines)).resolves.toBe("B\n");
     await expect(worktreePaths(fixture.root)).resolves.toEqual([]);
   });
 
@@ -686,7 +687,7 @@ describe("GitOperationsService", () => {
     expect(result.restored_paths).toEqual(["docs/a.md"]);
     expect(result.clean_after).toBe(true);
     expect(result.remaining_changes).toBe(0);
-    await expect(readFile(join(fixture.root, "docs", "a.md"), "utf8")).resolves.toBe("A\n");
+    await expect(readFile(join(fixture.root, "docs", "a.md"), "utf8").then(normalizeNewlines)).resolves.toBe("A\n");
     await expect(stagedPaths(fixture.root)).resolves.toEqual([]);
     await expect(worktreePaths(fixture.root)).resolves.toEqual([]);
   });
@@ -705,7 +706,7 @@ describe("GitOperationsService", () => {
     expect(result.unstaged_paths).toEqual(["docs/a.md"]);
     expect(result.restored_paths).toEqual(["docs/a.md"]);
     expect(result.clean_after).toBe(true);
-    await expect(readFile(join(fixture.root, "docs", "a.md"), "utf8")).resolves.toBe("A\n");
+    await expect(readFile(join(fixture.root, "docs", "a.md"), "utf8").then(normalizeNewlines)).resolves.toBe("A\n");
     await expect(stagedPaths(fixture.root)).resolves.toEqual([]);
     await expect(worktreePaths(fixture.root)).resolves.toEqual([]);
   });

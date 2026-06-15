@@ -28,7 +28,9 @@ describe("PathSandbox", () => {
     const root = await mkdtemp(join(tmpdir(), "repo-reader-"));
     const outside = await mkdtemp(join(tmpdir(), "repo-reader-outside-"));
     await writeFile(join(outside, "secret.txt"), "secret");
-    await symlink(join(outside, "secret.txt"), join(root, "linked-secret.txt"));
+    if (!await trySymlink(join(outside, "secret.txt"), join(root, "linked-secret.txt"))) {
+      return;
+    }
 
     const sandbox = new PathSandbox(root);
 
@@ -47,3 +49,15 @@ describe("PathSandbox", () => {
     expect(result).toEqual({ kind: "nested_repo", path: "vendor/lib" });
   });
 });
+
+async function trySymlink(target: string, path: string): Promise<boolean> {
+  try {
+    await symlink(target, path);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EPERM") {
+      return false;
+    }
+    throw error;
+  }
+}

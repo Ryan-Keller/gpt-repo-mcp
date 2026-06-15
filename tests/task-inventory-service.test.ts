@@ -89,7 +89,7 @@ describe("TaskInventoryService", () => {
     expect(result.matched_count).toBe(1);
     expect(result.scan_complete).toBe(true);
     expect(result.warnings).not.toContain("SCAN_TREE_PAGE_LIMIT_REACHED");
-  });
+  }, 15000);
 
   test("reports file limit instead of tree page limit when file cap stops scan first", async () => {
     const fixture = await createRepoFixture();

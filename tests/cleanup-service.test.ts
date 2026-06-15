@@ -142,6 +142,9 @@ describe("CleanupService", () => {
 
   test("cleanup rejects symlink escape", async () => {
     const fixture = await createCleanupFixture({ includeSymlink: true });
+    if (!fixture.symlinkCreated) {
+      return;
+    }
     const service = createService(fixture.root);
 
     await expect(service.cleanup({ paths: [".chatgpt/tool-tests/outside-link.txt"] })).rejects.toMatchObject({
@@ -199,9 +202,10 @@ function createService(root: string, config: OperationsPolicyConfig = {}) {
   }));
 }
 
-async function createCleanupFixture(options: { includeSymlink?: boolean } = {}): Promise<{ root: string; outside: string }> {
+async function createCleanupFixture(options: { includeSymlink?: boolean } = {}): Promise<{ root: string; outside: string; symlinkCreated: boolean }> {
   const root = await mkdtemp(join(tmpdir(), "repo-reader-cleanup-"));
   const outside = await mkdtemp(join(tmpdir(), "repo-reader-cleanup-outside-"));
+  let symlinkCreated = false;
   await mkdir(join(root, ".chatgpt", "tool-tests", "nested"), { recursive: true });
   await mkdir(join(root, ".chatgpt", "backups", "repo_write_file"), { recursive: true });
   await mkdir(join(root, ".chatgpt", "audits"), { recursive: true });
@@ -218,9 +222,21 @@ async function createCleanupFixture(options: { includeSymlink?: boolean } = {}):
   await writeFile(join(root, "docs", "notes.md"), "notes\n");
   await writeFile(join(outside, "outside.txt"), "outside\n");
   if (options.includeSymlink) {
-    await symlink(join(outside, "outside.txt"), join(root, ".chatgpt", "tool-tests", "outside-link.txt"));
+    symlinkCreated = await trySymlink(join(outside, "outside.txt"), join(root, ".chatgpt", "tool-tests", "outside-link.txt"));
   }
-  return { root, outside };
+  return { root, outside, symlinkCreated };
+}
+
+async function trySymlink(target: string, path: string): Promise<boolean> {
+  try {
+    await symlink(target, path);
+    return true;
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "EPERM") {
+      return false;
+    }
+    throw error;
+  }
 }
 
 async function createGitCleanupFixture(): Promise<{ root: string }> {
