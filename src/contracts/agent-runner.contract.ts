@@ -93,6 +93,16 @@ const CapabilityReferenceSummarySchema = z.object({
   }).passthrough().optional()
 }).passthrough();
 
+const CentralQueueCoverageSchema = z.object({
+  enabled: z.boolean(),
+  target_repo_id: z.string(),
+  queue_repo_id: z.string(),
+  project_runner_required: z.boolean(),
+  status: z.string(),
+  proof: z.string(),
+  guidance: z.string()
+}).passthrough();
+
 export const AgentRunnerStatusReferenceResultSchema = z.object({
   ok: z.boolean().optional(),
   repo_id: z.string().optional(),
@@ -122,6 +132,7 @@ export const AgentRunnerStatusReferenceResultSchema = z.object({
     next_action: z.string().optional(),
     preview_urls: z.array(z.string()).optional()
   }).passthrough()).optional(),
+  central_queue: CentralQueueCoverageSchema.optional(),
   capability_summary: CapabilityReferenceSummarySchema.optional(),
   plain_text: z.string().optional(),
   warnings: z.array(z.string()).optional()
@@ -244,6 +255,7 @@ export const AgentRunnerStatusResultSchema = z.object({
     result_text: z.string(),
     preview_urls: z.array(z.string())
   })),
+  central_queue: CentralQueueCoverageSchema.optional(),
   active_run_live_tail: z.array(LiveTailEventSchema),
   queue_entries: z.array(QueueEntrySchema),
   recent_events: z.array(RunnerEventSchema),

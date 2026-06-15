@@ -40,7 +40,7 @@ import { audit, getRequestTelemetry, type RequestTelemetryContext } from "../run
 import { getConnectorDiagnostics } from "../runtime/connector-session.js";
 import { buildConnectorIdentitySnapshot } from "../runtime/connector-identity.js";
 import type { RuntimeContext } from "../runtime/context.js";
-import type { AgentRunnerStatusInput, RunLiveTailInput } from "../contracts/agent-runner.contract.js";
+import type { AgentRunnerStatusInput, AgentRunnerStatusResult, RunLiveTailInput } from "../contracts/agent-runner.contract.js";
 import type { BridgeConciergeInput } from "../contracts/bridge-concierge.contract.js";
 import type { SearchOptions } from "../services/search-service.js";
 import type { FetchFileOptions } from "../services/file-reader.js";
@@ -135,7 +135,7 @@ export const listRootsHandler: ToolHandler = async (input, context) => {
   };
   const reposWithFallbacks = await Promise.all(repos.map(async (repo) => {
     const [runnerStatus, visionRoutes] = await Promise.all([
-      new AgentRunnerStatusService(repo.root).status({ repo_id: repo.repo_id, detail }),
+      effectiveRunnerStatusForRepo(context, repo, { repo_id: repo.repo_id, detail }),
       new VisionRouteService().detect()
     ]);
     const capabilitySummary = await buildCapabilitySummary({
@@ -219,7 +219,7 @@ export const bridgeConciergeHandler: ToolHandler = async (input, context) => saf
 export const agentRunnerStatusHandler: ToolHandler = async (input, context) => safeTool<AgentRunnerStatusInput>("repo_runner_status", input, context, async (args) => {
   const repo = context.registry.get(args.repo_id);
   const [result, visionRoutes] = await Promise.all([
-    new AgentRunnerStatusService(repo.root).status(args),
+    effectiveRunnerStatusForRepo(context, repo, args),
     new VisionRouteService().detect()
   ]);
   const capabilitySummary = await buildCapabilitySummary({
@@ -257,6 +257,7 @@ export const agentRunnerStatusHandler: ToolHandler = async (input, context) => s
       next_action: readyResult.next_action,
       preview_urls: readyResult.preview_urls
     })),
+    ...(result.central_queue ? { central_queue: result.central_queue } : {}),
     plain_text: result.plain_text,
     warnings: result.warnings,
     capability_summary: await capabilitySummaryForResponse(capabilitySummary, {
@@ -829,6 +830,52 @@ function codexQueueForTarget(context: RuntimeContext, targetRepoId: string): {
       ]
     };
   }
+}
+
+async function effectiveRunnerStatusForRepo(
+  context: RuntimeContext,
+  targetRepo: Pick<RegisteredRepo, "repo_id" | "root">,
+  input: AgentRunnerStatusInput
+): Promise<AgentRunnerStatusResult> {
+  const { queueRepo } = codexQueueForTarget(context, targetRepo.repo_id);
+  const statusInput = {
+    ...input,
+    repo_id: queueRepo.repo_id
+  };
+  const status = await new AgentRunnerStatusService(queueRepo.root).status(statusInput);
+  if (queueRepo.repo_id === targetRepo.repo_id) {
+    return status;
+  }
+  const coverage = centralQueueCoverage(targetRepo, queueRepo, status);
+  return {
+    ...status,
+    repo_id: targetRepo.repo_id,
+    central_queue: coverage,
+    plain_text: [
+      `Target repo: ${targetRepo.repo_id}`,
+      `Codex queue: ${coverage.status}; queue_repo_id=${coverage.queue_repo_id}; project_runner_required=${coverage.project_runner_required ? "yes" : "no"}`,
+      `Runner proof: ${coverage.proof}`,
+      coverage.guidance,
+      "",
+      status.plain_text
+    ].join("\n")
+  };
+}
+
+function centralQueueCoverage(
+  targetRepo: Pick<RegisteredRepo, "repo_id" | "root">,
+  queueRepo: RegisteredRepo,
+  status: AgentRunnerStatusResult
+) {
+  return {
+    enabled: true,
+    target_repo_id: targetRepo.repo_id,
+    queue_repo_id: queueRepo.repo_id,
+    project_runner_required: false,
+    status: "covered_by_central_runner",
+    proof: `repo_runner_status on ${queueRepo.repo_id}: runner=${status.runner}; worker=${status.worker}; runtime_assessment=${status.runtime_assessment}; pending=${status.pending_count}; active=${status.active_count}; stale=${status.stale_lock_count}`,
+    guidance: `Use repo_write_codex_task with repo_id ${targetRepo.repo_id}; observe pickup through repo_runner_status on ${queueRepo.repo_id}; use repo_codex_review with repo_id ${targetRepo.repo_id} after RESULT.md exists. Do not infer project runner offline from a missing per-project heartbeat.`
+  };
 }
 
 function withCodexQueueMetadata<T extends { warnings: string[] }>(
