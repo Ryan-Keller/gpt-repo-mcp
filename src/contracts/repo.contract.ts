@@ -4,6 +4,8 @@ import { ConnectorIdentitySnapshotSchema } from "./connector-identity.contract.j
 export const RepoListInputSchema = z.object({
   capability_id: z.string().min(1).optional()
     .describe("Optional exact capability id to expand inside capability_summary without returning the full capability catalog."),
+  portal_id: z.string().min(1).optional()
+    .describe("Optional portal id to hydrate inside the focused town_portal read-only capability surface. Ignored unless capability_id is town_portal."),
   detail: z.enum(["summary", "full"]).optional()
     .describe("Payload detail level. Defaults to summary, which keeps repo roots compact. Use full only for runner, capability, and vision diagnostics.")
 });

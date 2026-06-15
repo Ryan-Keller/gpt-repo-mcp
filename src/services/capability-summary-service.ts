@@ -8,6 +8,7 @@ export type CapabilityState = "available" | "unavailable" | "unknown" | "blocked
 export type CapabilitySummary = {
   state_values: CapabilityState[];
   bridge_compass: BridgeCompassReceipt;
+  concierge_preflight: ConciergePreflightReceipt;
   capability_toc: CapabilityTocSummary;
   module_registry: ModuleRegistrySummary;
   codex_handoff: {
@@ -158,6 +159,46 @@ export type BridgeCompassReceipt = {
   context_budget_hint: string;
 };
 
+export type ConciergePreflightReceipt = {
+  current_route: "repo_runner_status.capability_summary.concierge_preflight";
+  status: "available" | "blocked";
+  advisory_only: true;
+  fresh_state_receipt: {
+    observed_at: string;
+    state_source: "repo_runner_status";
+    freshness_status: "fresh" | "stale" | "unknown";
+    confidence: "high" | "medium" | "low";
+    basis: string;
+  };
+  current_work_summary: {
+    runtime_assessment: AgentRunnerStatusResult["runtime_assessment"];
+    active_run_id: string;
+    counts: {
+      active: number;
+      pending: number;
+      blocked: number;
+      ready_results: number;
+      stale_locks: number;
+    };
+  };
+  recommended_route: {
+    answer_type: "destination_preflight";
+    primary_tool: "repo_bridge_concierge";
+    fallback_tool: "repo_runner_status";
+    mobile_fallback: "repo_list_roots.runner_status";
+    next_tool_hints: ["repo_bridge_concierge", "repo_runner_status", "repo_search"];
+  };
+  likely_memory_traps: string[];
+  unknowns: string[];
+  mutation_capability: {
+    can_dispatch_codex: false;
+    can_clear_locks: false;
+    can_write_files: false;
+    can_override_fresh_state: false;
+    requires_secrets: false;
+  };
+};
+
 export type CapabilityTocSummary = {
   state: CapabilityState;
   source_path: "shared/capabilities/BRIDGE_CAPABILITY_TOC_V0.json";
@@ -236,6 +277,7 @@ export async function buildCapabilitySummary(input: {
   return {
     state_values: ["available", "unavailable", "unknown", "blocked"],
     bridge_compass: buildBridgeCompass(runnerStatus, moduleRegistry),
+    concierge_preflight: buildConciergePreflight(runnerStatus, capabilityToc),
     capability_toc: capabilityToc,
     module_registry: moduleRegistry,
     codex_handoff: {
@@ -383,6 +425,78 @@ function buildBridgeCompass(
     proof_layer: bridgeProofLayer(runnerStatus, topBlocker),
     next_safe_action: nextBridgeAction(runnerStatus, topBlocker),
     context_budget_hint: "Use bridge_compass first; expand with capability_id or detail full only when this receipt names a blocker or proof gap."
+  };
+}
+
+function buildConciergePreflight(
+  runnerStatus: AgentRunnerStatusResult,
+  capabilityToc: CapabilityTocSummary
+): ConciergePreflightReceipt {
+  const conciergeCapability = capabilityToc.capabilities.find((entry) => entry.capability_id === "concierge_style_routing");
+  const observedAt = runnerStatus.heartbeat_updated_at || new Date().toISOString();
+  const activeRunId = runnerStatus.active_run_id || runnerStatus.active_run_ids[0] || "";
+  const freshnessStatus = runnerStatus.runner === "alive"
+    ? "fresh"
+    : runnerStatus.runner === "stale"
+      ? "stale"
+      : "unknown";
+  const confidence = runnerStatus.runner === "alive"
+    ? "high"
+    : runnerStatus.runner === "stale"
+      ? "medium"
+      : "low";
+  const routeVisible = Boolean(conciergeCapability);
+  const likelyMemoryTraps = [
+    "duplicate active/pending/ready work",
+    "stale runner or status notes treated as current truth",
+    "source or catalog evidence treated as ChatGPT-callable exposure proof"
+  ];
+  if (runnerStatus.stale_lock_count > 0) {
+    likelyMemoryTraps.unshift("stale-lock recovery assumed without fresh lock evidence");
+  }
+  return {
+    current_route: "repo_runner_status.capability_summary.concierge_preflight",
+    status: routeVisible ? "available" : "blocked",
+    advisory_only: true,
+    fresh_state_receipt: {
+      observed_at: observedAt,
+      state_source: "repo_runner_status",
+      freshness_status: freshnessStatus,
+      confidence,
+      basis: routeVisible
+        ? "Fresh runner snapshot plus stable hub routing evidence."
+        : "Fresh runner snapshot exists, but the concierge capability is not indexed in the capability TOC."
+    },
+    current_work_summary: {
+      runtime_assessment: runnerStatus.runtime_assessment,
+      active_run_id: activeRunId,
+      counts: {
+        active: runnerStatus.active_count,
+        pending: runnerStatus.pending_count,
+        blocked: runnerStatus.blocked_count,
+        ready_results: runnerStatus.ready_results.length,
+        stale_locks: runnerStatus.stale_lock_count
+      }
+    },
+    recommended_route: {
+      answer_type: "destination_preflight",
+      primary_tool: "repo_bridge_concierge",
+      fallback_tool: "repo_runner_status",
+      mobile_fallback: "repo_list_roots.runner_status",
+      next_tool_hints: ["repo_bridge_concierge", "repo_runner_status", "repo_search"]
+    },
+    likely_memory_traps: likelyMemoryTraps,
+    unknowns: [
+      "ChatGPT-callable exposure for repo_bridge_concierge still requires live MCP/session verification.",
+      "Prompt-specific route selection still belongs to the runner-side concierge packet."
+    ],
+    mutation_capability: {
+      can_dispatch_codex: false,
+      can_clear_locks: false,
+      can_write_files: false,
+      can_override_fresh_state: false,
+      requires_secrets: false
+    }
   };
 }
 

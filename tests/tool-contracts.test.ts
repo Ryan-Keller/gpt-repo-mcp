@@ -27,6 +27,8 @@ import { CodexReviewInputSchema, CodexReviewResultSchema, CodexRunAndWaitInputSc
 import { DecisionLogInputSchema, DecisionLogResultSchema } from "../src/contracts/decision.contract.js";
 import { GitReviewResultSchema } from "../src/contracts/git-review.contract.js";
 import { HandoffInputSchema, HandoffResultSchema } from "../src/contracts/handoff.contract.js";
+import { LabExecInputSchema, LabExecResultSchema } from "../src/contracts/lab-exec.contract.js";
+import { TownPortalReturnInputSchema, TownPortalReturnResultSchema } from "../src/contracts/town-portal.contract.js";
 import { LastWriteInputSchema, LastWriteResultSchema } from "../src/contracts/operation-receipt.contract.js";
 import { PolicyExplainInputSchema, PolicyExplainResultSchema } from "../src/contracts/policy.contract.js";
 import { ProjectBriefInputSchema } from "../src/contracts/project.contract.js";
@@ -89,6 +91,8 @@ describe("tool catalog contracts", () => {
       "repo_write_codex_tasks_batch",
       "repo_codex_review",
       "codex_run_and_wait",
+      "repo_lab_exec",
+      "repo_town_portal_return",
       "repo_write_file",
       "repo_write_changes",
       "repo_write_handoff"
@@ -116,6 +120,8 @@ describe("tool catalog contracts", () => {
       "repo_write_codex_task",
       "repo_write_codex_tasks_batch",
       "codex_run_and_wait",
+      "repo_lab_exec",
+      "repo_town_portal_return",
       "repo_git_stage",
       "repo_git_unstage",
       "repo_git_restore_paths",
@@ -136,6 +142,8 @@ describe("tool catalog contracts", () => {
     const writeCodexTasksBatch = toolCatalog.find((tool) => tool.name === "repo_write_codex_tasks_batch");
     const codexReview = toolCatalog.find((tool) => tool.name === "repo_codex_review");
     const codexRunAndWait = toolCatalog.find((tool) => tool.name === "codex_run_and_wait");
+    const labExec = toolCatalog.find((tool) => tool.name === "repo_lab_exec");
+    const townPortalReturn = toolCatalog.find((tool) => tool.name === "repo_town_portal_return");
     const writeChanges = toolCatalog.find((tool) => tool.name === "repo_write_changes");
     const writeHandoff = toolCatalog.find((tool) => tool.name === "repo_write_handoff");
     const stageCommit = toolCatalog.find((tool) => tool.name === "repo_write_stage_commit");
@@ -177,6 +185,37 @@ describe("tool catalog contracts", () => {
     expect(codexRunAndWait?.inputSchema).toBe(CodexRunAndWaitInputSchema);
     expect(codexRunAndWait?.outputSchema).toBe(CodexRunAndWaitResultSchema);
     expect(codexRunAndWait?.annotations).toEqual(writeAnnotations);
+    expect(labExec).toBeDefined();
+    expect(labExec?.inputSchema).toBe(LabExecInputSchema);
+    expect(labExec?.outputSchema).toBe(LabExecResultSchema);
+    expect(labExec?.annotations).toEqual(writeAnnotations);
+    expect(townPortalReturn).toBeDefined();
+    expect(townPortalReturn?.inputSchema).toBe(TownPortalReturnInputSchema);
+    expect(townPortalReturn?.outputSchema).toBe(TownPortalReturnResultSchema);
+    expect(townPortalReturn?.annotations).toEqual(writeAnnotations);
+    expect(TownPortalReturnInputSchema.safeParse({
+      repo_id: "shared-agent-bridge",
+      lab_mode: "town_portal_advisory_v0",
+      portal: { kind: "town_portal" },
+      payload: { kind: "bridge_status_lab_note" },
+      current_state_hash: "sha256:" + "0".repeat(64),
+      turn_id: "turn-001"
+    }).success).toBe(true);
+    expect(TownPortalReturnInputSchema.safeParse({
+      repo_id: "shared-agent-bridge",
+      production_mode: "town_portal_production_v0",
+      portal: { kind: "town_portal" },
+      payload: { kind: "bridge_status_lab_note" },
+      current_state_hash: "sha256:" + "0".repeat(64),
+      turn_id: "turn-001"
+    }).success).toBe(true);
+    expect(TownPortalReturnInputSchema.safeParse({
+      repo_id: "shared-agent-bridge",
+      portal: { kind: "town_portal" },
+      payload: { kind: "bridge_status_lab_note" },
+      current_state_hash: "sha256:" + "0".repeat(64),
+      turn_id: "turn-001"
+    }).success).toBe(true);
     expect(lastWrite).toBeDefined();
     expect(lastWrite?.inputSchema).toBe(LastWriteInputSchema);
     expect(lastWrite?.outputSchema).toBe(LastWriteResultSchema);
@@ -309,12 +348,14 @@ describe("tool catalog contracts", () => {
       "live_tail_max_events",
       "poll_count",
       "poll_interval_seconds",
+      "portal_id",
       "repo_id",
       "stale_lock_seconds"
     ]);
     expect(tool?.inputSchema.safeParse({
       repo_id: "fixture",
       capability_id: "town_portal",
+      portal_id: "portal-2026-06-13T163521Z-scout-status-lab-b8b95f4d",
       poll_count: 4,
       poll_interval_seconds: 15,
       detail: "full"
@@ -844,14 +885,17 @@ describe("tool catalog contracts", () => {
     const concierge = surface.find((tool) => tool.name === "repo_bridge_concierge");
     const liveTail = surface.find((tool) => tool.name === "repo_run_live_tail");
     const runnerStatus = surface.find((tool) => tool.name === "repo_runner_status");
+    const townPortalReturn = surface.find((tool) => tool.name === "repo_town_portal_return");
 
-    expect(names).toHaveLength(40);
+    expect(names).toHaveLength(42);
     expect(names).toContain("repo_bridge_concierge");
     expect(names).toContain("repo_run_live_tail");
     expect(names).toContain("repo_runner_status");
     expect(names).toContain("repo_connector_whoami");
     expect(names).toContain("repo_project_memory");
     expect(names).toContain("repo_write_codex_tasks_batch");
+    expect(names).toContain("repo_lab_exec");
+    expect(names).toContain("repo_town_portal_return");
     expect(names).toContain("agent_runner_status");
     expect(concierge?.inputKeys).toEqual(["include_evidence", "repo_id", "request"]);
     expect(concierge?.outputKeys).toEqual([
@@ -879,6 +923,7 @@ describe("tool catalog contracts", () => {
       "live_tail_max_events",
       "poll_count",
       "poll_interval_seconds",
+      "portal_id",
       "repo_id",
       "stale_lock_seconds"
     ]);
@@ -916,6 +961,21 @@ describe("tool catalog contracts", () => {
         "run_id",
         "terminal",
         "warnings"
+      ]
+    });
+    expect(townPortalReturn).toMatchObject({
+      title: "Return through Town Portal",
+      inputKeys: ["approval_present", "current_state_hash", "lab_mode", "payload", "portal", "production_mode", "repo_id", "turn_id"],
+      outputKeys: [
+        "adapter_called",
+        "audit_receipt",
+        "conflict",
+        "consume_handle",
+        "handoff",
+        "kind",
+        "reason",
+        "status",
+        "terminal"
       ]
     });
   });

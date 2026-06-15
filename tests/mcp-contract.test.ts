@@ -79,17 +79,44 @@ describe("MCP contract", () => {
         outputKeys: Object.keys(tool.outputSchema?.properties ?? {}).sort()
       }));
       const names = surface.map((tool) => tool.name);
+      const labExec = surface.find((tool) => tool.name === "repo_lab_exec");
       const liveTail = surface.find((tool) => tool.name === "repo_run_live_tail");
       const runnerStatus = surface.find((tool) => tool.name === "repo_runner_status");
 
-      expect(names).toHaveLength(40);
+      expect(names).toHaveLength(42);
       expect(names).toContain("repo_bridge_concierge");
       expect(names).toContain("repo_run_live_tail");
       expect(names).toContain("repo_runner_status");
       expect(names).toContain("repo_connector_whoami");
       expect(names).toContain("repo_project_memory");
       expect(names).toContain("repo_write_codex_tasks_batch");
+      expect(names).toContain("repo_lab_exec");
+      expect(names).toContain("repo_town_portal_return");
       expect(names).toContain("agent_runner_status");
+      expect(labExec).toMatchObject({
+        title: "Run guarded lab file",
+        inputKeys: ["command", "max_output_bytes", "repo_id", "timeout_seconds"],
+        outputKeys: [
+          "allowed",
+          "argv",
+          "cwd_label",
+          "duration_ms",
+          "exit_code",
+          "ok",
+          "output_sha256",
+          "policy",
+          "repo_id",
+          "signal",
+          "spawned",
+          "status",
+          "stderr_tail",
+          "stderr_truncated",
+          "stdout_tail",
+          "stdout_truncated",
+          "timed_out",
+          "warnings"
+        ]
+      });
       expect(runnerStatus?.inputKeys).toEqual([
         "capability_id",
         "detail",
@@ -97,6 +124,7 @@ describe("MCP contract", () => {
         "live_tail_max_events",
         "poll_count",
         "poll_interval_seconds",
+        "portal_id",
         "repo_id",
         "stale_lock_seconds"
       ]);
@@ -581,6 +609,65 @@ describe("MCP contract", () => {
     }
   });
 
+  test("repo_list_roots exposes read-only town_portal inbox groups and selected portal hydration", async () => {
+    const { client, root, close } = await connectFixtureServer();
+    try {
+      await writeCapabilityToc(root);
+      await writePortalFixtures(root);
+
+      const result = await client.callTool({
+        name: "repo_list_roots",
+        arguments: {
+          capability_id: "town_portal",
+          portal_id: "portal-2026-06-13T163521Z-scout-status-lab-b8b95f4d"
+        }
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.structuredContent).toMatchObject({
+        repos: [
+          {
+            capability_summary: {
+              expansion: {
+                mode: "focused",
+                capability_id: "town_portal",
+                found: true
+              },
+              town_portal_surface: {
+                surface: "read_only_portal_inbox_v0",
+                counts: {
+                  total_portals: 3,
+                  selected_receipt_count: 1
+                },
+                selection: {
+                  portal_id: "portal-2026-06-13T163521Z-scout-status-lab-b8b95f4d",
+                  found: true
+                },
+                status_groups: [
+                  expect.objectContaining({ status: "active", count: 1 }),
+                  expect.objectContaining({ status: "returned", count: 1 }),
+                  expect.objectContaining({ status: "consumed", count: 1 })
+                ],
+                selected_portal: {
+                  id: "portal-2026-06-13T163521Z-scout-status-lab-b8b95f4d",
+                  status: "returned"
+                },
+                receipts: [
+                  expect.objectContaining({
+                    to_status: "returned",
+                    summary: "Fresh chat returned a bounded recovery card and is waiting for accept or park."
+                  })
+                ]
+              }
+            }
+          }
+        ]
+      });
+    } finally {
+      await close();
+    }
+  });
+
   test("repo_runner_status includes capability_toc through existing status hub", async () => {
     const { client, root, close } = await connectFixtureServer();
     try {
@@ -779,6 +866,69 @@ describe("MCP contract", () => {
       expect(serialized).toContain("safe_operations");
       expect(serialized).not.toContain("completed_result_template");
       expect(serialized.length).toBeLessThan(8_000);
+    } finally {
+      await close();
+    }
+  });
+
+  test("repo_runner_status exposes read-only town_portal inbox groups and selected portal hydration", async () => {
+    const { client, root, close } = await connectFixtureServer();
+    try {
+      await writeCapabilityToc(root);
+      await writePortalFixtures(root);
+
+      const result = await client.callTool({
+        name: "repo_runner_status",
+        arguments: {
+          repo_id: "fixture",
+          capability_id: "town_portal",
+          portal_id: "portal-2026-06-13T163521Z-scout-status-lab-b8b95f4d"
+        }
+      });
+
+      expect(result.isError).toBeUndefined();
+      expect(result.structuredContent).toMatchObject({
+        repo_id: "fixture",
+        detail_level: "summary",
+        capability_summary: {
+          expansion: {
+            mode: "focused",
+            capability_id: "town_portal",
+            found: true
+          },
+          town_portal_surface: {
+            surface: "read_only_portal_inbox_v0",
+            counts: {
+              total_portals: 3,
+              status_groups: 3,
+              selected_receipt_count: 1
+            },
+            selection: {
+              portal_id: "portal-2026-06-13T163521Z-scout-status-lab-b8b95f4d",
+              found: true
+            },
+            status_groups: [
+              expect.objectContaining({ status: "active", count: 1 }),
+              expect.objectContaining({ status: "returned", count: 1 }),
+              expect.objectContaining({ status: "consumed", count: 1 })
+            ],
+            selected_portal: {
+              id: "portal-2026-06-13T163521Z-scout-status-lab-b8b95f4d",
+              latest_receipt_path: "shared/portals/receipts/portal-2026-06-13T163521Z-scout-status-lab-b8b95f4d/2026-06-13T16-42-00.000Z-returned.json"
+            },
+            receipts: [
+              expect.objectContaining({
+                receipt_path: "shared/portals/receipts/portal-2026-06-13T163521Z-scout-status-lab-b8b95f4d/2026-06-13T16-42-00.000Z-returned.json",
+                to_status: "returned"
+              })
+            ],
+            warnings: []
+          }
+        }
+      });
+      const serialized = JSON.stringify(result.structuredContent);
+      expect(serialized).not.toContain("result_text");
+      expect(serialized).not.toContain("current_state_hash");
     } finally {
       await close();
     }
@@ -1216,6 +1366,11 @@ function representativeCalls(head: string): Record<string, Record<string, unknow
     run_id: "2026-06-04T081500Z-fix-fixture-docs",
     dry_run: true
   },
+  repo_lab_exec: {
+    repo_id: "fixture",
+    command: "node shared/experiments/town-lab-2026-06-13/portal-validator-lab.mjs",
+    timeout_seconds: 5
+  },
   repo_write_file: { repo_id: "fixture", path: "docs/write-file-dry-run.md", content: "planned\n", dry_run: true },
   repo_write_changes: {
     repo_id: "fixture",
@@ -1355,4 +1510,162 @@ async function writeCapabilityToc(root: string): Promise<void> {
       }
     ]
   }));
+}
+
+async function writePortalFixtures(root: string): Promise<void> {
+  await mkdir(join(root, "shared", "portals", "objects"), { recursive: true });
+  await mkdir(join(root, "shared", "portals", "receipts", "portal-2026-06-13T163521Z-scout-status-lab-b8b95f4d"), { recursive: true });
+  await mkdir(join(root, "shared", "portals", "receipts", "portal-2026-06-13T164500Z-verifier-queue-check-sample-91a7d0ee"), { recursive: true });
+  await mkdir(join(root, "shared", "portals", "receipts", "portal-2026-06-13T150500Z-builder-proof-sample-4f1a0c2e"), { recursive: true });
+
+  await writeFile(join(root, "shared", "portals", "inbox.md"), `# Portal Inbox
+
+| Portal ID | Status | Archetype | Lane | Opened At | Expires At | Summary | Object | Latest Receipt | Next Decision |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| \`portal-2026-06-13T164500Z-verifier-queue-check-sample-91a7d0ee\` | \`active\` | \`verifier\` | \`knowledge\` | \`2026-06-13T16:45:00.000Z\` | \`2026-06-13T17:15:00.000Z\` | Active portal still allows one bounded verification return. | \`shared/portals/objects/portal-2026-06-13T164500Z-verifier-queue-check-sample-91a7d0ee.json\` | \`shared/portals/receipts/portal-2026-06-13T164500Z-verifier-queue-check-sample-91a7d0ee/2026-06-13T16-45-00.000Z-opened.json\` | \`continue_or_refresh\` |
+| \`portal-2026-06-13T163521Z-scout-status-lab-b8b95f4d\` | \`returned\` | \`scout\` | \`knowledge\` | \`2026-06-13T16:35:21.582Z\` | \`2026-06-13T17:05:21.582Z\` | Fresh chat recovered the portal and proposed a bounded status note. | \`shared/portals/objects/portal-2026-06-13T163521Z-scout-status-lab-b8b95f4d.json\` | \`shared/portals/receipts/portal-2026-06-13T163521Z-scout-status-lab-b8b95f4d/2026-06-13T16-42-00.000Z-returned.json\` | \`accept_or_park\` |
+| \`portal-2026-06-13T150500Z-builder-proof-sample-4f1a0c2e\` | \`consumed\` | \`builder\` | \`knowledge\` | \`2026-06-13T15:05:00.000Z\` | \`2026-06-13T15:35:00.000Z\` | Accepted once and compacted into durable consumed history. | \`shared/portals/objects/portal-2026-06-13T150500Z-builder-proof-sample-4f1a0c2e.json\` | \`shared/portals/receipts/portal-2026-06-13T150500Z-builder-proof-sample-4f1a0c2e/2026-06-13T15-14-00.000Z-consumed.json\` | \`history_only\` |
+`, "utf8");
+
+  await writeFile(join(root, "shared", "portals", "objects", "portal-2026-06-13T163521Z-scout-status-lab-b8b95f4d.json"), `${JSON.stringify({
+    schema_version: 1,
+    id: "portal-2026-06-13T163521Z-scout-status-lab-b8b95f4d",
+    type: "town_portal",
+    archetype: "scout",
+    lane: "knowledge",
+    opened_at: "2026-06-13T16:35:21.582Z",
+    expires_at: "2026-06-13T17:05:21.582Z",
+    allowed_paths: ["shared/status/**", "shared/portals/**"],
+    allowed_operation: "write_observation",
+    observed_state_hash: "sha256:sample-scout-status-lab-semantic-hash",
+    target_return_path: "shared/status/2026-06-13-cross-chat-portal-registry-v0.md",
+    status: "returned",
+    return_card: {
+      kind: "portal_return_card_scout_v0",
+      summary: "Fresh chat recovered the portal and proposed a bounded status note.",
+      artifact_path: "shared/status/2026-06-13-cross-chat-portal-registry-v0.md",
+      evidence_links: ["shared/protocols/TOWN_PORTAL_PRODUCTION_CONTRACT_V0.md"],
+      next_requested_decision: "accept_or_park",
+      observed_state_hash: "sha256:sample-scout-status-lab-semantic-hash",
+      target_return_path: "shared/status/2026-06-13-cross-chat-portal-registry-v0.md"
+    },
+    evidence_links: ["shared/protocols/TOWN_PORTAL_PRIMITIVE_V0.md"],
+    consumed_at: null,
+    consumed_by: null,
+    session_metadata: {
+      opened_by_chat: "sample-chat-a",
+      opened_by_tool: "repo_bridge_concierge",
+      returned_by_chat: "sample-chat-b"
+    },
+    next_requested_decision: "accept_or_park",
+    revision: 3,
+    latest_receipt_path: "shared/portals/receipts/portal-2026-06-13T163521Z-scout-status-lab-b8b95f4d/2026-06-13T16-42-00.000Z-returned.json"
+  }, null, 2)}\n`, "utf8");
+
+  await writeFile(join(root, "shared", "portals", "objects", "portal-2026-06-13T164500Z-verifier-queue-check-sample-91a7d0ee.json"), `${JSON.stringify({
+    schema_version: 1,
+    id: "portal-2026-06-13T164500Z-verifier-queue-check-sample-91a7d0ee",
+    type: "town_portal",
+    archetype: "verifier",
+    lane: "knowledge",
+    opened_at: "2026-06-13T16:45:00.000Z",
+    expires_at: "2026-06-13T17:15:00.000Z",
+    allowed_paths: ["shared/status/**", "shared/portals/**"],
+    allowed_operation: "write_observation",
+    observed_state_hash: "sha256:sample-verifier-queue-check-semantic-hash",
+    target_return_path: "shared/status/2026-06-13-cross-chat-portal-registry-v0.md",
+    status: "active",
+    return_card: {
+      kind: "portal_return_card_verifier_v0",
+      summary: "Active portal still allows one bounded verification return.",
+      artifact_path: "shared/status/2026-06-13-cross-chat-portal-registry-v0.md",
+      evidence_links: ["shared/status/2026-06-13-lab-exec-live-check.md"],
+      next_requested_decision: "continue_or_refresh",
+      observed_state_hash: "sha256:sample-verifier-queue-check-semantic-hash",
+      target_return_path: "shared/status/2026-06-13-cross-chat-portal-registry-v0.md"
+    },
+    evidence_links: ["shared/status/2026-06-13-lab-exec-live-check.md"],
+    consumed_at: null,
+    consumed_by: null,
+    session_metadata: {
+      opened_by_chat: "sample-chat-d",
+      opened_by_tool: "repo_runner_status"
+    },
+    next_requested_decision: "continue_or_refresh",
+    revision: 1,
+    latest_receipt_path: "shared/portals/receipts/portal-2026-06-13T164500Z-verifier-queue-check-sample-91a7d0ee/2026-06-13T16-45-00.000Z-opened.json"
+  }, null, 2)}\n`, "utf8");
+
+  await writeFile(join(root, "shared", "portals", "objects", "portal-2026-06-13T150500Z-builder-proof-sample-4f1a0c2e.json"), `${JSON.stringify({
+    schema_version: 1,
+    id: "portal-2026-06-13T150500Z-builder-proof-sample-4f1a0c2e",
+    type: "town_portal",
+    archetype: "builder",
+    lane: "knowledge",
+    opened_at: "2026-06-13T15:05:00.000Z",
+    expires_at: "2026-06-13T15:35:00.000Z",
+    allowed_paths: ["shared/status/**"],
+    allowed_operation: "write_observation",
+    observed_state_hash: "sha256:sample-builder-proof-semantic-hash",
+    target_return_path: "shared/status/2026-06-13-lab-portal-return-route.md",
+    status: "consumed",
+    return_card: {
+      kind: "portal_return_card_builder_v0",
+      summary: "Accepted once and compacted into durable consumed history.",
+      artifact_path: "shared/status/2026-06-13-lab-portal-return-route.md",
+      evidence_links: ["shared/experiments/town-lab-2026-06-13/portal-return-lab-route-run.md"],
+      next_requested_decision: "history_only",
+      observed_state_hash: "sha256:sample-builder-proof-semantic-hash",
+      target_return_path: "shared/status/2026-06-13-lab-portal-return-route.md"
+    },
+    evidence_links: ["shared/status/2026-06-13-lab-portal-return-route.md"],
+    consumed_at: "2026-06-13T15:14:00.000Z",
+    consumed_by: {
+      chat_id: "sample-chat-c",
+      tool: "portal_inbox_reader_v0"
+    },
+    session_metadata: {
+      opened_by_chat: "sample-chat-c",
+      returned_by_chat: "sample-chat-c"
+    },
+    next_requested_decision: "history_only",
+    revision: 4,
+    latest_receipt_path: "shared/portals/receipts/portal-2026-06-13T150500Z-builder-proof-sample-4f1a0c2e/2026-06-13T15-14-00.000Z-consumed.json"
+  }, null, 2)}\n`, "utf8");
+
+  await writeFile(join(root, "shared", "portals", "receipts", "portal-2026-06-13T163521Z-scout-status-lab-b8b95f4d", "2026-06-13T16-42-00.000Z-returned.json"), `${JSON.stringify({
+    receipt_type: "portal_transition",
+    portal_id: "portal-2026-06-13T163521Z-scout-status-lab-b8b95f4d",
+    from_status: "active",
+    to_status: "returned",
+    recorded_at: "2026-06-13T16:42:00.000Z",
+    recorded_by: {
+      chat_id: "sample-chat-b",
+      tool: "repo_bridge_concierge"
+    },
+    expected_revision: 2,
+    new_revision: 3,
+    observed_state_hash: "sha256:sample-scout-status-lab-semantic-hash",
+    target_return_path: "shared/status/2026-06-13-cross-chat-portal-registry-v0.md",
+    next_requested_decision: "accept_or_park",
+    summary: "Fresh chat returned a bounded recovery card and is waiting for accept or park."
+  }, null, 2)}\n`, "utf8");
+
+  await writeFile(join(root, "shared", "portals", "receipts", "portal-2026-06-13T164500Z-verifier-queue-check-sample-91a7d0ee", "2026-06-13T16-45-00.000Z-opened.json"), `${JSON.stringify({
+    receipt_type: "portal_transition",
+    portal_id: "portal-2026-06-13T164500Z-verifier-queue-check-sample-91a7d0ee",
+    from_status: "open",
+    to_status: "active",
+    recorded_at: "2026-06-13T16:45:00.000Z",
+    summary: "Portal opened for one bounded verification lane."
+  }, null, 2)}\n`, "utf8");
+
+  await writeFile(join(root, "shared", "portals", "receipts", "portal-2026-06-13T150500Z-builder-proof-sample-4f1a0c2e", "2026-06-13T15-14-00.000Z-consumed.json"), `${JSON.stringify({
+    receipt_type: "portal_transition",
+    portal_id: "portal-2026-06-13T150500Z-builder-proof-sample-4f1a0c2e",
+    from_status: "accepted",
+    to_status: "consumed",
+    recorded_at: "2026-06-13T15:14:00.000Z",
+    summary: "Portal consumed after accepted build proof."
+  }, null, 2)}\n`, "utf8");
 }

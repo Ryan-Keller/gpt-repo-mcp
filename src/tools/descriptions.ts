@@ -6,7 +6,7 @@ export const descriptions = {
   agent_runner_status:
     "Use this when the user asks whether the Shared Agent Bridge Codex runner is alive, pending, stale, locked, blocked, or completed. Compatibility alias for repo_runner_status; returns the same status. Defaults to a compact summary; use detail=\"full\" only when detailed queue, event, result, or live-tail evidence is needed.",
   repo_runner_status:
-    "Use this when the user asks to show runner status, check whether Codex is actually working, inspect an active run, monitor live-tail progress, or verify Shared Agent Bridge worker health. Defaults to detail=\"summary\" so normal health checks stay concise; use detail=\"full\" only when detailed queue, event, result, or live-tail evidence is needed. Supports bounded bridge-side polling with poll_count and poll_interval_seconds to avoid rapid repeated connector calls. Stable read-only runner status tool for ChatGPT; never launches Codex, mutates files, stages, commits, pushes, deletes, clears locks, or runs shell commands.",
+    "Use this when the user asks to show runner status, check whether Codex is actually working, inspect an active run, monitor live-tail progress, verify Shared Agent Bridge worker health, or expand one read-only capability surface such as town_portal through capability_id and optional portal_id. Defaults to detail=\"summary\" so normal health checks stay concise; use detail=\"full\" only when detailed queue, event, result, or live-tail evidence is needed. Supports bounded bridge-side polling with poll_count and poll_interval_seconds to avoid rapid repeated connector calls. Stable read-only runner status tool for ChatGPT; never launches Codex, mutates files, stages, commits, pushes, deletes, clears locks, or runs shell commands.",
   repo_run_live_tail:
     "Use this when the user asks what an active or recent Shared Agent Bridge Codex run is doing. Reads .chatgpt/codex-runs/<run_id>/events.jsonl and safe log tails only; never launches Codex, mutates files, stages, commits, pushes, deletes, clears locks, or runs shell commands.",
   repo_connector_whoami:
@@ -75,6 +75,10 @@ export const descriptions = {
     "Use this when Codex has finished or the user asks to review a repo-local Codex run. Reads .chatgpt/codex-runs/<run_id>/RESULT.md and git diff review state without mutating files or git.",
   codex_run_and_wait:
     "Use this when the user asks ChatGPT to synchronously launch exactly one existing repo-local Codex run and wait for its RESULT.md. Uses a lock file, can classify and explicitly recover stale locks, runs npx --no-install @openai/codex exec - with the prompt-path instruction on stdin, returns result text and log tails, and never stages, commits, pushes, deletes, starts multiple jobs, or stores secrets.",
+  repo_lab_exec:
+    "Use this when the user explicitly asks to run an approved Shared Agent Bridge lab file. Executes only node with a repo-relative .mjs/.js file under shared/experiments, uses no shell, rejects unsafe commands before spawning, enforces timeout and output caps, and never runs git, Codex, npm install, network tools, deletes, background processes, stages, commits, pushes, or clears locks.",
+  repo_town_portal_return:
+    "Use this when the user explicitly asks to exercise the lab-scoped Town Portal advisory return route. Validates one supplied portal and one display-only payload before a narrow shared/status/town-portal-lab adapter handoff; requires lab_mode, consumes terminal handles in process, and never launches agents, queues Codex, mutates runner state, clears locks, stages, commits, pushes, deletes, or runs shell commands.",
   repo_write_file:
     "Use this when the user explicitly asks to write or precisely edit one allowed repository file. Primary low-friction single-file writer/editor for docs, notes, prompts, and focused code edits; requires user approval, repo opt-in, and never runs shell, git, or Codex.",
   repo_write_changes:

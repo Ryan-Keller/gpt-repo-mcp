@@ -7,6 +7,8 @@ export const MUTATING_TOOL_NAMES = [
   "repo_write_codex_task",
   "repo_write_codex_tasks_batch",
   "codex_run_and_wait",
+  "repo_lab_exec",
+  "repo_town_portal_return",
   "repo_git_stage",
   "repo_git_unstage",
   "repo_git_restore_paths",

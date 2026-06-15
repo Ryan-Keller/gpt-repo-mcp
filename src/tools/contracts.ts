@@ -11,6 +11,8 @@ import { GitCommitInputSchema, GitCommitResultSchema, GitRecoverInputSchema, Git
 import { GitDiffInputSchema, GitDiffResultSchema, GitStatusInputSchema, GitStatusResultSchema } from "../contracts/git.contract.js";
 import { GitReviewInputSchema, GitReviewResultSchema } from "../contracts/git-review.contract.js";
 import { HandoffInputSchema, HandoffResultSchema } from "../contracts/handoff.contract.js";
+import { LabExecInputSchema, LabExecResultSchema } from "../contracts/lab-exec.contract.js";
+import { TownPortalReturnInputSchema, TownPortalReturnResultSchema } from "../contracts/town-portal.contract.js";
 import { NextActionInputSchema, NextActionResultSchema } from "../contracts/next-action.contract.js";
 import { LastWriteInputSchema, LastWriteResultSchema } from "../contracts/operation-receipt.contract.js";
 import { PolicyExplainInputSchema, PolicyExplainResultSchema } from "../contracts/policy.contract.js";
@@ -63,6 +65,8 @@ export type ToolName =
   | "repo_write_codex_tasks_batch"
   | "repo_codex_review"
   | "codex_run_and_wait"
+  | "repo_lab_exec"
+  | "repo_town_portal_return"
   | "repo_write_file"
   | "repo_write_changes"
   | "repo_write_handoff";
@@ -224,6 +228,14 @@ export const toolContracts = {
   codex_run_and_wait: {
     input: CodexRunAndWaitInputSchema,
     output: CodexRunAndWaitResultSchema
+  },
+  repo_lab_exec: {
+    input: LabExecInputSchema,
+    output: LabExecResultSchema
+  },
+  repo_town_portal_return: {
+    input: TownPortalReturnInputSchema,
+    output: TownPortalReturnResultSchema
   },
   repo_write_file: {
     input: WriteFileInputSchema,

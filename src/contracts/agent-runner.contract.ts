@@ -15,6 +15,8 @@ export const AgentRunnerStatusInputSchema = RepoInputSchema.extend({
     .describe("Seconds to wait between internal polls when poll_count is greater than 1. Defaults to 10."),
   capability_id: z.string().min(1).optional()
     .describe("Optional exact capability id to expand inside capability_summary without returning the full capability catalog."),
+  portal_id: z.string().min(1).optional()
+    .describe("Optional portal id to hydrate inside the focused town_portal read-only capability surface. Ignored unless capability_id is town_portal."),
   detail: z.enum(["summary", "full"]).optional()
     .describe("Payload detail level. Defaults to summary, which keeps status concise and omits bulky result/event bodies. Use full only when debugging or reviewing detailed evidence.")
 });

@@ -11,6 +11,9 @@ import { GitService } from "../services/git-service.js";
 import { GitReviewService } from "../services/git-review-service.js";
 import { GitOperationsService } from "../services/git-operations-service.js";
 import { HandoffService } from "../services/handoff-service.js";
+import { LabExecService } from "../services/lab-exec-service.js";
+import { TownPortalConsumptionStore } from "../services/town-portal-consumption-store.js";
+import { TownPortalReturnService } from "../services/town-portal-return-service.js";
 import { OperationsPolicy } from "../services/operations-policy.js";
 import { ReviewPlanner } from "../services/review-planner.js";
 import { ReadManyService } from "../services/read-many-service.js";
@@ -19,6 +22,7 @@ import { ProjectMemoryService } from "../services/project-memory-service.js";
 import { TaskInventoryService } from "../services/task-inventory-service.js";
 import { VisionRouteService, buildVisionAnalysisFallback } from "../services/vision-route-service.js";
 import { buildCapabilitySummary } from "../services/capability-summary-service.js";
+import { PortalInboxService } from "../services/portal-inbox-service.js";
 import { DecisionLogService } from "../services/decision-log-service.js";
 import { ChangePlanService } from "../services/change-plan-service.js";
 import { CodexResultService } from "../services/codex-result-service.js";
@@ -56,6 +60,8 @@ import type { GitCommitInput, GitRecoverInput, GitRestorePathsInput, GitStageCom
 import type { GitReviewInput } from "../contracts/git-review.contract.js";
 import type { CleanupPathsInput } from "../contracts/cleanup.contract.js";
 import type { HandoffInput } from "../contracts/handoff.contract.js";
+import type { LabExecInput } from "../contracts/lab-exec.contract.js";
+import { TownPortalReturnInputSchema, type TownPortalReturnInput } from "../contracts/town-portal.contract.js";
 import type { ConnectorWhoamiResult } from "../contracts/connector-whoami.contract.js";
 
 type RepoInput = { repo_id: string };
@@ -79,9 +85,11 @@ type GitDiffInput = RepoInput & {
 };
 
 export type ToolHandler = (input: unknown, context: RuntimeContext) => Promise<CallToolResult>;
+const townPortalConsumedIdsByRepoRoot = new Map<string, Set<string>>();
 
 const RepoListRootsInput = z.object({
   capability_id: z.string().min(1).optional(),
+  portal_id: z.string().min(1).optional(),
   detail: z.enum(["summary", "full"]).optional()
 });
 
@@ -139,9 +147,11 @@ export const listRootsHandler: ToolHandler = async (input, context) => {
       ...repo,
       bridge_observability: bridgeObservability,
       runner_status: runnerStatus,
-      capability_summary: capabilitySummaryForResponse(capabilitySummary, {
+      capability_summary: await capabilitySummaryForResponse(capabilitySummary, {
         detail,
-        capabilityId: args.capability_id
+        capabilityId: args.capability_id,
+        portalId: args.portal_id,
+        repoRoot: repo.root
       }),
       vision_capabilities: detail === "full"
         ? {
@@ -247,9 +257,11 @@ export const agentRunnerStatusHandler: ToolHandler = async (input, context) => s
     })),
     plain_text: result.plain_text,
     warnings: result.warnings,
-    capability_summary: capabilitySummaryForResponse(capabilitySummary, {
+    capability_summary: await capabilitySummaryForResponse(capabilitySummary, {
       detail: result.detail_level,
       capabilityId: args.capability_id,
+      portalId: args.portal_id,
+      repoRoot: repo.root,
       runnerStatusSurface: true
     })
   };
@@ -762,6 +774,62 @@ export const codexRunAndWaitHandler: ToolHandler = async (input, context) => saf
   );
 });
 
+export const labExecHandler: ToolHandler = async (input, context) => safeTool<LabExecInput>("repo_lab_exec", input, context, async (args) => {
+  const repo = context.registry.get(args.repo_id);
+  const result = await new LabExecService(repo.root).run(args);
+  audit({
+    tool: "repo_lab_exec",
+    repo_id: args.repo_id,
+    paths: result.argv.length > 1 ? [result.argv[1]!] : [],
+    counts: { spawned: result.spawned ? 1 : 0 },
+    warnings: result.warnings
+  });
+  const summary = result.status === "rejected"
+    ? `Lab command rejected before spawn: ${result.policy.rejection_reasons.join("; ")}`
+    : `Lab command ${result.status}: exit=${result.exit_code ?? "null"} duration_ms=${result.duration_ms}.`;
+  return createSuccessEnvelope(result, summary, { warnings: result.warnings });
+});
+
+export const townPortalReturnHandler: ToolHandler = async (input, context) => safeTool<TownPortalReturnInput>("repo_town_portal_return", input, context, async () => {
+  const args = TownPortalReturnInputSchema.parse(input ?? {});
+  const modeCount = (args.lab_mode === "town_portal_advisory_v0" ? 1 : 0) + (args.production_mode === "town_portal_production_v0" ? 1 : 0);
+  if (modeCount !== 1) {
+    throw new Error("Specify exactly one Town Portal return mode: lab_mode or production_mode.");
+  }
+  const repo = context.registry.get(args.repo_id);
+  const serviceOptions = args.production_mode === "town_portal_production_v0"
+    ? {
+        repoRoot: repo.root,
+        productionConsumptionStore: new TownPortalConsumptionStore(`${repo.root}/shared/portals/production-consumptions`)
+      }
+    : {
+        repoRoot: repo.root,
+        consumedPortalIds: getLabTownPortalConsumedIds(repo.root)
+      };
+  const result = await TownPortalReturnService.withKnowledgeDisplayAdapter(serviceOptions).returnToPortal(args);
+  audit({
+    tool: "repo_town_portal_return",
+    repo_id: args.repo_id,
+    paths: result.handoff ? [result.handoff.target_path] : [],
+    warnings: result.status === "accepted" ? [] : [result.reason]
+  });
+  const summary = result.status === "accepted"
+    ? `Town Portal return accepted for ${result.handoff?.target_path}.`
+    : `Town Portal return ${result.status}: ${result.reason}.`;
+  return createSuccessEnvelope(result, summary, {
+    warnings: result.status === "accepted" ? [] : [result.reason]
+  });
+});
+
+function getLabTownPortalConsumedIds(repoRoot: string): Set<string> {
+  let consumedPortalIds = townPortalConsumedIdsByRepoRoot.get(repoRoot);
+  if (!consumedPortalIds) {
+    consumedPortalIds = new Set();
+    townPortalConsumedIdsByRepoRoot.set(repoRoot, consumedPortalIds);
+  }
+  return consumedPortalIds;
+}
+
 export const writeFileHandler: ToolHandler = async (input, context) => safeTool<WriteFileInput>("repo_write_file", input, context, async (args) => {
   const repo = context.registry.get(args.repo_id);
   const sandbox = new PathSandbox(repo.root);
@@ -877,13 +945,13 @@ function readOnlyRepoId(repoId: string | undefined): string {
 
 type CapabilitySummaryResult = Awaited<ReturnType<typeof buildCapabilitySummary>>;
 
-function capabilitySummaryForResponse(
+async function capabilitySummaryForResponse(
   summary: CapabilitySummaryResult,
-  options: { detail: "summary" | "full"; capabilityId?: string; runnerStatusSurface?: boolean }
+  options: { detail: "summary" | "full"; capabilityId?: string; portalId?: string; repoRoot?: string; runnerStatusSurface?: boolean }
 ) {
   const capabilityId = normalizeCapabilityId(options.capabilityId);
   if (capabilityId) {
-    return focusedCapabilitySummary(summary, capabilityId);
+    return focusedCapabilitySummary(summary, capabilityId, options);
   }
   if (options.detail === "full") {
     return {
@@ -917,6 +985,7 @@ function skeletalCapabilitySummary(summary: CapabilitySummaryResult, runnerStatu
       full_detail_hint: "Pass capability_id for one focused capability, or detail: \"full\" for full diagnostics."
     },
     bridge_compass: summary.bridge_compass,
+    concierge_preflight: summary.concierge_preflight,
     capability_toc: {
       state: summary.capability_toc.state,
       capability_count: summary.capability_toc.capability_count,
@@ -951,13 +1020,20 @@ function skeletalCapabilitySummary(summary: CapabilitySummaryResult, runnerStatu
   };
 }
 
-function focusedCapabilitySummary(summary: CapabilitySummaryResult, capabilityId: string) {
+async function focusedCapabilitySummary(
+  summary: CapabilitySummaryResult,
+  capabilityId: string,
+  options: { portalId?: string; repoRoot?: string }
+) {
   const capability = summary.capability_toc.capabilities.find((entry) => entry.capability_id === capabilityId);
   const moduleHandles = summary.module_registry.modules.map((entry) => ({
     module_id: entry.module_id,
     status: entry.status,
     class: entry.class
   }));
+  const townPortalSurface = capabilityId === "town_portal" && options.repoRoot
+    ? await new PortalInboxService(options.repoRoot).read({ portal_id: options.portalId })
+    : undefined;
   return {
     expansion: {
       mode: "focused",
@@ -968,6 +1044,7 @@ function focusedCapabilitySummary(summary: CapabilitySummaryResult, capabilityId
       full_detail_hint: "This focused response expands one named capability. Use detail: \"full\" without capability_id for full diagnostics."
     },
     bridge_compass: summary.bridge_compass,
+    ...(capabilityId === "concierge_style_routing" ? { concierge_preflight: summary.concierge_preflight } : {}),
     capability_toc: {
       state: capability ? summary.capability_toc.state : "blocked",
       source_path: summary.capability_toc.source_path,
@@ -983,7 +1060,8 @@ function focusedCapabilitySummary(summary: CapabilitySummaryResult, capabilityId
       returned_count: moduleHandles.length,
       modules: moduleHandles,
       ...(summary.module_registry.blocker ? { blocker: summary.module_registry.blocker } : {})
-    }
+    },
+    ...(townPortalSurface ? { town_portal_surface: townPortalSurface } : {})
   };
 }
 

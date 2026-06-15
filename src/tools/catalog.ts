@@ -19,6 +19,7 @@ import {
   gitStatusHandler,
   gitUnstageHandler,
   lastWriteHandler,
+  labExecHandler,
   listRootsHandler,
   nextActionHandler,
   prepareCodexTaskHandler,
@@ -27,6 +28,7 @@ import {
   readManyHandler,
   searchHandler,
   taskInventoryHandler,
+  townPortalReturnHandler,
   treeHandler,
   visionRoutesHandler,
   writeCommitHandler,
@@ -387,6 +389,24 @@ export const toolCatalog: ToolDefinition[] = [
     outputSchema: toolContracts.codex_run_and_wait.output,
     annotations: writeAnnotations,
     handler: codexRunAndWaitHandler
+  },
+  {
+    name: "repo_lab_exec",
+    title: "Run guarded lab file",
+    description: descriptions.repo_lab_exec,
+    inputSchema: toolContracts.repo_lab_exec.input,
+    outputSchema: toolContracts.repo_lab_exec.output,
+    annotations: writeAnnotations,
+    handler: labExecHandler
+  },
+  {
+    name: "repo_town_portal_return",
+    title: "Return through Town Portal",
+    description: descriptions.repo_town_portal_return,
+    inputSchema: toolContracts.repo_town_portal_return.input,
+    outputSchema: toolContracts.repo_town_portal_return.output,
+    annotations: writeAnnotations,
+    handler: townPortalReturnHandler
   },
   {
     name: "repo_write_file",
