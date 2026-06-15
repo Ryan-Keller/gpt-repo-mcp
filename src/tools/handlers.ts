@@ -86,6 +86,8 @@ type GitDiffInput = RepoInput & {
 
 export type ToolHandler = (input: unknown, context: RuntimeContext) => Promise<CallToolResult>;
 const townPortalConsumedIdsByRepoRoot = new Map<string, Set<string>>();
+const CENTRAL_CODEX_QUEUE_REPO_ID = "shared-agent-bridge";
+type RegisteredRepo = ReturnType<RuntimeContext["registry"]["get"]>;
 
 const RepoListRootsInput = z.object({
   capability_id: z.string().min(1).optional(),
@@ -643,21 +645,26 @@ export const planReviewHandler: ToolHandler = async (input) => {
 };
 
 export const prepareCodexTaskHandler: ToolHandler = async (input, context) => safeTool<CodexTaskInput>("repo_prepare_codex_task", input, context, async (args) => {
-  const repo = context.registry.get(args.repo_id);
-  const result = new CodexTaskService(repo.root, new PathSandbox(repo.root), new WritePolicy(repo.writes)).prepare(args);
+  const { queueRepo, warnings } = codexQueueForTarget(context, args.repo_id);
+  const prepared = new CodexTaskService(queueRepo.root, new PathSandbox(queueRepo.root), new WritePolicy(queueRepo.writes)).prepare(args);
+  const result = withCodexQueueMetadata(prepared, queueRepo, warnings);
   audit({ tool: "repo_prepare_codex_task", repo_id: args.repo_id, paths: [result.prompt_path, result.result_path], warnings: result.warnings });
-  return createSuccessEnvelope(result, `Prepared Codex task ${result.run_id}.`);
+  return createSuccessEnvelope(result, `Prepared Codex task ${result.run_id} for ${args.repo_id}.`);
 });
 
 export const writeCodexTaskHandler: ToolHandler = async (input, context) => safeTool<CodexTaskWriteInput>("repo_write_codex_task", input, context, async (args) => {
-  const repo = context.registry.get(args.repo_id);
-  const headShaBefore = await readHeadSha(repo.root);
-  const result = await new CodexTaskService(repo.root, new PathSandbox(repo.root), new WritePolicy(repo.writes)).write(args);
+  const { queueRepo, warnings: queueWarnings } = codexQueueForTarget(context, args.repo_id);
+  const headShaBefore = await readHeadSha(queueRepo.root);
+  const result = withCodexQueueMetadata(
+    await new CodexTaskService(queueRepo.root, new PathSandbox(queueRepo.root), new WritePolicy(queueRepo.writes)).write(args),
+    queueRepo,
+    queueWarnings
+  );
   if (!result.dry_run && result.written_paths.length > 0) {
-    const headShaAfter = await readHeadSha(repo.root);
-    const receipt = await new OperationReceiptService(repo.root).writeLastWrite({
+    const headShaAfter = await readHeadSha(queueRepo.root);
+    const receipt = await new OperationReceiptService(queueRepo.root).writeLastWrite({
       tool: "repo_write_codex_task",
-      repo_id: args.repo_id,
+      repo_id: queueRepo.repo_id,
       ...(headShaBefore ? { head_sha_before: headShaBefore } : {}),
       ...(headShaAfter ? { head_sha_after: headShaAfter } : {}),
       touched_paths: result.written_paths,
@@ -670,7 +677,7 @@ export const writeCodexTaskHandler: ToolHandler = async (input, context) => safe
         created: result.written_paths.length,
         unchanged: 0
       },
-      summary: `Queued Codex task ${result.run_id}.`
+      summary: `Queued Codex task ${result.run_id} for target repo ${args.repo_id}.`
     });
     const resultWithReceipt = {
       ...result,
@@ -680,7 +687,7 @@ export const writeCodexTaskHandler: ToolHandler = async (input, context) => safe
     audit({ tool: "repo_write_codex_task", repo_id: args.repo_id, paths: resultWithReceipt.written_paths, warnings: resultWithReceipt.warnings });
     return createSuccessEnvelope(
       resultWithReceipt,
-      `Queued Codex task ${resultWithReceipt.run_id}.`,
+      `Queued Codex task ${resultWithReceipt.run_id} for ${args.repo_id} in ${queueRepo.repo_id}.`,
       { warnings: resultWithReceipt.warnings }
     );
   }
@@ -693,14 +700,18 @@ export const writeCodexTaskHandler: ToolHandler = async (input, context) => safe
 });
 
 export const writeCodexTasksBatchHandler: ToolHandler = async (input, context) => safeTool<CodexTaskBatchWriteInput>("repo_write_codex_tasks_batch", input, context, async (args) => {
-  const repo = context.registry.get(args.repo_id);
-  const headShaBefore = await readHeadSha(repo.root);
-  const result = await new CodexTaskService(repo.root, new PathSandbox(repo.root), new WritePolicy(repo.writes)).writeBatch(args);
+  const { queueRepo, warnings: queueWarnings } = codexQueueForTarget(context, args.repo_id);
+  const headShaBefore = await readHeadSha(queueRepo.root);
+  const result = withCodexQueueMetadata(
+    await new CodexTaskService(queueRepo.root, new PathSandbox(queueRepo.root), new WritePolicy(queueRepo.writes)).writeBatch(args),
+    queueRepo,
+    queueWarnings
+  );
   if (!result.dry_run && result.written_paths.length > 0) {
-    const headShaAfter = await readHeadSha(repo.root);
-    const receipt = await new OperationReceiptService(repo.root).writeLastWrite({
+    const headShaAfter = await readHeadSha(queueRepo.root);
+    const receipt = await new OperationReceiptService(queueRepo.root).writeLastWrite({
       tool: "repo_write_codex_tasks_batch",
-      repo_id: args.repo_id,
+      repo_id: queueRepo.repo_id,
       ...(headShaBefore ? { head_sha_before: headShaBefore } : {}),
       ...(headShaAfter ? { head_sha_after: headShaAfter } : {}),
       touched_paths: result.written_paths,
@@ -713,7 +724,7 @@ export const writeCodexTasksBatchHandler: ToolHandler = async (input, context) =
         created: result.written_paths.length,
         unchanged: 0
       },
-      summary: `Queued ${result.created_run_ids.length} Codex task seeds.`
+      summary: `Queued ${result.created_run_ids.length} Codex task seeds for target repo ${args.repo_id}.`
     });
     const resultWithReceipt = {
       ...result,
@@ -723,7 +734,7 @@ export const writeCodexTasksBatchHandler: ToolHandler = async (input, context) =
     audit({ tool: "repo_write_codex_tasks_batch", repo_id: args.repo_id, paths: resultWithReceipt.written_paths, warnings: resultWithReceipt.warnings });
     return createSuccessEnvelope(
       resultWithReceipt,
-      `Queued ${resultWithReceipt.created_run_ids.length} Codex task seeds: ${resultWithReceipt.created_run_ids.join(", ")}.`,
+      `Queued ${resultWithReceipt.created_run_ids.length} Codex task seeds for ${args.repo_id} in ${queueRepo.repo_id}: ${resultWithReceipt.created_run_ids.join(", ")}.`,
       { warnings: resultWithReceipt.warnings }
     );
   }
@@ -737,11 +748,12 @@ export const writeCodexTasksBatchHandler: ToolHandler = async (input, context) =
 });
 
 export const codexReviewHandler: ToolHandler = async (input, context) => safeTool<CodexReviewInput>("repo_codex_review", input, context, async (args) => {
-  const repo = context.registry.get(args.repo_id);
-  const result = await new CodexResultService(
-    new PathSandbox(repo.root),
-    new GitReviewService(repo.root, new OperationsPolicy(repo.operations))
+  const { targetRepo, queueRepo, warnings: queueWarnings } = codexQueueForTarget(context, args.repo_id);
+  const reviewed = await new CodexResultService(
+    new PathSandbox(queueRepo.root),
+    new GitReviewService(targetRepo.root, new OperationsPolicy(targetRepo.operations))
   ).review(args);
+  const result = withCodexQueueMetadata(reviewed, queueRepo, queueWarnings);
   audit({
     tool: "repo_codex_review",
     repo_id: args.repo_id,
@@ -757,8 +769,8 @@ export const codexReviewHandler: ToolHandler = async (input, context) => safeToo
 });
 
 export const codexRunAndWaitHandler: ToolHandler = async (input, context) => safeTool<CodexRunAndWaitInput>("codex_run_and_wait", input, context, async (args) => {
-  const repo = context.registry.get(args.repo_id);
-  const result = await new CodexRunService(repo.root).runAndWait(args);
+  const { queueRepo, warnings: queueWarnings } = codexQueueForTarget(context, args.repo_id);
+  const result = withCodexQueueMetadata(await new CodexRunService(queueRepo.root).runAndWait(args), queueRepo, queueWarnings);
   audit({
     tool: "codex_run_and_wait",
     repo_id: args.repo_id,
@@ -789,6 +801,47 @@ export const labExecHandler: ToolHandler = async (input, context) => safeTool<La
     : `Lab command ${result.status}: exit=${result.exit_code ?? "null"} duration_ms=${result.duration_ms}.`;
   return createSuccessEnvelope(result, summary, { warnings: result.warnings });
 });
+
+function codexQueueForTarget(context: RuntimeContext, targetRepoId: string): {
+  targetRepo: RegisteredRepo;
+  queueRepo: RegisteredRepo;
+  warnings: string[];
+} {
+  const targetRepo = context.registry.get(targetRepoId);
+  try {
+    const queueRepo = context.registry.get(CENTRAL_CODEX_QUEUE_REPO_ID);
+    if (queueRepo.repo_id === targetRepo.repo_id) {
+      return { targetRepo, queueRepo, warnings: [] };
+    }
+    return {
+      targetRepo,
+      queueRepo,
+      warnings: [
+        `CODEX_CENTRAL_QUEUE: task/result files live under ${queueRepo.repo_id}; implementation and git review target ${targetRepo.repo_id}.`
+      ]
+    };
+  } catch {
+    return {
+      targetRepo,
+      queueRepo: targetRepo,
+      warnings: [
+        `CODEX_CENTRAL_QUEUE_UNAVAILABLE: ${CENTRAL_CODEX_QUEUE_REPO_ID} is not registered; using repo-local Codex queue for ${targetRepo.repo_id}.`
+      ]
+    };
+  }
+}
+
+function withCodexQueueMetadata<T extends { warnings: string[] }>(
+  result: T,
+  queueRepo: RegisteredRepo,
+  warnings: string[]
+): T & { queue_repo_id: string } {
+  return {
+    ...result,
+    queue_repo_id: queueRepo.repo_id,
+    warnings: [...result.warnings, ...warnings]
+  };
+}
 
 export const townPortalReturnHandler: ToolHandler = async (input, context) => safeTool<TownPortalReturnInput>("repo_town_portal_return", input, context, async () => {
   const args = TownPortalReturnInputSchema.parse(input ?? {});

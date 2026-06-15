@@ -41,6 +41,7 @@ export class CodexTaskService {
       input_assets: inputAssets.map((asset) => asset.metadata),
       next_steps: [
         "Give codex_user_prompt to Codex, or ask ChatGPT to write this task locally with repo_write_codex_task.",
+        "For project repos, observe pickup through the shared-agent-bridge central runner queue unless a project-specific runner is explicitly installed.",
         "After Codex finishes, run repo_codex_review for this run_id to review RESULT.md and the git diff."
       ],
       warnings: []
@@ -140,7 +141,7 @@ export class CodexTaskService {
         written_paths: writtenPaths
       },
       next_steps: [
-        "Use repo_runner_status or repo_list_roots.runner_status to observe pickup and ready_results.",
+        "Use repo_runner_status on shared-agent-bridge or repo_list_roots.runner_status to observe central-runner pickup and ready_results.",
         "If the connector drops after this receipt, call repo_last_write or status to recover the written paths."
       ],
       warnings
@@ -219,7 +220,7 @@ export class CodexTaskService {
         },
         next_steps: [
           "Fix the rejected seeds and retry the whole batch.",
-          "Use repo_runner_status or repo_list_roots.runner_status after a successful write to observe pickup."
+          "Use repo_runner_status on shared-agent-bridge or repo_list_roots.runner_status after a successful write to observe pickup."
         ],
         warnings: [...warnings, "Batch rejected before writing any Codex task seeds."]
       };
@@ -265,7 +266,7 @@ export class CodexTaskService {
         written_paths: writtenPaths
       },
       next_steps: [
-        "Use repo_runner_status or repo_list_roots.runner_status to observe pickup and ready_results.",
+        "Use repo_runner_status on shared-agent-bridge or repo_list_roots.runner_status to observe central-runner pickup and ready_results.",
         "If the connector drops after this receipt, call repo_last_write or status to recover the written paths."
       ],
       warnings
@@ -427,6 +428,13 @@ function renderPrompt(input: CodexTask, runId: string, paths: ReturnType<typeof 
     "# Codex Task",
     "",
     `Run ID: ${runId}`,
+    `Target repo_id: ${input.repo_id}`,
+    "",
+    "## Target Repository",
+    "",
+    `Do the implementation in repo_id \`${input.repo_id}\`.`,
+    "This task packet may live in the shared-agent-bridge central runner queue; do not treat the packet directory as proof of the implementation repo.",
+    "Resolve the target repo through the MCP repo registry/config before editing. If the target repo cannot be resolved, write RESULT.md as blocked instead of editing the queue repo.",
     "",
     "## Objective",
     input.objective,

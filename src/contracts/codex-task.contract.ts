@@ -77,6 +77,7 @@ export const CodexTaskBatchWriteInputSchema = RepoInputSchema.extend({
 export const CodexTaskResultSchema = z.object({
   ok: z.literal(true),
   repo_id: z.string(),
+  queue_repo_id: z.string().optional(),
   run_id: CodexRunIdSchema,
   prompt_path: z.string(),
   result_path: z.string(),
@@ -91,6 +92,7 @@ export const CodexTaskResultSchema = z.object({
 export const CodexTaskWriteResultSchema = z.object({
   ok: z.literal(true),
   repo_id: z.string(),
+  queue_repo_id: z.string().optional(),
   run_id: CodexRunIdSchema,
   prompt_path: z.string(),
   result_path: z.string(),
@@ -126,6 +128,7 @@ const CodexTaskBatchCreatedSeedSchema = z.object({
 export const CodexTaskBatchWriteResultSchema = z.object({
   ok: z.literal(true),
   repo_id: z.string(),
+  queue_repo_id: z.string().optional(),
   dry_run: z.boolean(),
   batch_size: z.number().int().positive(),
   max_batch_size: z.number().int().positive(),
@@ -179,6 +182,7 @@ export const CodexParsedResultSchema = z.object({
 export const CodexReviewResultSchema = z.object({
   ok: z.literal(true),
   repo_id: z.string(),
+  queue_repo_id: z.string().optional(),
   run_id: CodexRunIdSchema,
   result_path: z.string(),
   result_found: z.boolean(),
@@ -192,6 +196,7 @@ export const CodexReviewResultSchema = z.object({
 export const CodexRunAndWaitResultSchema = z.object({
   ok: z.literal(true),
   repo_id: z.string(),
+  queue_repo_id: z.string().optional(),
   run_id: CodexRunIdSchema,
   status: z.enum(["missing_prompt", "existing_result", "dry_run", "locked", "stale_lock", "completed", "failed", "timed_out"]),
   prompt_path: z.string(),
