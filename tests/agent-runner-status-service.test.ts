@@ -209,7 +209,11 @@ describe("AgentRunnerStatusService", () => {
     expect(compact.queue_entries).toHaveLength(0);
     expect(compact.worker_slots).toHaveLength(0);
     expect(compact.recent_events).toHaveLength(0);
-    expect(compact.plain_text).toContain(`Ready result ids: ${runId}`);
+    expect(compact.plain_text).not.toContain(`Ready result ids: ${runId}`);
+    expect(compact.plain_text).not.toContain("Completed:");
+    expect(compact.plain_text).not.toContain("Blocked:");
+    expect(compact.plain_text).not.toContain("Last run:");
+    expect(compact.plain_text).toContain("request detail: \"full\" for historical counts");
     expect(full.detail_level).toBe("full");
     expect(full.details_truncated).toBe(false);
     expect(full.ready_results[0]?.result_text).toContain("FULL_DETAIL_MARKER FULL_DETAIL_MARKER FULL_DETAIL_MARKER");

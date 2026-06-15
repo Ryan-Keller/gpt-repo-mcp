@@ -839,6 +839,7 @@ function shortField(value: unknown, maxLength = 80): string {
 }
 
 function compactPlainText(snapshot: StatusSnapshot): string {
+  const hasCurrentWork = snapshot.pending_count > 0 || snapshot.active_count > 0 || snapshot.stale_lock_count > 0;
   const lines = [
     `Runner: ${snapshot.runner_state}`,
     `Connector: ${snapshot.connector_status}`,
@@ -849,10 +850,7 @@ function compactPlainText(snapshot: StatusSnapshot): string {
     `Queued because at capacity: ${snapshot.queued_because_at_capacity ? "yes" : "no"}`,
     `Pending: ${snapshot.pending_count}`,
     `Active: ${snapshot.active_count}`,
-    `Stale locks: ${snapshot.stale_lock_count}`,
-    `Completed: ${snapshot.completed_count}`,
-    `Blocked: ${snapshot.blocked_count}`,
-    `Last run: ${snapshot.last_run_id || "none"}; status: ${snapshot.last_run_status || "none"}`
+    `Stale locks: ${snapshot.stale_lock_count}`
   ];
   for (const activeRun of snapshot.active_runs.slice(0, 3)) {
     lines.push(`Active run: ${activeRun.run_id}; source: ${activeRun.source}`);
@@ -867,7 +865,7 @@ function compactPlainText(snapshot: StatusSnapshot): string {
     lines.push(`Live tail: ${snapshot.active_run_live_tail.length} events available; request detail: "full" for event text.`);
   }
   const readyResults = snapshot.ready_results.slice(0, 5);
-  if (readyResults.length > 0) {
+  if (hasCurrentWork && readyResults.length > 0) {
     lines.push(`Ready result ids: ${readyResults.map((result) => result.run_id).join(", ")}`);
     const readyResult = readyResults[0];
     lines.push(`Latest ready result status: ${readyResult.result_status}`);
@@ -882,7 +880,7 @@ function compactPlainText(snapshot: StatusSnapshot): string {
     lines.push(`Suggested next action: ${String(staleLock.suggested_next_action ?? "")}`);
   }
   lines.push(`Next action: ${snapshot.suggested_next_action || (snapshot.active_count > 0 ? "observe_active_run" : snapshot.stale_lock_count > 0 ? "inspect_stale_lock" : snapshot.pending_count > 0 ? "wait_for_worker_or_start_runner" : "observe_only")}`);
-  lines.push("Detail: summary; request detail: \"full\" for worker slots, locks, full result text, queue entries, events, and live tail.");
+  lines.push("Detail: summary; request detail: \"full\" for historical counts, last run, worker slots, locks, full result text, queue entries, events, and live tail.");
   return lines.join("\n");
 }
 
