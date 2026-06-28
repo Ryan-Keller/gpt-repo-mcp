@@ -11,6 +11,7 @@ import { GitService } from "../services/git-service.js";
 import { GitReviewService } from "../services/git-review-service.js";
 import { GitOperationsService } from "../services/git-operations-service.js";
 import { HandoffService } from "../services/handoff-service.js";
+import { HermesIntakeService } from "../services/hermes-intake-service.js";
 import { LabExecService } from "../services/lab-exec-service.js";
 import { TownPortalConsumptionStore } from "../services/town-portal-consumption-store.js";
 import { TownPortalReturnService } from "../services/town-portal-return-service.js";
@@ -26,6 +27,7 @@ import { PortalInboxService } from "../services/portal-inbox-service.js";
 import { DecisionLogService } from "../services/decision-log-service.js";
 import { ChangePlanService } from "../services/change-plan-service.js";
 import { CodexResultService } from "../services/codex-result-service.js";
+import { CodexAppserverTurnService } from "../services/codex-appserver-turn-service.js";
 import { CodexRunService } from "../services/codex-run-service.js";
 import { CodexTaskService } from "../services/codex-task-service.js";
 import { NextActionService } from "../services/next-action-service.js";
@@ -51,6 +53,7 @@ import type { TaskInventoryInput } from "../contracts/task.contract.js";
 import type { DecisionLogInput } from "../contracts/decision.contract.js";
 import type { ChangePlanInput } from "../contracts/change-plan.contract.js";
 import type { CodexReviewInput, CodexRunAndWaitInput, CodexTaskBatchWriteInput, CodexTaskInput, CodexTaskWriteInput } from "../contracts/codex-task.contract.js";
+import type { CodexAppserverTurnInput } from "../contracts/codex-appserver.contract.js";
 import type { NextActionInput } from "../contracts/next-action.contract.js";
 import type { VisionRouteInput } from "../contracts/vision-route.contract.js";
 import type { LastWriteInput } from "../contracts/operation-receipt.contract.js";
@@ -60,6 +63,7 @@ import type { GitCommitInput, GitRecoverInput, GitRestorePathsInput, GitStageCom
 import type { GitReviewInput } from "../contracts/git-review.contract.js";
 import type { CleanupPathsInput } from "../contracts/cleanup.contract.js";
 import type { HandoffInput } from "../contracts/handoff.contract.js";
+import type { HermesIntakeInput } from "../contracts/hermes-intake.contract.js";
 import type { LabExecInput } from "../contracts/lab-exec.contract.js";
 import { TownPortalReturnInputSchema, type TownPortalReturnInput } from "../contracts/town-portal.contract.js";
 import type { ConnectorWhoamiResult } from "../contracts/connector-whoami.contract.js";
@@ -769,6 +773,27 @@ export const codexReviewHandler: ToolHandler = async (input, context) => safeToo
   );
 });
 
+export const codexAppserverTurnHandler: ToolHandler = async (input, context) => safeTool<CodexAppserverTurnInput>("repo_codex_appserver_turn", input, context, async (args) => {
+  const repo = context.registry.get(args.repo_id);
+  const result = await new CodexAppserverTurnService(repo.root).turn(args);
+  audit({
+    tool: "repo_codex_appserver_turn",
+    repo_id: args.repo_id,
+    counts: {
+      json_rpc_messages: result.json_rpc_messages.length
+    },
+    warnings: result.warnings
+  });
+  const summary = [
+    `Codex app-server turn ${result.status}.`,
+    `proof_boundary=${result.proof_boundary}`,
+    `bootstrap_used=${result.bootstrap_used ? "yes" : "no"}`,
+    `direct_send=${result.direct_send ? "yes" : "no"}`,
+    `next=${result.next_proof_step}`
+  ].join(" ");
+  return createSuccessEnvelope(result, summary, { warnings: result.warnings });
+});
+
 export const codexRunAndWaitHandler: ToolHandler = async (input, context) => safeTool<CodexRunAndWaitInput>("codex_run_and_wait", input, context, async (args) => {
   const { queueRepo, warnings: queueWarnings } = codexQueueForTarget(context, args.repo_id);
   const result = withCodexQueueMetadata(await new CodexRunService(queueRepo.root).runAndWait(args), queueRepo, queueWarnings);
@@ -800,6 +825,22 @@ export const labExecHandler: ToolHandler = async (input, context) => safeTool<La
   const summary = result.status === "rejected"
     ? `Lab command rejected before spawn: ${result.policy.rejection_reasons.join("; ")}`
     : `Lab command ${result.status}: exit=${result.exit_code ?? "null"} duration_ms=${result.duration_ms}.`;
+  return createSuccessEnvelope(result, summary, { warnings: result.warnings });
+});
+
+export const hermesIntakeHandler: ToolHandler = async (input, context) => safeTool<HermesIntakeInput>("repo_hermes_intake", input, context, async (args) => {
+  const repo = context.registry.get(args.repo_id);
+  const result = await new HermesIntakeService(repo.root).submit(args);
+  audit({
+    tool: "repo_hermes_intake",
+    repo_id: args.repo_id,
+    paths: [result.manifest_path, result.intake_path, result.result_path],
+    counts: { spawned: result.spawned ? 1 : 0 },
+    warnings: result.warnings
+  });
+  const summary = result.submitted
+    ? `Hermes intake ${result.status}: board=${result.board}; result_read=${result.result_read ? "yes" : "no"}; result_path=${result.result_path}.`
+    : `Hermes intake packet written: ${result.manifest_path}.`;
   return createSuccessEnvelope(result, summary, { warnings: result.warnings });
 });
 
@@ -1099,7 +1140,8 @@ function skeletalCapabilitySummary(summary: CapabilitySummaryResult, runnerStatu
       returned_count: moduleHandles.length,
       modules: moduleHandles,
       ...(summary.module_registry.blocker ? { blocker: summary.module_registry.blocker } : {})
-    }
+    },
+    ws_bridge_room: compactWsBridgeRoom(summary.ws_bridge_room)
   };
   if (runnerStatusSurface) {
     return base;
@@ -1120,12 +1162,42 @@ function skeletalCapabilitySummary(summary: CapabilitySummaryResult, runnerStatu
   };
 }
 
+function compactWsBridgeRoom(wsBridgeRoom: CapabilitySummaryResult["ws_bridge_room"]) {
+  return {
+    state: wsBridgeRoom.state,
+    current_route: wsBridgeRoom.current_route,
+    room_id: wsBridgeRoom.room_id,
+    event_log_path: wsBridgeRoom.event_log_path,
+    event_count: wsBridgeRoom.event_count,
+    last_event_at: wsBridgeRoom.last_event_at,
+    proof_boundary: wsBridgeRoom.proof_boundary,
+    evidence: wsBridgeRoom.evidence,
+    last_validated_at: wsBridgeRoom.last_validated_at,
+    ttl_seconds: wsBridgeRoom.ttl_seconds,
+    confidence: wsBridgeRoom.confidence,
+    validation_source: wsBridgeRoom.validation_source,
+    warnings: wsBridgeRoom.warnings
+  };
+}
+
 async function focusedCapabilitySummary(
   summary: CapabilitySummaryResult,
   capabilityId: string,
   options: { portalId?: string; repoRoot?: string }
 ) {
   const capability = summary.capability_toc.capabilities.find((entry) => entry.capability_id === capabilityId);
+  const virtualCapability = capabilityId === "ws_bridge_room"
+    ? {
+        capability_id: "ws_bridge_room",
+        status: summary.ws_bridge_room.state,
+        summary: "Read-only WebSocket Bridge Room V0 status and recent events through the existing capability_summary hub.",
+        existing_tool_or_hub_route: "repo_runner_status.capability_summary.ws_bridge_room; repo_list_roots.capability_summary.ws_bridge_room",
+        safe_operations: ["observe_room_status", "read_recent_room_events"],
+        blocked_operations: ["send_room_event", "mutate_route_proof", "update_binding", "write_receipt"],
+        suggested_next_action: "use the room events as live coordination hints only; verify route proof through binding receipts"
+      }
+    : undefined;
+  const focusedCapability = capability ?? virtualCapability;
   const moduleHandles = summary.module_registry.modules.map((entry) => ({
     module_id: entry.module_id,
     status: entry.status,
@@ -1140,19 +1212,20 @@ async function focusedCapabilitySummary(
       detail: "capability_id",
       focused: true,
       capability_id: capabilityId,
-      found: Boolean(capability),
+      found: Boolean(focusedCapability),
       full_detail_hint: "This focused response expands one named capability. Use detail: \"full\" without capability_id for full diagnostics."
     },
     bridge_compass: summary.bridge_compass,
     ...(capabilityId === "concierge_style_routing" ? { concierge_preflight: summary.concierge_preflight } : {}),
+    ...(capabilityId === "ws_bridge_room" ? { ws_bridge_room: summary.ws_bridge_room } : {}),
     capability_toc: {
-      state: capability ? summary.capability_toc.state : "blocked",
+      state: focusedCapability ? summary.capability_toc.state : "blocked",
       source_path: summary.capability_toc.source_path,
       generated_at: summary.capability_toc.generated_at,
       capability_count: summary.capability_toc.capability_count,
-      returned_count: capability ? 1 : 0,
-      capabilities: capability ? [capability] : [],
-      ...(capability ? {} : { blocker: `Capability id not found: ${capabilityId}` })
+      returned_count: focusedCapability ? 1 : 0,
+      capabilities: focusedCapability ? [focusedCapability] : [],
+      ...(focusedCapability ? {} : { blocker: `Capability id not found: ${capabilityId}` })
     },
     module_registry: {
       state: summary.module_registry.state,

@@ -39,6 +39,7 @@ export type CapabilitySummary = {
   };
   durable_queue: CapabilityMetadata;
   event_inbox: CapabilityMetadata;
+  ws_bridge_room: WsBridgeRoomStatus;
   image_assets: {
     state: CapabilityState;
     tool: "repo_write_codex_task";
@@ -252,10 +253,49 @@ export type CapabilityMetadata = {
   suggested_validation_command: string;
 };
 
+export type WsBridgeRoomStatus = {
+  state: CapabilityState;
+  current_route: "repo_runner_status.capability_summary.ws_bridge_room";
+  room_id: string;
+  event_log_path: "shared/state/ws-bridge-room/events.jsonl";
+  event_count: number;
+  last_event_at: string;
+  source_list: string[];
+  recent_events: WsBridgeRoomEventSummary[];
+  proof_boundary: string;
+  evidence: string[];
+  last_validated_at: string;
+  ttl_seconds: number;
+  confidence: "high" | "medium" | "low";
+  validation_source: string;
+  safe_operations: string[];
+  blocked_operations: string[];
+  suggested_validation_command: string;
+  warnings: string[];
+};
+
+export type WsBridgeRoomEventSummary = {
+  room_id: string;
+  event_id: string;
+  event_type: string;
+  repo_id: string;
+  binding_id: string;
+  run_id: string;
+  source: string;
+  target: string;
+  created_at: string;
+  received_at: string;
+  proof_boundary: string;
+  payload_summary: string;
+};
+
 const IMAGE_VALIDATION_RUN_ID = "2026-06-07T181500Z-image-input-asset-validation";
 const IMAGE_VALIDATION_STATUS = "shared/status/2026-06-07-image-input-assets-and-vision-routing.md";
 const CAPABILITY_TOC_RELATIVE_PATH = "shared/capabilities/BRIDGE_CAPABILITY_TOC_V0.json" as const;
 const MODULE_REGISTRY_RELATIVE_PATH = "shared/capabilities/BRIDGE_MODULE_REGISTRY_V0.json" as const;
+const WS_BRIDGE_ROOM_EVENT_LOG_RELATIVE_PATH = "shared/state/ws-bridge-room/events.jsonl" as const;
+const WS_BRIDGE_ROOM_ID = "chatgpt-codex-local-v0";
+const WS_BRIDGE_ROOM_PROOF_BOUNDARY = "room_events_are_live_coordination_only: proves local room events were appended to the bounded JSONL log; does not prove route delivery, ChatGPT UI visibility, MCP tool exposure, route proof status, bindings, or receipts.";
 
 export async function buildCapabilitySummary(input: {
   repo_id: string;
@@ -272,6 +312,7 @@ export async function buildCapabilitySummary(input: {
   const latestValidation = await latestValidationStatus(input.repo_root, runnerStatus);
   const capabilityToc = await readCapabilityToc(input.repo_root);
   const moduleRegistry = await readModuleRegistry(input.repo_root);
+  const wsBridgeRoom = await readWsBridgeRoomStatus(input.repo_root);
   const now = new Date().toISOString();
 
   return {
@@ -320,6 +361,7 @@ export async function buildCapabilitySummary(input: {
       ["auto_stage", "auto_commit", "auto_push", "auto_delete"],
       "python projects/agent-runner/agent_runner.py --status"
     ),
+    ws_bridge_room: wsBridgeRoom,
     image_assets: {
       state: "available",
       tool: "repo_write_codex_task",
@@ -385,6 +427,123 @@ export async function buildCapabilitySummary(input: {
       ...freshness(now, 3600, "high", "explicit_scope_boundary", ["prepare_followup_task"], ["pretend_full_helper_exists"], "repo_write_codex_task with input_assets")
     }
   };
+}
+
+async function readWsBridgeRoomStatus(repoRoot: string, maxRecentEvents = 5): Promise<WsBridgeRoomStatus> {
+  const sourcePath = join(repoRoot, WS_BRIDGE_ROOM_EVENT_LOG_RELATIVE_PATH);
+  const observedAt = new Date().toISOString();
+  const maxEvents = Math.min(Math.max(maxRecentEvents, 1), 20);
+  try {
+    const text = await readFile(sourcePath, "utf8");
+    const warnings: string[] = [];
+    const parsedEvents: WsBridgeRoomEventSummary[] = [];
+    const sourceLabels = new Set<string>();
+    let eventCount = 0;
+    let lastEventAt = "";
+
+    for (const [index, rawLine] of text.split(/\r?\n/).entries()) {
+      const line = rawLine.trim();
+      if (!line) {
+        continue;
+      }
+      let parsed: unknown;
+      try {
+        parsed = JSON.parse(line);
+      } catch {
+        warnings.push(`line ${index + 1}: invalid JSON skipped`);
+        continue;
+      }
+
+      const event = summarizeWsBridgeRoomEvent(parsed);
+      if (event.room_id !== WS_BRIDGE_ROOM_ID) {
+        warnings.push(`line ${index + 1}: unexpected room_id skipped`);
+        continue;
+      }
+
+      eventCount += 1;
+      lastEventAt = event.received_at || event.created_at || lastEventAt;
+      if (event.source) {
+        sourceLabels.add(event.source);
+      }
+      parsedEvents.push(event);
+    }
+
+    return {
+      state: eventCount > 0 ? "available" : "unknown",
+      current_route: "repo_runner_status.capability_summary.ws_bridge_room",
+      room_id: WS_BRIDGE_ROOM_ID,
+      event_log_path: WS_BRIDGE_ROOM_EVENT_LOG_RELATIVE_PATH,
+      event_count: eventCount,
+      last_event_at: lastEventAt,
+      source_list: Array.from(sourceLabels).slice(0, 8),
+      recent_events: parsedEvents.slice(-maxEvents).reverse(),
+      proof_boundary: WS_BRIDGE_ROOM_PROOF_BOUNDARY,
+      evidence: eventCount > 0
+        ? [`Read ${eventCount} event(s) from ${WS_BRIDGE_ROOM_EVENT_LOG_RELATIVE_PATH}.`]
+        : [`No room events found in ${WS_BRIDGE_ROOM_EVENT_LOG_RELATIVE_PATH}.`],
+      ...freshness(observedAt, 60, eventCount > 0 ? "high" : "medium", WS_BRIDGE_ROOM_EVENT_LOG_RELATIVE_PATH, ["observe_room_status", "read_recent_room_events"], ["send_room_event", "mutate_route_proof", "update_binding", "write_receipt"], "Get-Content -LiteralPath 'shared/state/ws-bridge-room/events.jsonl' | ForEach-Object { $_ | ConvertFrom-Json | Out-Null }; 'events-jsonl-ok'"),
+      warnings
+    };
+  } catch (error) {
+    const missing = isNodeErrorCode(error, "ENOENT");
+    return {
+      state: missing ? "unavailable" : "blocked",
+      current_route: "repo_runner_status.capability_summary.ws_bridge_room",
+      room_id: WS_BRIDGE_ROOM_ID,
+      event_log_path: WS_BRIDGE_ROOM_EVENT_LOG_RELATIVE_PATH,
+      event_count: 0,
+      last_event_at: "",
+      source_list: [],
+      recent_events: [],
+      proof_boundary: WS_BRIDGE_ROOM_PROOF_BOUNDARY,
+      evidence: [missing
+        ? `${WS_BRIDGE_ROOM_EVENT_LOG_RELATIVE_PATH} is missing.`
+        : `${WS_BRIDGE_ROOM_EVENT_LOG_RELATIVE_PATH} could not be read.`],
+      ...freshness(observedAt, 60, missing ? "medium" : "low", WS_BRIDGE_ROOM_EVENT_LOG_RELATIVE_PATH, ["create_local_room_prototype_event_then_refresh"], ["read_arbitrary_path", "mutate_room_events"], "Get-Content -LiteralPath 'shared/state/ws-bridge-room/events.jsonl'"),
+      warnings: []
+    };
+  }
+}
+
+function summarizeWsBridgeRoomEvent(value: unknown): WsBridgeRoomEventSummary {
+  const record = asRecord(value);
+  return {
+    room_id: compactString(record.room_id),
+    event_id: compactString(record.event_id),
+    event_type: compactString(record.event_type),
+    repo_id: compactString(record.repo_id),
+    binding_id: compactString(record.binding_id),
+    run_id: compactString(record.run_id),
+    source: summarizeEndpoint(record.source),
+    target: summarizeEndpoint(record.target),
+    created_at: compactString(record.created_at),
+    received_at: compactString(record.received_at),
+    proof_boundary: compactString(record.proof_boundary, 260),
+    payload_summary: summarizePayload(record.payload)
+  };
+}
+
+function summarizeEndpoint(value: unknown): string {
+  const record = asRecord(value);
+  const side = compactString(record.side, 40);
+  const label = compactString(record.label, 80);
+  return [side, label].filter(Boolean).join(": ");
+}
+
+function summarizePayload(value: unknown): string {
+  const record = asRecord(value);
+  const message = compactString(record.message, 160);
+  const status = compactString(record.status, 60);
+  if (message && status) {
+    return `${status}: ${message}`;
+  }
+  if (message) {
+    return message;
+  }
+  if (status) {
+    return status;
+  }
+  return "";
 }
 
 function buildBridgeCompass(

@@ -79,20 +79,63 @@ describe("MCP contract", () => {
         outputKeys: Object.keys(tool.outputSchema?.properties ?? {}).sort()
       }));
       const names = surface.map((tool) => tool.name);
+      const hermesIntake = surface.find((tool) => tool.name === "repo_hermes_intake");
       const labExec = surface.find((tool) => tool.name === "repo_lab_exec");
       const liveTail = surface.find((tool) => tool.name === "repo_run_live_tail");
       const runnerStatus = surface.find((tool) => tool.name === "repo_runner_status");
 
-      expect(names).toHaveLength(42);
+      expect(names).toHaveLength(40);
       expect(names).toContain("repo_bridge_concierge");
+      expect(names.indexOf("repo_hermes_intake")).toBeLessThan(3);
       expect(names).toContain("repo_run_live_tail");
       expect(names).toContain("repo_runner_status");
-      expect(names).toContain("repo_connector_whoami");
       expect(names).toContain("repo_project_memory");
       expect(names).toContain("repo_write_codex_tasks_batch");
+      expect(names).toContain("repo_codex_appserver_turn");
       expect(names).toContain("repo_lab_exec");
+      expect(names).toContain("repo_hermes_intake");
       expect(names).toContain("repo_town_portal_return");
       expect(names).toContain("agent_runner_status");
+      const appserverTurn = surface.find((tool) => tool.name === "repo_codex_appserver_turn");
+      expect(appserverTurn).toMatchObject({
+        title: "Send Codex app-server turn",
+        inputKeys: [
+          "acceptance_criteria",
+          "allowed_paths",
+          "app_server_url",
+          "binding_id",
+          "correlation_id",
+          "dry_run",
+          "forbidden_paths",
+          "model",
+          "objective",
+          "repo_id",
+          "target_thread_id",
+          "timeout_seconds",
+          "workstream"
+        ],
+        outputKeys: [
+          "address",
+          "app_server_url_scope",
+          "binding_available",
+          "binding_id",
+          "bootstrap_used",
+          "connection_status",
+          "direct_send",
+          "dry_run",
+          "json_rpc_messages",
+          "json_rpc_wire_note",
+          "live_receipt",
+          "next_proof_step",
+          "ok",
+          "proof_boundary",
+          "repo_id",
+          "status",
+          "target_thread_id",
+          "warnings",
+          "workstream"
+        ]
+      });
       expect(labExec).toMatchObject({
         title: "Run guarded lab file",
         inputKeys: ["command", "max_output_bytes", "repo_id", "timeout_seconds"],
@@ -117,6 +160,31 @@ describe("MCP contract", () => {
           "warnings"
         ]
       });
+      expect(hermesIntake).toMatchObject({
+        title: "Submit Hermes intake",
+        inputKeys: ["board", "intake_markdown", "job_id", "max_output_bytes", "repo_id", "submit", "timeout_seconds", "title"],
+        outputKeys: [
+          "board",
+          "duration_ms",
+          "exit_code",
+          "intake_path",
+          "job_id",
+          "manifest_path",
+          "ok",
+          "repo_id",
+          "result_path",
+          "result_read",
+          "result_text",
+          "spawned",
+          "status",
+          "stderr_tail",
+          "stdout_tail",
+          "submitted",
+          "target",
+          "timed_out",
+          "warnings"
+        ]
+      });
       expect(runnerStatus?.inputKeys).toEqual([
         "capability_id",
         "detail",
@@ -134,6 +202,7 @@ describe("MCP contract", () => {
         "active_run_ids",
         "blocked_count",
         "capability_summary",
+        "central_queue",
         "completed_count",
         "detail_level",
         "details_truncated",
@@ -197,7 +266,7 @@ describe("MCP contract", () => {
           suggested_next_action: expect.any(String),
           connector_identity: expect.objectContaining({
             auth_mode: expect.any(String),
-            server_catalog_has_repo_connector_whoami: true,
+            server_catalog_has_repo_connector_whoami: false,
             callable_surface_warning: expect.stringContaining("repo_connector_whoami")
           })
         })
@@ -335,7 +404,7 @@ describe("MCP contract", () => {
           connector_identity: expect.objectContaining({
             auth_mode: expect.any(String),
             chatgpt_callable_surface_verified: false,
-            server_catalog_has_repo_connector_whoami: true
+            server_catalog_has_repo_connector_whoami: false
           })
         },
         repos: [
@@ -1323,14 +1392,6 @@ function representativeCalls(head: string): Record<string, Record<string, unknow
   repo_decision_memory: { repo_id: "fixture" },
   repo_change_plan: { repo_id: "fixture", goal: "Add fixture validation", planning_depth: "quick" },
   repo_next_action: { repo_id: "fixture", mode: "plan", horizon: "today" },
-  repo_prepare_codex_task: {
-    repo_id: "fixture",
-    title: "Fix fixture docs",
-    objective: "Read docs/ARCHITECTURE.md and propose a focused Codex implementation.",
-    inspect_first: ["docs/ARCHITECTURE.md"],
-    allowed_paths: ["docs/ARCHITECTURE.md"],
-    verification_commands: ["npm test -- tests/mcp-contract.test.ts"]
-  },
   repo_write_codex_task: {
     repo_id: "fixture",
     title: "Fix fixture docs",

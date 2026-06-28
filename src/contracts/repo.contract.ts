@@ -72,6 +72,40 @@ const CapabilityMetadataSchema = z.object({
   suggested_validation_command: z.string()
 });
 
+const WsBridgeRoomStatusSchema = z.object({
+  state: CapabilityStateSchema,
+  current_route: z.literal("repo_runner_status.capability_summary.ws_bridge_room"),
+  room_id: z.string(),
+  event_log_path: z.literal("shared/state/ws-bridge-room/events.jsonl"),
+  event_count: z.number().int().nonnegative(),
+  last_event_at: z.string(),
+  source_list: z.array(z.string()),
+  recent_events: z.array(z.object({
+    room_id: z.string(),
+    event_id: z.string(),
+    event_type: z.string(),
+    repo_id: z.string(),
+    binding_id: z.string(),
+    run_id: z.string(),
+    source: z.string(),
+    target: z.string(),
+    created_at: z.string(),
+    received_at: z.string(),
+    proof_boundary: z.string(),
+    payload_summary: z.string()
+  })),
+  proof_boundary: z.string(),
+  evidence: z.array(z.string()),
+  last_validated_at: z.string(),
+  ttl_seconds: z.number(),
+  confidence: z.enum(["high", "medium", "low"]),
+  validation_source: z.string(),
+  safe_operations: z.array(z.string()),
+  blocked_operations: z.array(z.string()),
+  suggested_validation_command: z.string(),
+  warnings: z.array(z.string())
+});
+
 const CapabilityTocSchema = z.object({
   state: CapabilityStateSchema,
   source_path: z.literal("shared/capabilities/BRIDGE_CAPABILITY_TOC_V0.json"),
@@ -163,6 +197,7 @@ export const CapabilitySummarySchema = z.object({
   }),
   durable_queue: CapabilityMetadataSchema,
   event_inbox: CapabilityMetadataSchema,
+  ws_bridge_room: WsBridgeRoomStatusSchema,
   image_assets: z.object({
     state: CapabilityStateSchema,
     tool: z.literal("repo_write_codex_task"),
@@ -273,7 +308,8 @@ const CapabilityReferenceSummarySchema = z.object({
     module_count: z.number().int().nonnegative().optional(),
     returned_count: z.number().int().nonnegative().optional(),
     modules: z.array(ModuleHandleSchema).optional()
-  }).passthrough().optional()
+  }).passthrough().optional(),
+  ws_bridge_room: WsBridgeRoomStatusSchema.partial().optional()
 }).passthrough();
 
 const RunnerStatusReferenceSchema = z.object({

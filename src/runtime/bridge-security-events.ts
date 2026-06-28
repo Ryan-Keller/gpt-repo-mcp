@@ -1,4 +1,4 @@
-import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
+import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
 import { randomUUID } from "node:crypto";
 import type { RootRegistry } from "../services/root-registry.js";
@@ -101,8 +101,25 @@ async function writeEventLog(root: string, events: unknown[]): Promise<void> {
   const eventPath = join(root, EVENT_LOG_PATH);
   const tmpPath = `${eventPath}.${process.pid}.${randomUUID()}.tmp`;
   await mkdir(join(root, ".chatgpt/events"), { recursive: true });
-  await writeFile(tmpPath, events.map((event) => JSON.stringify(event)).join("\n") + "\n", "utf8");
-  await rename(tmpPath, eventPath);
+  const payload = events.map((event) => JSON.stringify(event)).join("\n") + "\n";
+  await writeFile(tmpPath, payload, "utf8");
+  try {
+    await rename(tmpPath, eventPath);
+  } catch (error) {
+    if (isWindowsEventLogContention(error)) {
+      await writeFile(`${eventPath}.${process.pid}.${randomUUID()}.fallback`, payload, "utf8").catch(() => undefined);
+      await rm(tmpPath, { force: true }).catch(() => undefined);
+      return;
+    }
+    throw error;
+  }
+}
+
+function isWindowsEventLogContention(error: unknown): boolean {
+  const code = typeof error === "object" && error !== null && "code" in error
+    ? String((error as { code?: unknown }).code)
+    : "";
+  return code === "EPERM" || code === "EACCES";
 }
 
 function sanitizeSecurityText(value: string): string {

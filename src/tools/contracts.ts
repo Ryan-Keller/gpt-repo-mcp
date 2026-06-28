@@ -1,6 +1,7 @@
 import type { z } from "zod";
 import { AgentRunnerStatusInputSchema, AgentRunnerStatusReferenceResultSchema, RunLiveTailInputSchema, RunLiveTailResultSchema } from "../contracts/agent-runner.contract.js";
 import { BridgeConciergeInputSchema, BridgeConciergeResultSchema } from "../contracts/bridge-concierge.contract.js";
+import { CodexAppserverTurnInputSchema, CodexAppserverTurnResultSchema } from "../contracts/codex-appserver.contract.js";
 import { ChangePlanInputSchema, ChangePlanResultSchema } from "../contracts/change-plan.contract.js";
 import { CleanupPathsInputSchema, CleanupPathsResultSchema } from "../contracts/cleanup.contract.js";
 import { CodexReviewInputSchema, CodexReviewResultSchema, CodexRunAndWaitInputSchema, CodexRunAndWaitResultSchema, CodexTaskBatchWriteInputSchema, CodexTaskBatchWriteResultSchema, CodexTaskInputSchema, CodexTaskResultSchema, CodexTaskWriteInputSchema, CodexTaskWriteResultSchema } from "../contracts/codex-task.contract.js";
@@ -11,6 +12,7 @@ import { GitCommitInputSchema, GitCommitResultSchema, GitRecoverInputSchema, Git
 import { GitDiffInputSchema, GitDiffResultSchema, GitStatusInputSchema, GitStatusResultSchema } from "../contracts/git.contract.js";
 import { GitReviewInputSchema, GitReviewResultSchema } from "../contracts/git-review.contract.js";
 import { HandoffInputSchema, HandoffResultSchema } from "../contracts/handoff.contract.js";
+import { HermesIntakeInputSchema, HermesIntakeResultSchema } from "../contracts/hermes-intake.contract.js";
 import { LabExecInputSchema, LabExecResultSchema } from "../contracts/lab-exec.contract.js";
 import { TownPortalReturnInputSchema, TownPortalReturnResultSchema } from "../contracts/town-portal.contract.js";
 import { NextActionInputSchema, NextActionResultSchema } from "../contracts/next-action.contract.js";
@@ -63,9 +65,11 @@ export type ToolName =
   | "repo_prepare_codex_task"
   | "repo_write_codex_task"
   | "repo_write_codex_tasks_batch"
+  | "repo_codex_appserver_turn"
   | "repo_codex_review"
   | "codex_run_and_wait"
   | "repo_lab_exec"
+  | "repo_hermes_intake"
   | "repo_town_portal_return"
   | "repo_write_file"
   | "repo_write_changes"
@@ -221,6 +225,10 @@ export const toolContracts = {
     input: CodexTaskBatchWriteInputSchema,
     output: CodexTaskBatchWriteResultSchema
   },
+  repo_codex_appserver_turn: {
+    input: CodexAppserverTurnInputSchema,
+    output: CodexAppserverTurnResultSchema
+  },
   repo_codex_review: {
     input: CodexReviewInputSchema,
     output: CodexReviewResultSchema
@@ -232,6 +240,10 @@ export const toolContracts = {
   repo_lab_exec: {
     input: LabExecInputSchema,
     output: LabExecResultSchema
+  },
+  repo_hermes_intake: {
+    input: HermesIntakeInputSchema,
+    output: HermesIntakeResultSchema
   },
   repo_town_portal_return: {
     input: TownPortalReturnInputSchema,

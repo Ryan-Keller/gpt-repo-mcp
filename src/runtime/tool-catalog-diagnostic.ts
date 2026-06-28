@@ -4,6 +4,7 @@ import type { ToolDefinition } from "../tools/catalog.js";
 export const REQUIRED_CHATGPT_TOOLS = [
   "repo_list_roots",
   "repo_bridge_concierge",
+  "repo_hermes_intake",
   "repo_write_codex_task",
   "repo_write_codex_tasks_batch",
   "codex_run_and_wait",

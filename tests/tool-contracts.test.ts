@@ -23,14 +23,15 @@ import {
   GitUnstageResultSchema
 } from "../src/contracts/git-operations.contract.js";
 import { CleanupPathsInputSchema, CleanupPathsResultSchema } from "../src/contracts/cleanup.contract.js";
-import { CodexReviewInputSchema, CodexReviewResultSchema, CodexRunAndWaitInputSchema, CodexRunAndWaitResultSchema, CodexTaskBatchWriteInputSchema, CodexTaskBatchWriteResultSchema, CodexTaskInputSchema, CodexTaskResultSchema, CodexTaskWriteInputSchema, CodexTaskWriteResultSchema } from "../src/contracts/codex-task.contract.js";
+import { CodexAppserverTurnInputSchema, CodexAppserverTurnResultSchema } from "../src/contracts/codex-appserver.contract.js";
+import { CodexReviewInputSchema, CodexReviewResultSchema, CodexRunAndWaitInputSchema, CodexRunAndWaitResultSchema, CodexTaskBatchWriteInputSchema, CodexTaskBatchWriteResultSchema, CodexTaskWriteInputSchema, CodexTaskWriteResultSchema } from "../src/contracts/codex-task.contract.js";
 import { DecisionLogInputSchema, DecisionLogResultSchema } from "../src/contracts/decision.contract.js";
 import { GitReviewResultSchema } from "../src/contracts/git-review.contract.js";
 import { HandoffInputSchema, HandoffResultSchema } from "../src/contracts/handoff.contract.js";
+import { HermesIntakeInputSchema, HermesIntakeResultSchema } from "../src/contracts/hermes-intake.contract.js";
 import { LabExecInputSchema, LabExecResultSchema } from "../src/contracts/lab-exec.contract.js";
 import { TownPortalReturnInputSchema, TownPortalReturnResultSchema } from "../src/contracts/town-portal.contract.js";
 import { LastWriteInputSchema, LastWriteResultSchema } from "../src/contracts/operation-receipt.contract.js";
-import { PolicyExplainInputSchema, PolicyExplainResultSchema } from "../src/contracts/policy.contract.js";
 import { ProjectBriefInputSchema } from "../src/contracts/project.contract.js";
 import { RepoReaderConfigSchema } from "../src/config/schema.js";
 import { TaskInventoryInputSchema } from "../src/contracts/task.contract.js";
@@ -51,17 +52,50 @@ function schemaDescription(schema: unknown): string | undefined {
   return (schema as { description?: string }).description;
 }
 
+const chatGptDirectToolNames = new Set([
+  "repo_bridge_concierge",
+  "repo_hermes_intake",
+  "repo_lab_exec"
+]);
+
+const connectorHostileSchemaKeywords = new Set([
+  "anyOf",
+  "oneOf",
+  "propertyNames",
+  "default",
+  "const"
+]);
+
+function findConnectorHostileSchemaKeywords(value: unknown, path = "$", hits: string[] = []): string[] {
+  if (!value || typeof value !== "object") {
+    return hits;
+  }
+
+  if (Array.isArray(value)) {
+    value.forEach((item, index) => findConnectorHostileSchemaKeywords(item, `${path}[${index}]`, hits));
+    return hits;
+  }
+
+  for (const [key, child] of Object.entries(value)) {
+    const childPath = `${path}.${key}`;
+    if (connectorHostileSchemaKeywords.has(key)) {
+      hits.push(childPath);
+    }
+    findConnectorHostileSchemaKeywords(child, childPath, hits);
+  }
+
+  return hits;
+}
+
 describe("tool catalog contracts", () => {
   test("all tools have required metadata and appropriate annotations", () => {
     expect(toolCatalog.map((tool) => tool.name)).toEqual([
       "repo_list_roots",
       "repo_bridge_concierge",
+      "repo_hermes_intake",
       "agent_runner_status",
       "repo_runner_status",
       "repo_run_live_tail",
-      "repo_connector_whoami",
-      "repo_vision_routes",
-      "repo_policy_explain",
       "repo_last_write",
       "repo_tree",
       "repo_search",
@@ -86,9 +120,9 @@ describe("tool catalog contracts", () => {
       "repo_decision_memory",
       "repo_change_plan",
       "repo_next_action",
-      "repo_prepare_codex_task",
       "repo_write_codex_task",
       "repo_write_codex_tasks_batch",
+      "repo_codex_appserver_turn",
       "repo_codex_review",
       "codex_run_and_wait",
       "repo_lab_exec",
@@ -119,8 +153,10 @@ describe("tool catalog contracts", () => {
       "repo_write_handoff",
       "repo_write_codex_task",
       "repo_write_codex_tasks_batch",
+      "repo_codex_appserver_turn",
       "codex_run_and_wait",
       "repo_lab_exec",
+      "repo_hermes_intake",
       "repo_town_portal_return",
       "repo_git_stage",
       "repo_git_unstage",
@@ -134,15 +170,15 @@ describe("tool catalog contracts", () => {
       "repo_cleanup_paths"
     ]);
     const writeFile = toolCatalog.find((tool) => tool.name === "repo_write_file");
-    const policyExplain = toolCatalog.find((tool) => tool.name === "repo_policy_explain");
     const repoRunnerStatus = toolCatalog.find((tool) => tool.name === "repo_runner_status");
     const bridgeConcierge = toolCatalog.find((tool) => tool.name === "repo_bridge_concierge");
-    const prepareCodexTask = toolCatalog.find((tool) => tool.name === "repo_prepare_codex_task");
     const writeCodexTask = toolCatalog.find((tool) => tool.name === "repo_write_codex_task");
     const writeCodexTasksBatch = toolCatalog.find((tool) => tool.name === "repo_write_codex_tasks_batch");
+    const codexAppserverTurn = toolCatalog.find((tool) => tool.name === "repo_codex_appserver_turn");
     const codexReview = toolCatalog.find((tool) => tool.name === "repo_codex_review");
     const codexRunAndWait = toolCatalog.find((tool) => tool.name === "codex_run_and_wait");
     const labExec = toolCatalog.find((tool) => tool.name === "repo_lab_exec");
+    const hermesIntake = toolCatalog.find((tool) => tool.name === "repo_hermes_intake");
     const townPortalReturn = toolCatalog.find((tool) => tool.name === "repo_town_portal_return");
     const writeChanges = toolCatalog.find((tool) => tool.name === "repo_write_changes");
     const writeHandoff = toolCatalog.find((tool) => tool.name === "repo_write_handoff");
@@ -152,10 +188,6 @@ describe("tool catalog contracts", () => {
     const decisionMemory = toolCatalog.find((tool) => tool.name === "repo_decision_memory");
     const projectMemory = toolCatalog.find((tool) => tool.name === "repo_project_memory");
 
-    expect(policyExplain).toBeDefined();
-    expect(policyExplain?.inputSchema).toBe(PolicyExplainInputSchema);
-    expect(policyExplain?.outputSchema).toBe(PolicyExplainResultSchema);
-    expect(policyExplain?.annotations).toEqual(readOnlyAnnotations);
     expect(repoRunnerStatus).toBeDefined();
     expect(repoRunnerStatus?.inputSchema).toBe(AgentRunnerStatusInputSchema);
     expect(repoRunnerStatus?.outputSchema).toBe(AgentRunnerStatusReferenceResultSchema);
@@ -165,10 +197,6 @@ describe("tool catalog contracts", () => {
     expect(bridgeConcierge?.inputSchema).toBe(BridgeConciergeInputSchema);
     expect(bridgeConcierge?.outputSchema).toBe(BridgeConciergeResultSchema);
     expect(bridgeConcierge?.annotations).toEqual(readOnlyAnnotations);
-    expect(prepareCodexTask).toBeDefined();
-    expect(prepareCodexTask?.inputSchema).toBe(CodexTaskInputSchema);
-    expect(prepareCodexTask?.outputSchema).toBe(CodexTaskResultSchema);
-    expect(prepareCodexTask?.annotations).toEqual(readOnlyAnnotations);
     expect(writeCodexTask).toBeDefined();
     expect(writeCodexTask?.inputSchema).toBe(CodexTaskWriteInputSchema);
     expect(writeCodexTask?.outputSchema).toBe(CodexTaskWriteResultSchema);
@@ -177,6 +205,10 @@ describe("tool catalog contracts", () => {
     expect(writeCodexTasksBatch?.inputSchema).toBe(CodexTaskBatchWriteInputSchema);
     expect(writeCodexTasksBatch?.outputSchema).toBe(CodexTaskBatchWriteResultSchema);
     expect(writeCodexTasksBatch?.annotations).toEqual(writeAnnotations);
+    expect(codexAppserverTurn).toBeDefined();
+    expect(codexAppserverTurn?.inputSchema).toBe(CodexAppserverTurnInputSchema);
+    expect(codexAppserverTurn?.outputSchema).toBe(CodexAppserverTurnResultSchema);
+    expect(codexAppserverTurn?.annotations).toEqual(writeAnnotations);
     expect(codexReview).toBeDefined();
     expect(codexReview?.inputSchema).toBe(CodexReviewInputSchema);
     expect(codexReview?.outputSchema).toBe(CodexReviewResultSchema);
@@ -189,6 +221,10 @@ describe("tool catalog contracts", () => {
     expect(labExec?.inputSchema).toBe(LabExecInputSchema);
     expect(labExec?.outputSchema).toBe(LabExecResultSchema);
     expect(labExec?.annotations).toEqual(writeAnnotations);
+    expect(hermesIntake).toBeDefined();
+    expect(hermesIntake?.inputSchema).toBe(HermesIntakeInputSchema);
+    expect(hermesIntake?.outputSchema).toBe(HermesIntakeResultSchema);
+    expect(hermesIntake?.annotations).toEqual(writeAnnotations);
     expect(townPortalReturn).toBeDefined();
     expect(townPortalReturn?.inputSchema).toBe(TownPortalReturnInputSchema);
     expect(townPortalReturn?.outputSchema).toBe(TownPortalReturnResultSchema);
@@ -384,6 +420,21 @@ describe("tool catalog contracts", () => {
     expect(serialized).not.toContain("active_run_live_tail");
     expect(serialized).not.toContain("poll_history");
     expect(serialized.length).toBeLessThan(7500);
+  });
+
+  test("repo_hermes_intake exposes a ChatGPT-friendly tool schema", () => {
+    const tool = toolCatalog.find((candidate) => candidate.name === "repo_hermes_intake");
+    expect(tool).toBeDefined();
+
+    const serialized = JSON.stringify({
+      input: tool?.inputSchema.toJSONSchema?.() ?? tool?.inputSchema.shape,
+      output: tool?.outputSchema.toJSONSchema?.() ?? tool?.outputSchema.shape
+    });
+
+    expect(serialized).not.toContain("anyOf");
+    expect(serialized).not.toContain("oneOf");
+    expect(serialized).not.toContain("propertyNames");
+    expect(serialized).not.toContain("\"default\"");
   });
 
   test("repo_git_review audit metadata omits changed path lists", () => {
@@ -861,8 +912,16 @@ describe("tool catalog contracts", () => {
   });
 
   test("every tool uses the central contract objects", () => {
+    const hiddenContractTools = new Set([
+      "repo_connector_whoami",
+      "repo_plan_review",
+      "repo_policy_explain",
+      "repo_prepare_codex_task",
+      "repo_vision_routes"
+    ]);
+
     expect(toolCatalog.map((tool) => tool.name).sort()).toEqual(
-      Object.keys(toolContracts).filter((name) => name !== "repo_plan_review").sort()
+      Object.keys(toolContracts).filter((name) => !hiddenContractTools.has(name)).sort()
     );
 
     for (const tool of toolCatalog) {
@@ -885,16 +944,21 @@ describe("tool catalog contracts", () => {
     const concierge = surface.find((tool) => tool.name === "repo_bridge_concierge");
     const liveTail = surface.find((tool) => tool.name === "repo_run_live_tail");
     const runnerStatus = surface.find((tool) => tool.name === "repo_runner_status");
+    const appserverTurn = surface.find((tool) => tool.name === "repo_codex_appserver_turn");
     const townPortalReturn = surface.find((tool) => tool.name === "repo_town_portal_return");
+    const hermesIntake = surface.find((tool) => tool.name === "repo_hermes_intake");
 
-    expect(names).toHaveLength(42);
+    expect(names).toHaveLength(40);
     expect(names).toContain("repo_bridge_concierge");
+    expect(names.indexOf("repo_hermes_intake")).toBeLessThan(3);
     expect(names).toContain("repo_run_live_tail");
     expect(names).toContain("repo_runner_status");
-    expect(names).toContain("repo_connector_whoami");
+    expect(names).toContain("repo_last_write");
     expect(names).toContain("repo_project_memory");
     expect(names).toContain("repo_write_codex_tasks_batch");
+    expect(names).toContain("repo_codex_appserver_turn");
     expect(names).toContain("repo_lab_exec");
+    expect(names).toContain("repo_hermes_intake");
     expect(names).toContain("repo_town_portal_return");
     expect(names).toContain("agent_runner_status");
     expect(concierge?.inputKeys).toEqual(["include_evidence", "repo_id", "request"]);
@@ -933,6 +997,7 @@ describe("tool catalog contracts", () => {
       "active_run_ids",
       "blocked_count",
       "capability_summary",
+      "central_queue",
       "completed_count",
       "detail_level",
       "details_truncated",
@@ -948,6 +1013,45 @@ describe("tool catalog contracts", () => {
       "warnings",
       "worker"
     ]);
+    expect(appserverTurn).toMatchObject({
+      title: "Send Codex app-server turn",
+      inputKeys: [
+        "acceptance_criteria",
+        "allowed_paths",
+        "app_server_url",
+        "binding_id",
+        "correlation_id",
+        "dry_run",
+        "forbidden_paths",
+        "model",
+        "objective",
+        "repo_id",
+        "target_thread_id",
+        "timeout_seconds",
+        "workstream"
+      ],
+      outputKeys: [
+        "address",
+        "app_server_url_scope",
+        "binding_available",
+        "binding_id",
+        "bootstrap_used",
+        "connection_status",
+        "direct_send",
+        "dry_run",
+        "json_rpc_messages",
+        "json_rpc_wire_note",
+        "live_receipt",
+        "next_proof_step",
+        "ok",
+        "proof_boundary",
+        "repo_id",
+        "status",
+        "target_thread_id",
+        "warnings",
+        "workstream"
+      ]
+    });
     expect(liveTail).toMatchObject({
       title: "Show Codex run live tail",
       inputKeys: ["cursor", "max_events", "repo_id", "run_id"],
@@ -978,6 +1082,47 @@ describe("tool catalog contracts", () => {
         "terminal"
       ]
     });
+    expect(hermesIntake).toMatchObject({
+      title: "Submit Hermes intake",
+      inputKeys: ["board", "intake_markdown", "job_id", "max_output_bytes", "repo_id", "submit", "timeout_seconds", "title"],
+      outputKeys: [
+        "board",
+        "duration_ms",
+        "exit_code",
+        "intake_path",
+        "job_id",
+        "manifest_path",
+        "ok",
+        "repo_id",
+        "result_path",
+        "result_read",
+        "result_text",
+        "spawned",
+        "status",
+        "stderr_tail",
+        "stdout_tail",
+        "submitted",
+        "target",
+        "timed_out",
+        "warnings"
+      ]
+    });
+  });
+
+  test("direct ChatGPT tools avoid connector-hostile schema keywords", () => {
+    const directTools = toolCatalog.filter((tool) => chatGptDirectToolNames.has(tool.name));
+
+    expect(directTools.map((tool) => tool.name).sort()).toEqual([
+      "repo_bridge_concierge",
+      "repo_hermes_intake",
+      "repo_lab_exec"
+    ]);
+
+    for (const tool of directTools) {
+      const inputHits = findConnectorHostileSchemaKeywords(tool.inputSchema.toJSONSchema());
+      const outputHits = findConnectorHostileSchemaKeywords(tool.outputSchema.toJSONSchema());
+      expect([...inputHits, ...outputHits], `${tool.name} should be connector-compatible`).toEqual([]);
+    }
   });
 
   test("catalog does not define inline zod schemas", () => {

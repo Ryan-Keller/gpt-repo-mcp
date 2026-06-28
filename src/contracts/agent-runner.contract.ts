@@ -90,6 +90,21 @@ const CapabilityReferenceSummarySchema = z.object({
     module_count: z.number().int().nonnegative().optional(),
     returned_count: z.number().int().nonnegative().optional(),
     modules: z.array(ModuleHandleSchema).optional()
+  }).passthrough().optional(),
+  ws_bridge_room: z.object({
+    state: z.string().optional(),
+    current_route: z.literal("repo_runner_status.capability_summary.ws_bridge_room").optional(),
+    room_id: z.string().optional(),
+    event_log_path: z.literal("shared/state/ws-bridge-room/events.jsonl").optional(),
+    event_count: z.number().int().nonnegative().optional(),
+    last_event_at: z.string().optional(),
+    source_list: z.array(z.string()).optional(),
+    recent_events: z.array(z.object({}).passthrough()).optional(),
+    proof_boundary: z.string().optional(),
+    evidence: z.array(z.string()).optional(),
+    safe_operations: z.array(z.string()).optional(),
+    blocked_operations: z.array(z.string()).optional(),
+    warnings: z.array(z.string()).optional()
   }).passthrough().optional()
 }).passthrough();
 

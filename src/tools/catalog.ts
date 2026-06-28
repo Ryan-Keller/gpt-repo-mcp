@@ -6,8 +6,8 @@ import {
   bridgeConciergeHandler,
   cleanupPathsHandler,
   agentRunnerStatusHandler,
-  connectorWhoamiHandler,
   codexReviewHandler,
+  codexAppserverTurnHandler,
   codexRunAndWaitHandler,
   decisionMemoryHandler,
   fetchFileHandler,
@@ -19,10 +19,10 @@ import {
   gitStatusHandler,
   gitUnstageHandler,
   lastWriteHandler,
+  hermesIntakeHandler,
   labExecHandler,
   listRootsHandler,
   nextActionHandler,
-  prepareCodexTaskHandler,
   projectBriefHandler,
   projectMemoryHandler,
   readManyHandler,
@@ -30,7 +30,6 @@ import {
   taskInventoryHandler,
   townPortalReturnHandler,
   treeHandler,
-  visionRoutesHandler,
   writeCommitHandler,
   writeRecoverHandler,
   writeStageCommitHandler,
@@ -39,7 +38,6 @@ import {
   writeCodexTasksBatchHandler,
   writeFileHandler,
   writeHandoffHandler,
-  policyExplainHandler,
   runLiveTailHandler,
   writeStageHandler,
   writeUnstageHandler,
@@ -76,6 +74,15 @@ export const toolCatalog: ToolDefinition[] = [
     handler: bridgeConciergeHandler
   },
   {
+    name: "repo_hermes_intake",
+    title: "Submit Hermes intake",
+    description: descriptions.repo_hermes_intake,
+    inputSchema: toolContracts.repo_hermes_intake.input,
+    outputSchema: toolContracts.repo_hermes_intake.output,
+    annotations: writeAnnotations,
+    handler: hermesIntakeHandler
+  },
+  {
     name: "agent_runner_status",
     title: "Show Agent Runner status",
     description: descriptions.agent_runner_status,
@@ -101,33 +108,6 @@ export const toolCatalog: ToolDefinition[] = [
     outputSchema: toolContracts.repo_run_live_tail.output,
     annotations: readOnlyAnnotations,
     handler: runLiveTailHandler
-  },
-  {
-    name: "repo_connector_whoami",
-    title: "Diagnose connector identity",
-    description: descriptions.repo_connector_whoami,
-    inputSchema: toolContracts.repo_connector_whoami.input,
-    outputSchema: toolContracts.repo_connector_whoami.output,
-    annotations: readOnlyAnnotations,
-    handler: connectorWhoamiHandler
-  },
-  {
-    name: "repo_vision_routes",
-    title: "Detect vision analysis routes",
-    description: descriptions.repo_vision_routes,
-    inputSchema: toolContracts.repo_vision_routes.input,
-    outputSchema: toolContracts.repo_vision_routes.output,
-    annotations: readOnlyAnnotations,
-    handler: visionRoutesHandler
-  },
-  {
-    name: "repo_policy_explain",
-    title: "Explain repository policy",
-    description: descriptions.repo_policy_explain,
-    inputSchema: toolContracts.repo_policy_explain.input,
-    outputSchema: toolContracts.repo_policy_explain.output,
-    annotations: readOnlyAnnotations,
-    handler: policyExplainHandler
   },
   {
     name: "repo_last_write",
@@ -346,15 +326,6 @@ export const toolCatalog: ToolDefinition[] = [
     handler: nextActionHandler
   },
   {
-    name: "repo_prepare_codex_task",
-    title: "Prepare Codex task prompt",
-    description: descriptions.repo_prepare_codex_task,
-    inputSchema: toolContracts.repo_prepare_codex_task.input,
-    outputSchema: toolContracts.repo_prepare_codex_task.output,
-    annotations: readOnlyAnnotations,
-    handler: prepareCodexTaskHandler
-  },
-  {
     name: "repo_write_codex_task",
     title: "Write Codex task prompt",
     description: descriptions.repo_write_codex_task,
@@ -371,6 +342,15 @@ export const toolCatalog: ToolDefinition[] = [
     outputSchema: toolContracts.repo_write_codex_tasks_batch.output,
     annotations: writeAnnotations,
     handler: writeCodexTasksBatchHandler
+  },
+  {
+    name: "repo_codex_appserver_turn",
+    title: "Send Codex app-server turn",
+    description: descriptions.repo_codex_appserver_turn,
+    inputSchema: toolContracts.repo_codex_appserver_turn.input,
+    outputSchema: toolContracts.repo_codex_appserver_turn.output,
+    annotations: writeAnnotations,
+    handler: codexAppserverTurnHandler
   },
   {
     name: "repo_codex_review",

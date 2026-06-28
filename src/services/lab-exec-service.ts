@@ -8,6 +8,8 @@ import { PathSandbox, validateRepoPath } from "./path-sandbox.js";
 
 const APPROVED_LAB_ROOT = "shared/experiments";
 const ALLOWED_EXTENSIONS = [".mjs", ".js"] as const;
+const DEFAULT_TIMEOUT_SECONDS = 10;
+const DEFAULT_MAX_OUTPUT_BYTES = 16384;
 const SHELL_META_PATTERN = /[;&|><`$(){}[\]*?~!"']/;
 const BANNED_COMMANDS = new Set([
   "cmd",
@@ -63,14 +65,16 @@ export class LabExecService {
 
   async run(rawInput: LabExecInput): Promise<LabExecResult> {
     const input = LabExecInputSchema.parse(rawInput);
+    const timeoutSeconds = input.timeout_seconds ?? DEFAULT_TIMEOUT_SECONDS;
+    const maxOutputBytes = input.max_output_bytes ?? DEFAULT_MAX_OUTPUT_BYTES;
     const started = Date.now();
     const decision = await this.decide(input.command);
     const basePolicy = {
       command_family: decision.commandFamily,
       approved_lab_root: APPROVED_LAB_ROOT,
       shell: "disabled" as const,
-      timeout_seconds: input.timeout_seconds,
-      max_output_bytes: input.max_output_bytes,
+      timeout_seconds: timeoutSeconds,
+      max_output_bytes: maxOutputBytes,
       rejection_reasons: decision.reasons
     };
 
@@ -83,8 +87,8 @@ export class LabExecService {
         spawned: false,
         argv: decision.argv,
         cwd_label: "repo_root",
-        exit_code: null,
-        signal: null,
+        exit_code: -1,
+        signal: "",
         timed_out: false,
         duration_ms: elapsedMs(started),
         stdout_tail: "",
@@ -100,8 +104,8 @@ export class LabExecService {
     const result = await this.spawnLab(decision.argv[0]!, decision.argv.slice(1), {
       cwd: this.root,
       shell: false,
-      timeoutMs: input.timeout_seconds * 1000,
-      maxOutputBytes: input.max_output_bytes
+      timeoutMs: timeoutSeconds * 1000,
+      maxOutputBytes
     });
     const timedOut = result.timedOut === true;
     const exitCode = result.status;
@@ -113,8 +117,8 @@ export class LabExecService {
       spawned: true,
       argv: decision.argv,
       cwd_label: "repo_root",
-      exit_code: exitCode,
-      signal: result.signal === null ? null : String(result.signal),
+      exit_code: exitCode ?? -1,
+      signal: result.signal === null ? "" : String(result.signal),
       timed_out: timedOut,
       duration_ms: result.durationMs ?? elapsedMs(started),
       stdout_tail: redactSensitiveText(result.stdout),

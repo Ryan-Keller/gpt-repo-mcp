@@ -40,7 +40,7 @@ export function buildConnectorIdentitySnapshot(input: {
     cloudflare_access_jwt_present: telemetry?.cloudflare_access_jwt_present === true,
     cf_ray_present: telemetry?.cf_ray_present === true,
     forwarded_proto: telemetry?.forwarded_proto ?? "",
-    server_catalog_has_repo_connector_whoami: input.serverCatalogHasRepoConnectorWhoami ?? true,
+    server_catalog_has_repo_connector_whoami: input.serverCatalogHasRepoConnectorWhoami ?? false,
     chatgpt_callable_surface_verified: false,
     callable_surface_warning: "Server catalog exposure does not prove this ChatGPT chat exposes every callable tool. If repo_connector_whoami is missing, use this connector_identity object from stable status tools.",
     suggested_next_action: suggestedNextAction(authMode)
