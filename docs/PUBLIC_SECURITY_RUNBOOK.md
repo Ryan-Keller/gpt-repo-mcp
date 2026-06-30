@@ -24,7 +24,8 @@ non-tokenized sensitive endpoints such as `/tool-catalog` denied.
 | Tier | Surfaces | Public behavior |
 | --- | --- | --- |
 | `public_safe` | unauthenticated `GET /health` | Redacted liveness only: service alive, generic status, timestamp, and `authentication_required`. |
-| `authenticated_read` | `repo_list_roots`, `repo_runner_status`, `agent_runner_status`, `ready_results`, `recent_events`, `capability_summary`, `vision_capabilities`, `/tool-catalog` | Requires `BRIDGE_AUTH_TOKEN` when public/tunnel mode is enabled, unless explicit path-token connector auth compatibility mode is enabled for `/t/<path-token>/mcp`. |
+| `authenticated_read` | `repo_list_roots`, `repo_runner_status`, `agent_runner_status`, `ready_results`, `recent_events`, `capability_summary`, `vision_capabilities`, Hermes Kanban readback through `capability_id: "hermes_kanban"`, `/tool-catalog` | Requires `BRIDGE_AUTH_TOKEN` when public/tunnel mode is enabled, unless explicit path-token connector auth compatibility mode is enabled for `/t/<path-token>/mcp`. |
+| `bounded_packet_write` | `repo_hermes_intake` | Requires auth. Writes only the Hermes intake packet files and optionally submits the manifest through the guarded helper; no repo mutation, git, delete, reset, restart, credential, or remote operations. |
 | `privileged_write` | `repo_write_codex_task`, `repo_write_file`, `repo_write_changes`, `repo_write_handoff`, `repo_cleanup_paths`, `codex_run_and_wait` | Requires auth and existing repo write/operation policy. |
 | `dangerous_git` | stage, unstage, restore, recover, commit tools | Requires auth, repo operation opt-in, expected HEAD/path checks, and human approval. No push exists. |
 | `local_only` | runner control, raw process inspection, local model invocation, secrets/config diagnostics | Do not expose publicly. Keep on loopback/local shell only. |

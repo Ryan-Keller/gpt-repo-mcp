@@ -2,7 +2,8 @@ import { createHash } from "node:crypto";
 import { randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, rm, writeFile } from "node:fs/promises";
 import { join } from "node:path";
-import { toolCatalog } from "../tools/catalog.js";
+import { getToolCatalogForProfile, type ToolDefinition } from "../tools/catalog.js";
+import { toolCatalogProfileFromEnv, type ToolCatalogProfile } from "../tools/catalog-profile.js";
 import { buildToolCatalogDiagnostic } from "./tool-catalog-diagnostic.js";
 import { getRequestTelemetry, type RequestTelemetryContext } from "./telemetry.js";
 import { buildConnectorIdentitySnapshot } from "./connector-identity.js";
@@ -65,12 +66,16 @@ export class BridgeRuntimeDiagnostics {
       startedAt: string;
       buildTimestamp: string;
       transportType?: "streamable_http";
+      toolCatalog?: ToolDefinition[];
+      toolProfile?: ToolCatalogProfile;
     }
   ) {
+    const toolProfile = input.toolProfile ?? toolCatalogProfileFromEnv();
     this.toolCatalogGeneration = buildToolCatalogDiagnostic({
       startedAt: input.startedAt,
       buildTimestamp: input.buildTimestamp,
-      toolCatalog
+      toolCatalog: input.toolCatalog ?? getToolCatalogForProfile(toolProfile),
+      toolProfile
     }).tool_catalog_hash;
   }
 

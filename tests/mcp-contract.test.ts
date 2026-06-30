@@ -8,8 +8,8 @@ import { promisify } from "node:util";
 import { describe, expect, test } from "vitest";
 import { SERVER_INSTRUCTIONS, createMcpServer } from "../src/register.js";
 import { RootRegistry } from "../src/services/root-registry.js";
-import { readOnlyAnnotations, writeAnnotations } from "../src/tools/annotations.js";
-import { toolCatalog } from "../src/tools/catalog.js";
+import { boundedPacketWriteAnnotations, readOnlyAnnotations, writeAnnotations } from "../src/tools/annotations.js";
+import { compactToolCatalog, fullToolCatalog, toolCatalog } from "../src/tools/catalog.js";
 import { isMutatingToolName } from "../src/tools/mutating-tools.js";
 
 const execFileAsync = promisify(execFile);
@@ -27,15 +27,19 @@ describe("MCP contract", () => {
       expect(client.getInstructions()).toBe(SERVER_INSTRUCTIONS);
       expect(SERVER_INSTRUCTIONS).not.toContain("read-only repository app");
       expect(SERVER_INSTRUCTIONS).toContain("Mutating tools are disabled by default and require repo-local config opt-in");
-      expect(SERVER_INSTRUCTIONS).toContain("Prefer the repo_write_* names for ChatGPT workflows");
-      expect(SERVER_INSTRUCTIONS).toContain("repo_write_commit, repo_write_stage_commit, and repo_git_commit create local commits only");
       expect(SERVER_INSTRUCTIONS).toContain("repo_git_review is the workflow hub");
-      expect(SERVER_INSTRUCTIONS).toContain("prefer composite workflow tools");
+      expect(SERVER_INSTRUCTIONS).toContain("repo_project_context");
+      expect(SERVER_INSTRUCTIONS).toContain("repo_read with mode=tree");
+      expect(SERVER_INSTRUCTIONS).toContain("Prefer composite workflow tools");
       expect(SERVER_INSTRUCTIONS).toContain("repo_write_stage_commit for reviewed happy-path local commits");
       expect(SERVER_INSTRUCTIONS).toContain("repo_write_recover for reviewed recovery");
       expect(SERVER_INSTRUCTIONS).toContain("Dry-run is optional preview");
       expect(SERVER_INSTRUCTIONS).toContain("Omit optional reason by default");
       expect(SERVER_INSTRUCTIONS).toContain("repo_last_write");
+      expect(SERVER_INSTRUCTIONS).not.toContain("repo_policy_explain");
+      expect(SERVER_INSTRUCTIONS).not.toContain("repo_prepare_codex_task");
+      expect(SERVER_INSTRUCTIONS).not.toContain("repo_project_brief, then repo_task_inventory");
+      expect(SERVER_INSTRUCTIONS).not.toContain("repo_tree for structure");
       expect(SERVER_INSTRUCTIONS).not.toContain("dry-run first when possible");
       expect(SERVER_INSTRUCTIONS).toContain("do not push");
       expect(SERVER_INSTRUCTIONS).toContain("do not run shell commands");
@@ -48,7 +52,7 @@ describe("MCP contract", () => {
     const { client, close } = await connectFixtureServer();
     try {
       const listed = await client.listTools();
-      expect(new Set(listed.tools.map((tool) => tool.name))).toEqual(new Set(toolCatalog.map((tool) => tool.name)));
+      expect(new Set(listed.tools.map((tool) => tool.name))).toEqual(new Set(compactToolCatalog.map((tool) => tool.name)));
 
       for (const tool of listed.tools) {
         expect(tool.title).toEqual(expect.any(String));
@@ -56,7 +60,7 @@ describe("MCP contract", () => {
         expect(tool.inputSchema).toBeDefined();
         expect(tool.outputSchema).toBeDefined();
         if (isMutatingToolName(tool.name)) {
-          expect(tool.annotations).toMatchObject(writeAnnotations);
+          expect(tool.annotations).toMatchObject(tool.name === "repo_hermes_intake" ? boundedPacketWriteAnnotations : writeAnnotations);
         } else {
           expect(tool.annotations).toMatchObject(readOnlyAnnotations);
         }
@@ -80,86 +84,36 @@ describe("MCP contract", () => {
       }));
       const names = surface.map((tool) => tool.name);
       const hermesIntake = surface.find((tool) => tool.name === "repo_hermes_intake");
-      const labExec = surface.find((tool) => tool.name === "repo_lab_exec");
-      const liveTail = surface.find((tool) => tool.name === "repo_run_live_tail");
+      const repoRead = surface.find((tool) => tool.name === "repo_read");
+      const repoProjectContext = surface.find((tool) => tool.name === "repo_project_context");
       const runnerStatus = surface.find((tool) => tool.name === "repo_runner_status");
 
-      expect(names).toHaveLength(40);
+      expect(names).toHaveLength(16);
       expect(names).toContain("repo_bridge_concierge");
       expect(names.indexOf("repo_hermes_intake")).toBeLessThan(3);
-      expect(names).toContain("repo_run_live_tail");
       expect(names).toContain("repo_runner_status");
-      expect(names).toContain("repo_project_memory");
-      expect(names).toContain("repo_write_codex_tasks_batch");
-      expect(names).toContain("repo_codex_appserver_turn");
-      expect(names).toContain("repo_lab_exec");
+      expect(names).toContain("repo_read");
+      expect(names).toContain("repo_project_context");
       expect(names).toContain("repo_hermes_intake");
-      expect(names).toContain("repo_town_portal_return");
-      expect(names).toContain("agent_runner_status");
-      const appserverTurn = surface.find((tool) => tool.name === "repo_codex_appserver_turn");
-      expect(appserverTurn).toMatchObject({
-        title: "Send Codex app-server turn",
-        inputKeys: [
-          "acceptance_criteria",
-          "allowed_paths",
-          "app_server_url",
-          "binding_id",
-          "correlation_id",
-          "dry_run",
-          "forbidden_paths",
-          "model",
-          "objective",
-          "repo_id",
-          "target_thread_id",
-          "timeout_seconds",
-          "workstream"
-        ],
-        outputKeys: [
-          "address",
-          "app_server_url_scope",
-          "binding_available",
-          "binding_id",
-          "bootstrap_used",
-          "connection_status",
-          "direct_send",
-          "dry_run",
-          "json_rpc_messages",
-          "json_rpc_wire_note",
-          "live_receipt",
-          "next_proof_step",
-          "ok",
-          "proof_boundary",
-          "repo_id",
-          "status",
-          "target_thread_id",
-          "warnings",
-          "workstream"
-        ]
-      });
-      expect(labExec).toMatchObject({
-        title: "Run guarded lab file",
-        inputKeys: ["command", "max_output_bytes", "repo_id", "timeout_seconds"],
-        outputKeys: [
-          "allowed",
-          "argv",
-          "cwd_label",
-          "duration_ms",
-          "exit_code",
-          "ok",
-          "output_sha256",
-          "policy",
-          "repo_id",
-          "signal",
-          "spawned",
-          "status",
-          "stderr_tail",
-          "stderr_truncated",
-          "stdout_tail",
-          "stdout_truncated",
-          "timed_out",
-          "warnings"
-        ]
-      });
+      expect(names).not.toContain("agent_runner_status");
+      expect(names).not.toContain("repo_run_live_tail");
+      expect(names).not.toContain("repo_tree");
+      expect(names).not.toContain("repo_search");
+      expect(names).not.toContain("repo_fetch_file");
+      expect(names).not.toContain("repo_read_many");
+      expect(names).not.toContain("repo_project_brief");
+      expect(names).not.toContain("repo_project_memory");
+      expect(names).not.toContain("repo_task_inventory");
+      expect(names).not.toContain("repo_decision_memory");
+      expect(names).not.toContain("repo_change_plan");
+      expect(names).not.toContain("repo_next_action");
+      expect(names).not.toContain("repo_write_codex_tasks_batch");
+      expect(names).not.toContain("repo_codex_appserver_turn");
+      expect(names).not.toContain("codex_run_and_wait");
+      expect(names).not.toContain("repo_lab_exec");
+      expect(names).not.toContain("repo_town_portal_return");
+      expect(names).not.toContain("repo_write_file");
+      expect(names).not.toContain("repo_cleanup_paths");
       expect(hermesIntake).toMatchObject({
         title: "Submit Hermes intake",
         inputKeys: ["board", "intake_markdown", "job_id", "max_output_bytes", "repo_id", "submit", "timeout_seconds", "title"],
@@ -185,10 +139,62 @@ describe("MCP contract", () => {
           "warnings"
         ]
       });
+      expect(repoRead).toMatchObject({
+        title: "Read repository context",
+        inputKeys: [
+          "context_lines",
+          "cursor",
+          "end_line",
+          "exclude_globs",
+          "include_dependencies",
+          "include_files",
+          "include_generated",
+          "include_globs",
+          "max_bytes",
+          "max_bytes_per_file",
+          "max_depth",
+          "max_files",
+          "max_results",
+          "max_total_bytes",
+          "mode",
+          "override_default_excludes",
+          "page_size",
+          "path",
+          "paths",
+          "query",
+          "repo_id",
+          "respect_default_excludes",
+          "search_mode",
+          "start_line"
+        ],
+        outputKeys: ["delegated_tool", "mode", "ok", "result", "warnings"]
+      });
+      expect(repoProjectContext).toMatchObject({
+        title: "Read project context",
+        inputKeys: [
+          "cursor",
+          "exclude_globs",
+          "goal",
+          "horizon",
+          "include",
+          "include_archived",
+          "include_globs",
+          "include_sources",
+          "labels",
+          "max_files_to_inspect",
+          "max_results",
+          "mode",
+          "next_action_mode",
+          "planning_depth",
+          "repo_id"
+        ],
+        outputKeys: ["delegated_tool", "mode", "ok", "result", "warnings"]
+      });
       expect(runnerStatus?.inputKeys).toEqual([
         "capability_id",
         "detail",
         "heartbeat_stale_seconds",
+        "hermes_board",
         "live_tail_max_events",
         "poll_count",
         "poll_interval_seconds",
@@ -224,21 +230,24 @@ describe("MCP contract", () => {
       expect(runnerStatusSchema).not.toContain("active_run_live_tail");
       expect(runnerStatusSchema).not.toContain("poll_history");
       expect(runnerStatusSchema.length).toBeLessThan(8_500);
-      expect(liveTail).toMatchObject({
-        title: "Show Codex run live tail",
-        inputKeys: ["cursor", "max_events", "repo_id", "run_id"],
-        outputKeys: [
-          "events",
-          "next_cursor",
-          "ok",
-          "repo_id",
-          "result_path",
-          "result_status",
-          "run_id",
-          "terminal",
-          "warnings"
-        ]
-      });
+    } finally {
+      await close();
+    }
+  });
+
+  test("full tool profile keeps the legacy/debug surface available", async () => {
+    const { client, close } = await connectFixtureServer("full");
+    try {
+      const listed = await client.listTools();
+      const names = listed.tools.map((tool) => tool.name);
+      expect(names).toHaveLength(42);
+      expect(new Set(names)).toEqual(new Set(fullToolCatalog.map((tool) => tool.name)));
+      expect(names).toContain("agent_runner_status");
+      expect(names).toContain("repo_read");
+      expect(names).toContain("repo_project_context");
+      expect(names).toContain("repo_run_live_tail");
+      expect(names).toContain("repo_write_codex_tasks_batch");
+      expect(names).toContain("repo_lab_exec");
     } finally {
       await close();
     }
@@ -324,7 +333,7 @@ describe("MCP contract", () => {
   });
 
   test("repo_run_live_tail is read-only and returns safe run events", async () => {
-    const { client, root, close } = await connectFixtureServer();
+    const { client, root, close } = await connectFixtureServer("full");
     const runId = "2026-06-07T120000Z-live-tail-contract";
     const runDir = join(root, ".chatgpt", "codex-runs", runId);
     try {
@@ -1183,7 +1192,7 @@ describe("MCP contract", () => {
   });
 
   test("actual repo_write_file creates last write receipt", async () => {
-    const { client, close } = await connectFixtureServer();
+    const { client, close } = await connectFixtureServer("full");
     try {
       const write = await client.callTool({
         name: "repo_write_file",
@@ -1233,7 +1242,7 @@ describe("MCP contract", () => {
   });
 
   test("repo_write_changes creates receipt and dry-run failed and no-op writes do not overwrite it", async () => {
-    const { client, close } = await connectFixtureServer();
+    const { client, close } = await connectFixtureServer("full");
     try {
       const writeChanges = await client.callTool({
         name: "repo_write_changes",
@@ -1344,9 +1353,11 @@ describe("MCP contract", () => {
   });
 
   test("representative calls for every tool match their output schema", async () => {
-    const { client, close, head } = await connectFixtureServer();
-    try {
-      for (const [name, args] of Object.entries(representativeCalls(head))) {
+    for (const name of Object.keys(representativeCalls("0".repeat(40)))) {
+      const { client, close, head } = await connectFixtureServer("full");
+      try {
+        const args = representativeCalls(head)[name]!;
+        expect(args, name).toBeDefined();
         const result = await client.callTool({ name, arguments: args });
         expect(result.isError, name).toBeUndefined();
         expect(result.structuredContent, name).toBeDefined();
@@ -1358,17 +1369,18 @@ describe("MCP contract", () => {
         expect(result.content, name).toEqual([
           expect.objectContaining({ type: "text", text: expect.any(String) })
         ]);
+      } finally {
+        await close();
       }
-    } finally {
-      await close();
     }
-  });
+  }, 30_000);
 });
 
 function representativeCalls(head: string): Record<string, Record<string, unknown>> {
   return {
   repo_list_roots: {},
   repo_last_write: { repo_id: "fixture" },
+  repo_read: { repo_id: "fixture", mode: "file", path: "README.md", start_line: 1, end_line: 5 },
   repo_tree: { repo_id: "fixture", path: ".", max_depth: 2, page_size: 10 },
   repo_search: { repo_id: "fixture", query: "Fixture", max_results: 5 },
   repo_fetch_file: { repo_id: "fixture", path: "README.md", start_line: 1, end_line: 5 },
@@ -1386,6 +1398,7 @@ function representativeCalls(head: string): Record<string, Record<string, unknow
   repo_write_stage_commit: { repo_id: "fixture", paths: ["docs/staged.md"], message: "Update staged docs", expected_head_sha: head, dry_run: true },
   repo_write_recover: { repo_id: "fixture", restore_paths: ["docs/write-dry-run.md"], cleanup_paths: [".chatgpt/tool-tests/cleanup.txt"], expected_head_sha: head, dry_run: true },
   repo_cleanup_paths: { repo_id: "fixture", paths: [".chatgpt/tool-tests/cleanup.txt"], dry_run: true },
+  repo_project_context: { repo_id: "fixture", mode: "brief" },
   repo_project_brief: { repo_id: "fixture" },
   repo_project_memory: { repo_id: "fixture" },
   repo_task_inventory: { repo_id: "fixture", max_results: 5 },
@@ -1459,7 +1472,7 @@ function representativeCalls(head: string): Record<string, Record<string, unknow
   };
 }
 
-async function connectFixtureServer() {
+async function connectFixtureServer(toolProfile: "compact" | "full" = "compact") {
   const root = await createRepoRoot();
   const head = (await execFileAsync("git", ["rev-parse", "HEAD"], { cwd: root, env: { PATH: process.env.PATH ?? "" } })).stdout.trim();
   const registry = await RootRegistry.fromConfig({
@@ -1477,7 +1490,7 @@ async function connectFixtureServer() {
     }],
     limits: {}
   });
-  const server = createMcpServer({ registry });
+  const server = createMcpServer({ registry }, { toolProfile });
   const client = new Client({ name: "contract-test-client", version: "0.1.0" });
   const [clientTransport, serverTransport] = InMemoryTransport.createLinkedPair();
 

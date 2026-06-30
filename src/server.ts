@@ -4,7 +4,9 @@ import { StreamableHTTPServerTransport } from "@modelcontextprotocol/sdk/server/
 import { isInitializeRequest } from "@modelcontextprotocol/sdk/types.js";
 import { RootRegistry } from "./services/root-registry.js";
 import { createMcpServer } from "./register.js";
-import { toolCatalog } from "./tools/catalog.js";
+import { getToolCatalogForProfile } from "./tools/catalog.js";
+import { toolCatalogProfileFromEnv } from "./tools/catalog-profile.js";
+import { getServerInstructions } from "./instructions.js";
 import { buildToolCatalogDiagnostic } from "./runtime/tool-catalog-diagnostic.js";
 import type { RuntimeContext } from "./runtime/context.js";
 import {
@@ -48,10 +50,23 @@ const registry = configPath
   ? await RootRegistry.fromFile(configPath)
   : await RootRegistry.fromConfig({ repos: [], limits: {} });
 const startedAt = new Date().toISOString();
-const toolNames = toolCatalog.map((tool) => tool.name).sort();
+const toolProfile = toolCatalogProfileFromEnv();
+const activeToolCatalog = getToolCatalogForProfile(toolProfile);
+const toolNames = activeToolCatalog.map((tool) => tool.name).sort();
 const buildTimestamp = process.env.GPT_REPO_BUILD_TIMESTAMP ?? startedAt;
-const initialDiagnostic = buildToolCatalogDiagnostic({ startedAt, buildTimestamp, toolCatalog });
-const diagnostics = new BridgeRuntimeDiagnostics({ startedAt, buildTimestamp, transportType: "streamable_http" });
+const initialDiagnostic = buildToolCatalogDiagnostic({
+  startedAt,
+  buildTimestamp,
+  toolCatalog: activeToolCatalog,
+  toolProfile
+});
+const diagnostics = new BridgeRuntimeDiagnostics({
+  startedAt,
+  buildTimestamp,
+  transportType: "streamable_http",
+  toolCatalog: activeToolCatalog,
+  toolProfile
+});
 const context: RuntimeContext = { registry, diagnostics };
 const authConfig = buildBridgeAuthConfig({
   authToken,
@@ -133,7 +148,8 @@ await appendBridgeSecurityEvent(registry, {
     bridge_process_id: process.pid,
     bridge_started_at: startedAt,
     tool_catalog_generation: initialDiagnostic.tool_catalog_hash,
-    tool_count: toolNames.length
+    tool_count: toolNames.length,
+    tool_profile: toolProfile
   },
   suggested_next_action: "refresh connector cache or start a new MCP session if ChatGPT still sees an older tool surface"
 });
@@ -169,7 +185,12 @@ app.get("/tool-catalog", async (req, res) => {
     return;
   }
   await recordSecurityDecision(decision, "auth_allowed", "info");
-  res.json(buildToolCatalogDiagnostic({ startedAt, buildTimestamp, toolCatalog }));
+  res.json(buildToolCatalogDiagnostic({
+    startedAt,
+    buildTimestamp,
+    toolCatalog: activeToolCatalog,
+    toolProfile
+  }));
 });
 
 app.get("/whoami", async (req, res) => {
@@ -271,12 +292,18 @@ function rejectUnauthorizedMcpPath(req: Request, res: Response): boolean {
 }
 
 function buildDetailedHealth() {
-  const diagnostic = buildToolCatalogDiagnostic({ startedAt, buildTimestamp, toolCatalog });
+  const diagnostic = buildToolCatalogDiagnostic({
+    startedAt,
+    buildTimestamp,
+    toolCatalog: activeToolCatalog,
+    toolProfile
+  });
   return {
     ok: true,
     name: "gpt-repo-mcp",
     started_at: startedAt,
     build_timestamp: buildTimestamp,
+    tool_profile: toolProfile,
     tool_count: toolNames.length,
     tool_catalog_hash: diagnostic.tool_catalog_hash,
     codex_tools: toolNames.filter((name) => name.includes("codex")),
@@ -407,14 +434,14 @@ async function rejectUnauthorizedBridgeAccess(req: Request, res: Response, conte
   const accessTier = getToolAccessTier(context.mcp_tool);
   const decision = authorizeHttpRequest(req, operation, accessTier);
   if (decision.allowed) {
-    if (accessTier === "privileged_write" || accessTier === "dangerous_git") {
+    if (accessTier === "bounded_packet_write" || accessTier === "privileged_write" || accessTier === "dangerous_git") {
       await recordSecurityDecision(decision, "privileged_action_allowed", "info");
     }
     return false;
   }
   await recordSecurityDecision(
     decision,
-    accessTier === "privileged_write" || accessTier === "dangerous_git" ? "privileged_action_denied" : "auth_denied",
+    accessTier === "bounded_packet_write" || accessTier === "privileged_write" || accessTier === "dangerous_git" ? "privileged_action_denied" : "auth_denied",
     "warning"
   );
   recordConnectorRequestOutcome({
@@ -484,7 +511,11 @@ app.post(mcpRoutePatterns, async (req: Request, res: Response) => {
             suggested_next_action: "refresh connector, re-open chat, validate tool catalog, then retry compact status call"
           });
         };
-        await createMcpServer(context).connect(transport);
+        await createMcpServer(context, {
+          toolProfile,
+          toolCatalog: activeToolCatalog,
+          instructions: getServerInstructions(toolProfile)
+        }).connect(transport);
       } else {
         const errorCode = -32000;
         await appendBridgeSecurityEvent(registry, {

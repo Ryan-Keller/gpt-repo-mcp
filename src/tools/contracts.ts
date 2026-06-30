@@ -18,8 +18,10 @@ import { TownPortalReturnInputSchema, TownPortalReturnResultSchema } from "../co
 import { NextActionInputSchema, NextActionResultSchema } from "../contracts/next-action.contract.js";
 import { LastWriteInputSchema, LastWriteResultSchema } from "../contracts/operation-receipt.contract.js";
 import { PolicyExplainInputSchema, PolicyExplainResultSchema } from "../contracts/policy.contract.js";
+import { RepoProjectContextInputSchema, RepoProjectContextResultSchema } from "../contracts/project-context.contract.js";
 import { ProjectBriefInputSchema, ProjectBriefResultSchema } from "../contracts/project.contract.js";
 import { ProjectMemoryDashboardResultSchema, ProjectMemoryInputSchema } from "../contracts/project-memory.contract.js";
+import { RepoReadInputSchema, RepoReadResultSchema } from "../contracts/read-hub.contract.js";
 import { RepoInputSchema, RepoListInputSchema, RepoListReferenceResultSchema, RepoTreeInputSchema } from "../contracts/repo.contract.js";
 import { PlanReviewInputSchema, PlanReviewResultSchema } from "../contracts/review.contract.js";
 import { SearchInputSchema, SearchResponseSchema } from "../contracts/search.contract.js";
@@ -38,6 +40,7 @@ export type ToolName =
   | "repo_vision_routes"
   | "repo_policy_explain"
   | "repo_last_write"
+  | "repo_read"
   | "repo_tree"
   | "repo_search"
   | "repo_fetch_file"
@@ -55,6 +58,7 @@ export type ToolName =
   | "repo_write_stage_commit"
   | "repo_write_recover"
   | "repo_cleanup_paths"
+  | "repo_project_context"
   | "repo_project_brief"
   | "repo_project_memory"
   | "repo_task_inventory"
@@ -116,6 +120,10 @@ export const toolContracts = {
   repo_last_write: {
     input: LastWriteInputSchema,
     output: LastWriteResultSchema
+  },
+  repo_read: {
+    input: RepoReadInputSchema,
+    output: RepoReadResultSchema
   },
   repo_tree: {
     input: RepoTreeInputSchema,
@@ -184,6 +192,10 @@ export const toolContracts = {
   repo_cleanup_paths: {
     input: CleanupPathsInputSchema,
     output: CleanupPathsResultSchema
+  },
+  repo_project_context: {
+    input: RepoProjectContextInputSchema,
+    output: RepoProjectContextResultSchema
   },
   repo_project_brief: {
     input: ProjectBriefInputSchema,

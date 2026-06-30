@@ -11,3 +11,10 @@ export const writeAnnotations = {
   openWorldHint: false,
   idempotentHint: false
 } as const;
+
+export const boundedPacketWriteAnnotations = {
+  readOnlyHint: false,
+  destructiveHint: false,
+  openWorldHint: false,
+  idempotentHint: false
+} as const;

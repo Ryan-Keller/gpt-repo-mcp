@@ -32,11 +32,13 @@ import { HermesIntakeInputSchema, HermesIntakeResultSchema } from "../src/contra
 import { LabExecInputSchema, LabExecResultSchema } from "../src/contracts/lab-exec.contract.js";
 import { TownPortalReturnInputSchema, TownPortalReturnResultSchema } from "../src/contracts/town-portal.contract.js";
 import { LastWriteInputSchema, LastWriteResultSchema } from "../src/contracts/operation-receipt.contract.js";
+import { RepoProjectContextInputSchema, RepoProjectContextResultSchema } from "../src/contracts/project-context.contract.js";
 import { ProjectBriefInputSchema } from "../src/contracts/project.contract.js";
 import { RepoReaderConfigSchema } from "../src/config/schema.js";
+import { RepoReadInputSchema, RepoReadResultSchema } from "../src/contracts/read-hub.contract.js";
 import { TaskInventoryInputSchema } from "../src/contracts/task.contract.js";
-import { readOnlyAnnotations, writeAnnotations } from "../src/tools/annotations.js";
-import { toolCatalog } from "../src/tools/catalog.js";
+import { boundedPacketWriteAnnotations, readOnlyAnnotations, writeAnnotations } from "../src/tools/annotations.js";
+import { compactToolCatalog, fullToolCatalog, getToolCatalogForProfile, toolCatalog } from "../src/tools/catalog.js";
 import { toolContracts } from "../src/tools/contracts.js";
 import { MUTATING_TOOL_NAMES, isMutatingToolName } from "../src/tools/mutating-tools.js";
 import { createAuditEvent } from "../src/runtime/telemetry.js";
@@ -54,8 +56,7 @@ function schemaDescription(schema: unknown): string | undefined {
 
 const chatGptDirectToolNames = new Set([
   "repo_bridge_concierge",
-  "repo_hermes_intake",
-  "repo_lab_exec"
+  "repo_hermes_intake"
 ]);
 
 const connectorHostileSchemaKeywords = new Set([
@@ -97,6 +98,7 @@ describe("tool catalog contracts", () => {
       "repo_runner_status",
       "repo_run_live_tail",
       "repo_last_write",
+      "repo_read",
       "repo_tree",
       "repo_search",
       "repo_fetch_file",
@@ -114,6 +116,7 @@ describe("tool catalog contracts", () => {
       "repo_write_stage_commit",
       "repo_write_recover",
       "repo_cleanup_paths",
+      "repo_project_context",
       "repo_project_brief",
       "repo_project_memory",
       "repo_task_inventory",
@@ -138,12 +141,44 @@ describe("tool catalog contracts", () => {
       expect(tool.inputSchema).toBeDefined();
       expect(tool.outputSchema).toBeDefined();
       if (isMutatingToolName(tool.name)) {
-        expect(tool.annotations).toEqual(writeAnnotations);
+        expect(tool.annotations).toEqual(tool.name === "repo_hermes_intake" ? boundedPacketWriteAnnotations : writeAnnotations);
       } else {
         expect(tool.annotations).toEqual(readOnlyAnnotations);
       }
       expect(tool.handler).toBeTypeOf("function");
     }
+  });
+
+  test("compact profile is the default ChatGPT tool surface", () => {
+    expect(toolCatalog).toBe(fullToolCatalog);
+    expect(getToolCatalogForProfile("full")).toBe(fullToolCatalog);
+    expect(getToolCatalogForProfile("compact")).toBe(compactToolCatalog);
+    expect(compactToolCatalog.map((tool) => tool.name)).toEqual([
+      "repo_list_roots",
+      "repo_bridge_concierge",
+      "repo_hermes_intake",
+      "repo_runner_status",
+      "repo_last_write",
+      "repo_read",
+      "repo_git_status",
+      "repo_git_diff",
+      "repo_git_review",
+      "repo_write_stage_commit",
+      "repo_write_recover",
+      "repo_project_context",
+      "repo_write_codex_task",
+      "repo_codex_review",
+      "repo_write_changes",
+      "repo_write_handoff"
+    ]);
+    expect(compactToolCatalog).toHaveLength(16);
+    expect(fullToolCatalog).toHaveLength(42);
+    expect(compactToolCatalog.map((tool) => tool.name)).not.toContain("agent_runner_status");
+    expect(compactToolCatalog.map((tool) => tool.name)).not.toContain("repo_run_live_tail");
+    expect(compactToolCatalog.map((tool) => tool.name)).not.toContain("repo_lab_exec");
+    expect(compactToolCatalog.map((tool) => tool.name)).not.toContain("repo_write_file");
+    expect(compactToolCatalog.map((tool) => tool.name)).not.toContain("repo_tree");
+    expect(compactToolCatalog.map((tool) => tool.name)).not.toContain("repo_project_brief");
   });
 
   test("mutating tools use central contracts and annotations", () => {
@@ -185,6 +220,8 @@ describe("tool catalog contracts", () => {
     const stageCommit = toolCatalog.find((tool) => tool.name === "repo_write_stage_commit");
     const recover = toolCatalog.find((tool) => tool.name === "repo_write_recover");
     const lastWrite = toolCatalog.find((tool) => tool.name === "repo_last_write");
+    const repoRead = toolCatalog.find((tool) => tool.name === "repo_read");
+    const repoProjectContext = toolCatalog.find((tool) => tool.name === "repo_project_context");
     const decisionMemory = toolCatalog.find((tool) => tool.name === "repo_decision_memory");
     const projectMemory = toolCatalog.find((tool) => tool.name === "repo_project_memory");
 
@@ -224,7 +261,7 @@ describe("tool catalog contracts", () => {
     expect(hermesIntake).toBeDefined();
     expect(hermesIntake?.inputSchema).toBe(HermesIntakeInputSchema);
     expect(hermesIntake?.outputSchema).toBe(HermesIntakeResultSchema);
-    expect(hermesIntake?.annotations).toEqual(writeAnnotations);
+    expect(hermesIntake?.annotations).toEqual(boundedPacketWriteAnnotations);
     expect(townPortalReturn).toBeDefined();
     expect(townPortalReturn?.inputSchema).toBe(TownPortalReturnInputSchema);
     expect(townPortalReturn?.outputSchema).toBe(TownPortalReturnResultSchema);
@@ -256,6 +293,14 @@ describe("tool catalog contracts", () => {
     expect(lastWrite?.inputSchema).toBe(LastWriteInputSchema);
     expect(lastWrite?.outputSchema).toBe(LastWriteResultSchema);
     expect(lastWrite?.annotations).toEqual(readOnlyAnnotations);
+    expect(repoRead).toBeDefined();
+    expect(repoRead?.inputSchema).toBe(RepoReadInputSchema);
+    expect(repoRead?.outputSchema).toBe(RepoReadResultSchema);
+    expect(repoRead?.annotations).toEqual(readOnlyAnnotations);
+    expect(repoProjectContext).toBeDefined();
+    expect(repoProjectContext?.inputSchema).toBe(RepoProjectContextInputSchema);
+    expect(repoProjectContext?.outputSchema).toBe(RepoProjectContextResultSchema);
+    expect(repoProjectContext?.annotations).toEqual(readOnlyAnnotations);
     expect(decisionMemory).toBeDefined();
     expect(decisionMemory?.inputSchema).toBe(DecisionLogInputSchema);
     expect(decisionMemory?.outputSchema).toBe(DecisionLogResultSchema);
@@ -319,6 +364,13 @@ describe("tool catalog contracts", () => {
     expect(JSON.stringify(ProjectBriefInputSchema.shape.repo_id)).not.toContain("shared-agent-bridge");
 
     expectFieldDescriptions([
+      ["repo_project_context.repo_id", RepoProjectContextInputSchema.shape.repo_id],
+      ["repo_project_context.mode", RepoProjectContextInputSchema.shape.mode],
+      ["repo_project_context.goal", RepoProjectContextInputSchema.shape.goal],
+      ["repo_read.repo_id", RepoReadInputSchema.shape.repo_id],
+      ["repo_read.mode", RepoReadInputSchema.shape.mode],
+      ["repo_read.path", RepoReadInputSchema.shape.path],
+      ["repo_read.query", RepoReadInputSchema.shape.query],
       ["repo_project_brief.repo_id", ProjectBriefInputSchema.shape.repo_id],
       ["repo_project_brief.include", ProjectBriefInputSchema.shape.include],
       ["repo_task_inventory.repo_id", TaskInventoryInputSchema.shape.repo_id],
@@ -381,6 +433,7 @@ describe("tool catalog contracts", () => {
       "capability_id",
       "detail",
       "heartbeat_stale_seconds",
+      "hermes_board",
       "live_tail_max_events",
       "poll_count",
       "poll_interval_seconds",
@@ -392,6 +445,7 @@ describe("tool catalog contracts", () => {
       repo_id: "fixture",
       capability_id: "town_portal",
       portal_id: "portal-2026-06-13T163521Z-scout-status-lab-b8b95f4d",
+      hermes_board: "hermes-intake-chatgpt-swarm-commit-push-m-repos-2026-06-29",
       poll_count: 4,
       poll_interval_seconds: 15,
       detail: "full"
@@ -948,12 +1002,14 @@ describe("tool catalog contracts", () => {
     const townPortalReturn = surface.find((tool) => tool.name === "repo_town_portal_return");
     const hermesIntake = surface.find((tool) => tool.name === "repo_hermes_intake");
 
-    expect(names).toHaveLength(40);
+    expect(names).toHaveLength(42);
     expect(names).toContain("repo_bridge_concierge");
     expect(names.indexOf("repo_hermes_intake")).toBeLessThan(3);
+    expect(names).toContain("repo_read");
     expect(names).toContain("repo_run_live_tail");
     expect(names).toContain("repo_runner_status");
     expect(names).toContain("repo_last_write");
+    expect(names).toContain("repo_project_context");
     expect(names).toContain("repo_project_memory");
     expect(names).toContain("repo_write_codex_tasks_batch");
     expect(names).toContain("repo_codex_appserver_turn");
@@ -984,6 +1040,7 @@ describe("tool catalog contracts", () => {
       "capability_id",
       "detail",
       "heartbeat_stale_seconds",
+      "hermes_board",
       "live_tail_max_events",
       "poll_count",
       "poll_interval_seconds",
@@ -1114,8 +1171,7 @@ describe("tool catalog contracts", () => {
 
     expect(directTools.map((tool) => tool.name).sort()).toEqual([
       "repo_bridge_concierge",
-      "repo_hermes_intake",
-      "repo_lab_exec"
+      "repo_hermes_intake"
     ]);
 
     for (const tool of directTools) {

@@ -13,12 +13,14 @@ describe("bridge access control", () => {
     expect(getToolAccessTier("repo_list_roots")).toBe("authenticated_read");
     expect(getToolAccessTier("repo_bridge_concierge")).toBe("authenticated_read");
     expect(getToolAccessTier("repo_runner_status")).toBe("authenticated_read");
+    expect(getToolAccessTier("repo_read")).toBe("authenticated_read");
+    expect(getToolAccessTier("repo_project_context")).toBe("authenticated_read");
     expect(getToolAccessTier("ready_results")).toBe("authenticated_read");
     expect(getToolAccessTier("repo_write_codex_task")).toBe("privileged_write");
     expect(getToolAccessTier("repo_write_codex_tasks_batch")).toBe("privileged_write");
     expect(getToolAccessTier("repo_codex_appserver_turn")).toBe("privileged_write");
     expect(getToolAccessTier("repo_lab_exec")).toBe("privileged_write");
-    expect(getToolAccessTier("repo_hermes_intake")).toBe("privileged_write");
+    expect(getToolAccessTier("repo_hermes_intake")).toBe("bounded_packet_write");
     expect(getToolAccessTier("repo_town_portal_return")).toBe("privileged_write");
     expect(getToolAccessTier("repo_write_file")).toBe("privileged_write");
     expect(getToolAccessTier("repo_write_commit")).toBe("dangerous_git");

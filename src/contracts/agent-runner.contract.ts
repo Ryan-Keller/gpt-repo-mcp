@@ -17,6 +17,12 @@ export const AgentRunnerStatusInputSchema = RepoInputSchema.extend({
     .describe("Optional exact capability id to expand inside capability_summary without returning the full capability catalog."),
   portal_id: z.string().min(1).optional()
     .describe("Optional portal id to hydrate inside the focused town_portal read-only capability surface. Ignored unless capability_id is town_portal."),
+  hermes_board: z.string()
+    .min(3)
+    .max(160)
+    .regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/)
+    .optional()
+    .describe("Optional Hermes Kanban board slug to hydrate when capability_id is hermes_kanban."),
   detail: z.enum(["summary", "full"]).optional()
     .describe("Payload detail level. Defaults to summary, which keeps status concise and omits bulky result/event bodies. Use full only when debugging or reviewing detailed evidence.")
 });
@@ -105,7 +111,8 @@ const CapabilityReferenceSummarySchema = z.object({
     safe_operations: z.array(z.string()).optional(),
     blocked_operations: z.array(z.string()).optional(),
     warnings: z.array(z.string()).optional()
-  }).passthrough().optional()
+  }).passthrough().optional(),
+  hermes_kanban: z.object({}).passthrough().optional()
 }).passthrough();
 
 const CentralQueueCoverageSchema = z.object({

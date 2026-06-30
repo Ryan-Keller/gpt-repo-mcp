@@ -11,6 +11,7 @@ import { GitService } from "../services/git-service.js";
 import { GitReviewService } from "../services/git-review-service.js";
 import { GitOperationsService } from "../services/git-operations-service.js";
 import { HandoffService } from "../services/handoff-service.js";
+import { HermesKanbanStatusService } from "../services/hermes-kanban-status-service.js";
 import { HermesIntakeService } from "../services/hermes-intake-service.js";
 import { LabExecService } from "../services/lab-exec-service.js";
 import { TownPortalConsumptionStore } from "../services/town-portal-consumption-store.js";
@@ -58,6 +59,8 @@ import type { NextActionInput } from "../contracts/next-action.contract.js";
 import type { VisionRouteInput } from "../contracts/vision-route.contract.js";
 import type { LastWriteInput } from "../contracts/operation-receipt.contract.js";
 import type { PolicyExplainInput } from "../contracts/policy.contract.js";
+import { RepoProjectContextInputSchema, type RepoProjectContextInput } from "../contracts/project-context.contract.js";
+import { RepoReadInputSchema, type RepoReadInput } from "../contracts/read-hub.contract.js";
 import type { WriteChangesInput, WriteFileInput } from "../contracts/write.contract.js";
 import type { GitCommitInput, GitRecoverInput, GitRestorePathsInput, GitStageCommitInput, GitStageInput, GitUnstageInput } from "../contracts/git-operations.contract.js";
 import type { GitReviewInput } from "../contracts/git-review.contract.js";
@@ -96,6 +99,11 @@ type RegisteredRepo = ReturnType<RuntimeContext["registry"]["get"]>;
 const RepoListRootsInput = z.object({
   capability_id: z.string().min(1).optional(),
   portal_id: z.string().min(1).optional(),
+  hermes_board: z.string()
+    .min(3)
+    .max(160)
+    .regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/)
+    .optional(),
   detail: z.enum(["summary", "full"]).optional()
 });
 
@@ -157,6 +165,7 @@ export const listRootsHandler: ToolHandler = async (input, context) => {
         detail,
         capabilityId: args.capability_id,
         portalId: args.portal_id,
+        hermesBoard: args.hermes_board,
         repoRoot: repo.root
       }),
       vision_capabilities: detail === "full"
@@ -268,6 +277,7 @@ export const agentRunnerStatusHandler: ToolHandler = async (input, context) => s
       detail: result.detail_level,
       capabilityId: args.capability_id,
       portalId: args.portal_id,
+      hermesBoard: args.hermes_board,
       repoRoot: repo.root,
       runnerStatusSurface: true
     })
@@ -458,6 +468,88 @@ export const readManyHandler: ToolHandler = async (input, context) => safeTool<R
   return createSuccessEnvelope(result, `Read ${result.files.length} files; skipped ${result.skipped.length}.`);
 });
 
+export const repoReadHandler: ToolHandler = async (input, context) => safeTool<RepoReadInput>("repo_read", input, context, async (rawArgs) => {
+  const args = RepoReadInputSchema.parse(rawArgs);
+  const repo = context.registry.get(args.repo_id);
+  const sandbox = new PathSandbox(repo.root);
+
+  if (args.mode === "tree") {
+    const result = await new RepoTreeService(repo.root, sandbox).tree({
+      path: args.path,
+      max_depth: args.max_depth,
+      page_size: args.page_size,
+      include_files: args.include_files,
+      respect_default_excludes: args.respect_default_excludes,
+      include_generated: args.include_generated,
+      include_dependencies: args.include_dependencies,
+      cursor: args.cursor
+    });
+    audit({ tool: "repo_read", repo_id: args.repo_id, counts: { entries: result.entries.length }, truncated: result.truncated });
+    return createSuccessEnvelope(
+      { ok: true as const, mode: args.mode, delegated_tool: "repo_tree" as const, result, warnings: [] },
+      `repo_read tree returned ${result.entries.length} entries.`
+    );
+  }
+
+  if (args.mode === "search") {
+    if (!args.query) {
+      throw new Error("repo_read search mode requires query.");
+    }
+    const result = await new SearchService(repo.root, sandbox).search({
+      query: args.query,
+      mode: args.search_mode,
+      include_globs: args.include_globs,
+      exclude_globs: args.exclude_globs,
+      context_lines: args.context_lines,
+      max_results: args.max_results,
+      cursor: args.cursor
+    });
+    audit({ tool: "repo_read", repo_id: args.repo_id, counts: { results: result.returned_count }, truncated: result.truncated, warnings: result.warnings });
+    return createSuccessEnvelope(
+      { ok: true as const, mode: args.mode, delegated_tool: "repo_search" as const, result, warnings: result.warnings },
+      `repo_read search returned ${result.returned_count} results.`,
+      { warnings: result.warnings }
+    );
+  }
+
+  if (args.mode === "file") {
+    if (!args.path) {
+      throw new Error("repo_read file mode requires path.");
+    }
+    const result = await new FileReader(new PathSandbox(repo.root)).read({
+      path: args.path,
+      start_line: args.start_line,
+      end_line: args.end_line,
+      max_bytes: args.max_bytes,
+      override_default_excludes: args.override_default_excludes
+    });
+    audit({ tool: "repo_read", repo_id: args.repo_id, paths: [result.path], counts: { bytes: result.size_bytes }, truncated: result.truncated, warnings: result.warnings });
+    return createSuccessEnvelope(
+      { ok: true as const, mode: args.mode, delegated_tool: "repo_fetch_file" as const, result, warnings: result.warnings },
+      `repo_read file read ${result.path}.`,
+      { warnings: result.warnings }
+    );
+  }
+
+  if ((args.paths?.length ?? 0) === 0 && (args.include_globs?.length ?? 0) === 0) {
+    throw new Error("repo_read many mode requires paths or include_globs.");
+  }
+  const result = await new ReadManyService(repo.root, sandbox, context.registry.limits).readMany({
+    paths: args.paths,
+    include_globs: args.include_globs,
+    exclude_globs: args.exclude_globs,
+    max_files: args.max_files,
+    max_bytes_per_file: args.max_bytes_per_file,
+    max_total_bytes: args.max_total_bytes,
+    cursor: args.cursor
+  });
+  audit({ tool: "repo_read", repo_id: args.repo_id, paths: result.files.map((file) => file.path), counts: { returned: result.files.length, skipped: result.skipped.length }, truncated: result.truncated });
+  return createSuccessEnvelope(
+    { ok: true as const, mode: args.mode, delegated_tool: "repo_read_many" as const, result, warnings: [] },
+    `repo_read many read ${result.files.length} files; skipped ${result.skipped.length}.`
+  );
+});
+
 export const gitStatusHandler: ToolHandler = async (input, context) => safeTool<RepoInput>("repo_git_status", input, context, async (args) => {
   const repo = context.registry.get(args.repo_id);
   const [result, runnerStatus] = await Promise.all([
@@ -641,6 +733,94 @@ export const nextActionHandler: ToolHandler = async (input, context) => safeTool
   });
   audit({ tool: "repo_next_action", repo_id: args.repo_id, counts: { actions: result.suggested_actions.length, blockers: result.blockers.length }, warnings: result.warnings });
   return createSuccessEnvelope(result, result.recommendation);
+});
+
+export const repoProjectContextHandler: ToolHandler = async (input, context) => safeTool<RepoProjectContextInput>("repo_project_context", input, context, async (rawArgs) => {
+  const args = RepoProjectContextInputSchema.parse(rawArgs);
+  const repoId = readOnlyRepoId(args.repo_id);
+  const repo = context.registry.get(repoId);
+  const sandbox = new PathSandbox(repo.root);
+
+  if (args.mode === "brief") {
+    const result = await new ProjectBriefService(repo, sandbox).brief({
+      include: args.include
+    });
+    audit({ tool: "repo_project_context", repo_id: repoId, counts: { docs: result.key_docs.length, scripts: result.scripts.length }, truncated: result.truncated, warnings: result.warnings });
+    return createSuccessEnvelope(
+      { ok: true as const, mode: args.mode, delegated_tool: "repo_project_brief" as const, result, warnings: result.warnings },
+      `repo_project_context brief returned for ${repo.display_name}.`,
+      { warnings: result.warnings }
+    );
+  }
+
+  if (args.mode === "memory") {
+    const result = await new ProjectMemoryService(repo, sandbox).dashboard({
+      include_archived: args.include_archived
+    });
+    audit({ tool: "repo_project_context", repo_id: repoId, counts: { projects: result.project_count, roadmap: result.roadmap.length }, warnings: result.warnings });
+    return createSuccessEnvelope(
+      { ok: true as const, mode: args.mode, delegated_tool: "repo_project_memory" as const, result, warnings: result.warnings },
+      `repo_project_context memory returned ${result.project_count} projects.`,
+      { warnings: result.warnings }
+    );
+  }
+
+  if (args.mode === "tasks") {
+    const result = await new TaskInventoryService(repo.root, sandbox).inventory({
+      include_globs: args.include_globs,
+      exclude_globs: args.exclude_globs,
+      labels: args.labels,
+      max_results: args.max_results,
+      cursor: args.cursor
+    });
+    audit({ tool: "repo_project_context", repo_id: repoId, counts: { tasks: result.returned_count }, truncated: result.truncated, warnings: result.warnings });
+    return createSuccessEnvelope(
+      { ok: true as const, mode: args.mode, delegated_tool: "repo_task_inventory" as const, result, warnings: result.warnings },
+      `repo_project_context tasks returned ${result.returned_count} items.`,
+      { warnings: result.warnings }
+    );
+  }
+
+  if (args.mode === "decisions") {
+    const result = await new DecisionLogService(repo.root, sandbox).decisionLog({
+      include_sources: args.include_sources
+    });
+    audit({ tool: "repo_project_context", repo_id: repoId, counts: { decisions: result.decisions.length, conventions: result.conventions.length }, warnings: result.warnings });
+    return createSuccessEnvelope(
+      { ok: true as const, mode: args.mode, delegated_tool: "repo_decision_memory" as const, result, warnings: result.warnings },
+      `repo_project_context decisions returned ${result.decisions.length} decisions and ${result.conventions.length} conventions.`,
+      { warnings: result.warnings }
+    );
+  }
+
+  if (args.mode === "plan") {
+    if (!args.goal) {
+      throw new Error("repo_project_context plan mode requires goal.");
+    }
+    const result = await new ChangePlanService(repo.root, sandbox).plan({
+      goal: args.goal,
+      include_globs: args.include_globs,
+      max_files_to_inspect: args.max_files_to_inspect,
+      planning_depth: args.planning_depth
+    });
+    audit({ tool: "repo_project_context", repo_id: repoId, counts: { relevant_files: result.relevant_files.length, steps: result.proposed_steps.length }, warnings: result.warnings });
+    return createSuccessEnvelope(
+      { ok: true as const, mode: args.mode, delegated_tool: "repo_change_plan" as const, result, warnings: result.warnings },
+      `repo_project_context plan returned ${result.proposed_steps.length} steps.`,
+      { warnings: result.warnings }
+    );
+  }
+
+  const result = await new NextActionService(repo, sandbox).recommend({
+    mode: args.next_action_mode,
+    horizon: args.horizon
+  });
+  audit({ tool: "repo_project_context", repo_id: repoId, counts: { actions: result.suggested_actions.length, blockers: result.blockers.length }, warnings: result.warnings });
+  return createSuccessEnvelope(
+    { ok: true as const, mode: args.mode, delegated_tool: "repo_next_action" as const, result, warnings: result.warnings },
+    result.recommendation,
+    { warnings: result.warnings }
+  );
 });
 
 export const planReviewHandler: ToolHandler = async (input) => {
@@ -1088,7 +1268,7 @@ type CapabilitySummaryResult = Awaited<ReturnType<typeof buildCapabilitySummary>
 
 async function capabilitySummaryForResponse(
   summary: CapabilitySummaryResult,
-  options: { detail: "summary" | "full"; capabilityId?: string; portalId?: string; repoRoot?: string; runnerStatusSurface?: boolean }
+  options: { detail: "summary" | "full"; capabilityId?: string; portalId?: string; hermesBoard?: string; repoRoot?: string; runnerStatusSurface?: boolean }
 ) {
   const capabilityId = normalizeCapabilityId(options.capabilityId);
   if (capabilityId) {
@@ -1183,7 +1363,7 @@ function compactWsBridgeRoom(wsBridgeRoom: CapabilitySummaryResult["ws_bridge_ro
 async function focusedCapabilitySummary(
   summary: CapabilitySummaryResult,
   capabilityId: string,
-  options: { portalId?: string; repoRoot?: string }
+  options: { portalId?: string; hermesBoard?: string; repoRoot?: string }
 ) {
   const capability = summary.capability_toc.capabilities.find((entry) => entry.capability_id === capabilityId);
   const virtualCapability = capabilityId === "ws_bridge_room"
@@ -1196,8 +1376,21 @@ async function focusedCapabilitySummary(
         blocked_operations: ["send_room_event", "mutate_route_proof", "update_binding", "write_receipt"],
         suggested_next_action: "use the room events as live coordination hints only; verify route proof through binding receipts"
       }
+    : capabilityId === "hermes_kanban"
+      ? {
+          capability_id: "hermes_kanban",
+          status: "read_only_focused_hub",
+          summary: "Read-only Hermes Kanban board status and recent task summaries through the existing capability_summary hub.",
+          existing_tool_or_hub_route: "repo_runner_status with capability_id hermes_kanban; repo_list_roots with capability_id hermes_kanban",
+          safe_operations: ["observe_boards", "read_task_status", "read_latest_task_results", "report_current_status"],
+          blocked_operations: ["create_task", "claim_task", "complete_task", "mutate_repo", "stage_commit_push", "delete_artifacts", "restart_services"],
+          suggested_next_action: "use hermes_board for one board, or omit it for recent boards; verify bridge artifacts for durable artifact readback"
+        }
     : undefined;
   const focusedCapability = capability ?? virtualCapability;
+  const hermesKanban = capabilityId === "hermes_kanban"
+    ? await new HermesKanbanStatusService().status({ board: options.hermesBoard })
+    : undefined;
   const moduleHandles = summary.module_registry.modules.map((entry) => ({
     module_id: entry.module_id,
     status: entry.status,
@@ -1218,6 +1411,7 @@ async function focusedCapabilitySummary(
     bridge_compass: summary.bridge_compass,
     ...(capabilityId === "concierge_style_routing" ? { concierge_preflight: summary.concierge_preflight } : {}),
     ...(capabilityId === "ws_bridge_room" ? { ws_bridge_room: summary.ws_bridge_room } : {}),
+    ...(hermesKanban ? { hermes_kanban: hermesKanban } : {}),
     capability_toc: {
       state: focusedCapability ? summary.capability_toc.state : "blocked",
       source_path: summary.capability_toc.source_path,

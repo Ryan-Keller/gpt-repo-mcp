@@ -6,6 +6,12 @@ export const RepoListInputSchema = z.object({
     .describe("Optional exact capability id to expand inside capability_summary without returning the full capability catalog."),
   portal_id: z.string().min(1).optional()
     .describe("Optional portal id to hydrate inside the focused town_portal read-only capability surface. Ignored unless capability_id is town_portal."),
+  hermes_board: z.string()
+    .min(3)
+    .max(160)
+    .regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/)
+    .optional()
+    .describe("Optional Hermes Kanban board slug to hydrate when capability_id is hermes_kanban."),
   detail: z.enum(["summary", "full"]).optional()
     .describe("Payload detail level. Defaults to summary, which keeps repo roots compact. Use full only for runner, capability, and vision diagnostics.")
 });
@@ -309,7 +315,8 @@ const CapabilityReferenceSummarySchema = z.object({
     returned_count: z.number().int().nonnegative().optional(),
     modules: z.array(ModuleHandleSchema).optional()
   }).passthrough().optional(),
-  ws_bridge_room: WsBridgeRoomStatusSchema.partial().optional()
+  ws_bridge_room: WsBridgeRoomStatusSchema.partial().optional(),
+  hermes_kanban: z.object({}).passthrough().optional()
 }).passthrough();
 
 const RunnerStatusReferenceSchema = z.object({

@@ -1,12 +1,12 @@
 export const descriptions = {
   repo_list_roots:
-    "Use this when the user asks which approved repositories are available. Does not read file contents.",
+    "Use this when the user asks which approved repositories are available, or when ChatGPT needs a read-only hub view of bridge capability status. Pass capability_id=\"hermes_kanban\" with optional hermes_board to inspect Hermes Kanban board status without adding a new tool name. Does not read repository file contents.",
   repo_bridge_concierge:
     "Use this when the user asks about a project, capability, goal, problem, latest progress, overnight changes, or what to work on next and should not need to know files, artifacts, run IDs, or storage paths. Resolves the human intention to a destination packet with identity, status, latest truth, next action, known/inferred/unknown, and evidence. Read-only; never launches Codex, mutates files, stages, commits, pushes, deletes, clears locks, runs shell commands, or hides evidence.",
   agent_runner_status:
     "Use this when the user asks whether the Shared Agent Bridge Codex runner is alive, pending, stale, locked, blocked, or completed. Compatibility alias for repo_runner_status; returns the same status. Defaults to a compact summary; use detail=\"full\" only when detailed queue, event, result, or live-tail evidence is needed.",
   repo_runner_status:
-    "Use this when the user asks to show runner status, check whether Codex is actually working, inspect an active run, monitor live-tail progress, verify Shared Agent Bridge worker health, or expand one read-only capability surface such as town_portal through capability_id and optional portal_id. Defaults to detail=\"summary\" so normal health checks stay concise; use detail=\"full\" only when detailed queue, event, result, or live-tail evidence is needed. Supports bounded bridge-side polling with poll_count and poll_interval_seconds to avoid rapid repeated connector calls. Stable read-only runner status tool for ChatGPT; never launches Codex, mutates files, stages, commits, pushes, deletes, clears locks, or runs shell commands.",
+    "Use this when the user asks to show runner status, check whether Codex or Hermes work is actually progressing, inspect an active run, monitor live-tail progress, verify Shared Agent Bridge worker health, or expand one read-only capability surface such as town_portal or hermes_kanban through capability_id and optional portal_id/hermes_board. Defaults to detail=\"summary\" so normal health checks stay concise; use detail=\"full\" only when detailed queue, event, result, or live-tail evidence is needed. Supports bounded bridge-side polling with poll_count and poll_interval_seconds to avoid rapid repeated connector calls. Stable read-only runner/Hermes status tool for ChatGPT; never launches Codex, creates Hermes tasks, mutates files, stages, commits, pushes, deletes, clears locks, or runs arbitrary shell commands.",
   repo_run_live_tail:
     "Use this when the user asks what an active or recent Shared Agent Bridge Codex run is doing. Reads .chatgpt/codex-runs/<run_id>/events.jsonl and safe log tails only; never launches Codex, mutates files, stages, commits, pushes, deletes, clears locks, or runs shell commands.",
   repo_connector_whoami:
@@ -17,6 +17,8 @@ export const descriptions = {
     "Use this when a read, write, or cleanup policy question is blocked or the user asks what ChatGPT can access in a repo. Explains effective read/write/cleanup policy, local git operation toggles, matched globs, block reasons, and next steps without reading or mutating files.",
   repo_last_write:
     "Use this when the user asks what the last write operation changed or how to continue review/recovery after a previous write. Reads safe local receipt metadata only and never mutates files or git.",
+  repo_read:
+    "Use this when ChatGPT needs compact repository reading. Select mode=tree to inspect structure, mode=search to locate code, mode=file to read one specific file or line range, and mode=many for a bounded explicit path/glob set. Read-only; never mutates files, stages, commits, pushes, deletes, or runs shell commands.",
   repo_tree:
     "Use this when the user asks to inspect repository structure or locate likely files by directory. Do not use this when the user asks to read file contents.",
   repo_search:
@@ -51,6 +53,8 @@ export const descriptions = {
     "Use this when the user has reviewed repo_git_review output and explicitly approves recovering exact repo-relative paths in one operation. Can unstage, restore tracked worktree paths, and clean configured generated artifacts; requires expected HEAD, explicit paths, does not reset, checkout, stash, clean, commit, push, or run shell commands.",
   repo_cleanup_paths:
     "Use this when the user explicitly asks to delete generated repo-local artifacts or local ChatGPT artifacts separately, or granular cleanup control is needed; prefer repo_write_recover after repo_git_review for normal reviewed recovery. Requires user approval, explicit paths, refuses tracked files, and never runs shell commands or git clean.",
+  repo_project_context:
+    "Use this when ChatGPT needs compact project understanding and planning. Select mode=brief, memory, tasks, decisions, plan, or next_action instead of carrying separate planning tools in the default surface. Read-only; never mutates files, stages, commits, pushes, deletes, launches Codex, or runs shell commands.",
   repo_project_brief:
     "Use this when the user asks to understand, onboard into, plan work for, summarize, or start a daily planning session for an approved repository. Prefer this as the first planning tool because it returns bounded project signals without reading the whole repo.",
   repo_project_memory:
@@ -80,7 +84,7 @@ export const descriptions = {
   repo_lab_exec:
     "Use this when the user explicitly asks to run an approved Shared Agent Bridge lab file. Executes only node with a repo-relative .mjs/.js file under shared/experiments, uses no shell, rejects unsafe commands before spawning, enforces timeout and output caps, and never runs git, Codex, npm install, network tools, deletes, background processes, stages, commits, pushes, or clears locks.",
   repo_hermes_intake:
-    "Use this when the user explicitly asks ChatGPT to send a large idea, roadmap, product direction, research agenda, or multi-profile work plan directly to Hermes Orchestrator. Writes a file-backed packet under shared/hermes-intake/<job_id>, optionally submits it through the guarded local Hermes CLI, reads RESULT.md when available, and never stores secrets, stages, commits, pushes, deletes, clears locks, or exposes private connector URLs.",
+    "Use this when the user explicitly asks ChatGPT to send a large idea, roadmap, product direction, research agenda, or multi-profile work plan directly to Hermes Orchestrator. Bounded packet-write lane: writes only shared/hermes-intake/<job_id>/manifest.json and INTAKE.md, optionally submits that manifest through the guarded local Hermes CLI, reads RESULT.md when available, and never stores secrets, stages, commits, pushes, deletes, clears locks, changes remotes, restarts services, or exposes private connector URLs. Use repo_runner_status with capability_id=\"hermes_kanban\" to inspect board status afterward.",
   repo_town_portal_return:
     "Use this when the user explicitly asks to exercise the lab-scoped Town Portal advisory return route. Validates one supplied portal and one display-only payload before a narrow shared/status/town-portal-lab adapter handoff; requires lab_mode, consumes terminal handles in process, and never launches agents, queues Codex, mutates runner state, clears locks, stages, commits, pushes, deletes, or runs shell commands.",
   repo_write_file:

@@ -1,16 +1,21 @@
 import { createHash } from "node:crypto";
-import type { ToolDefinition } from "../tools/catalog.js";
+import { fullToolCatalog, type ToolDefinition } from "../tools/catalog.js";
+import type { ToolCatalogProfile } from "../tools/catalog-profile.js";
 
 export const REQUIRED_CHATGPT_TOOLS = [
   "repo_list_roots",
   "repo_bridge_concierge",
   "repo_hermes_intake",
+  "repo_read",
+  "repo_project_context",
   "repo_write_codex_task",
-  "repo_write_codex_tasks_batch",
-  "codex_run_and_wait",
   "repo_codex_review",
   "repo_git_status",
-  "repo_runner_status"
+  "repo_git_review",
+  "repo_runner_status",
+  "repo_write_changes",
+  "repo_write_recover",
+  "repo_write_stage_commit"
 ] as const;
 
 export type ToolCatalogDiagnostic = {
@@ -18,7 +23,9 @@ export type ToolCatalogDiagnostic = {
   name: "gpt-repo-mcp";
   started_at: string;
   build_timestamp: string;
+  tool_profile: ToolCatalogProfile;
   tool_count: number;
+  full_tool_count: number;
   tool_catalog_hash: string;
   tools: Array<{
     name: string;
@@ -36,6 +43,7 @@ export function buildToolCatalogDiagnostic(input: {
   startedAt: string;
   buildTimestamp: string;
   toolCatalog: ToolDefinition[];
+  toolProfile?: ToolCatalogProfile;
 }): ToolCatalogDiagnostic {
   const toolNames = input.toolCatalog.map((tool) => tool.name).sort();
   const toolNameSet = new Set<string>(toolNames);
@@ -54,7 +62,9 @@ export function buildToolCatalogDiagnostic(input: {
     name: "gpt-repo-mcp",
     started_at: input.startedAt,
     build_timestamp: input.buildTimestamp,
+    tool_profile: input.toolProfile ?? "compact",
     tool_count: toolNames.length,
+    full_tool_count: fullToolCatalog.length,
     tool_catalog_hash: createHash("sha256").update(JSON.stringify(catalogFingerprint)).digest("hex").slice(0, 16),
     tools: input.toolCatalog
       .map((tool) => ({

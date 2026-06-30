@@ -1,6 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 
-export type AccessTier = "public_safe" | "authenticated_read" | "privileged_write" | "dangerous_git" | "local_only";
+export type AccessTier = "public_safe" | "authenticated_read" | "bounded_packet_write" | "privileged_write" | "dangerous_git" | "local_only";
 export type CallerClassification = "public" | "authenticated" | "local" | "connector" | "unknown";
 
 export type BridgeAuthConfig = {
@@ -38,6 +38,7 @@ export const ACCESS_MATRIX: Record<AccessTier, string[]> = {
     "repo_runner_status",
     "repo_run_live_tail",
     "repo_connector_whoami",
+    "repo_read",
     "ready_results",
     "recent_events",
     "capability_summary",
@@ -50,12 +51,17 @@ export const ACCESS_MATRIX: Record<AccessTier, string[]> = {
     "repo_write_codex_tasks_batch",
     "repo_codex_appserver_turn",
     "repo_lab_exec",
-    "repo_hermes_intake",
     "repo_town_portal_return",
     "repo_write_file",
     "repo_write_changes",
     "repo_write_handoff",
     "repo_cleanup_paths"
+  ],
+  bounded_packet_write: [
+    "repo_hermes_intake",
+    "writes only shared/hermes-intake/<job_id>/manifest.json and INTAKE.md",
+    "optional guarded submit helper",
+    "no git stage/commit/push/delete/reset/restart"
   ],
   dangerous_git: [
     "repo_git_stage",
@@ -90,6 +96,7 @@ const TOOL_ACCESS_TIERS: Record<string, AccessTier> = {
   repo_vision_routes: "authenticated_read",
   repo_policy_explain: "authenticated_read",
   repo_last_write: "authenticated_read",
+  repo_read: "authenticated_read",
   repo_tree: "authenticated_read",
   repo_search: "authenticated_read",
   repo_fetch_file: "authenticated_read",
@@ -98,6 +105,8 @@ const TOOL_ACCESS_TIERS: Record<string, AccessTier> = {
   repo_git_diff: "authenticated_read",
   repo_git_review: "authenticated_read",
   repo_project_brief: "authenticated_read",
+  repo_project_context: "authenticated_read",
+  repo_project_memory: "authenticated_read",
   repo_task_inventory: "authenticated_read",
   repo_decision_memory: "authenticated_read",
   repo_change_plan: "authenticated_read",
@@ -110,7 +119,7 @@ const TOOL_ACCESS_TIERS: Record<string, AccessTier> = {
   repo_codex_review: "authenticated_read",
   codex_run_and_wait: "privileged_write",
   repo_lab_exec: "privileged_write",
-  repo_hermes_intake: "privileged_write",
+  repo_hermes_intake: "bounded_packet_write",
   repo_town_portal_return: "privileged_write",
   repo_write_file: "privileged_write",
   repo_write_changes: "privileged_write",

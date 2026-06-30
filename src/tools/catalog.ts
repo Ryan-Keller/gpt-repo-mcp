@@ -1,5 +1,6 @@
 import { descriptions } from "./descriptions.js";
-import { readOnlyAnnotations, writeAnnotations } from "./annotations.js";
+import { boundedPacketWriteAnnotations, readOnlyAnnotations, writeAnnotations } from "./annotations.js";
+import { COMPACT_TOOL_NAMES, type ToolCatalogProfile } from "./catalog-profile.js";
 import { toolContracts, type ToolContract, type ToolName } from "./contracts.js";
 import {
   changePlanHandler,
@@ -23,6 +24,8 @@ import {
   labExecHandler,
   listRootsHandler,
   nextActionHandler,
+  repoProjectContextHandler,
+  repoReadHandler,
   projectBriefHandler,
   projectMemoryHandler,
   readManyHandler,
@@ -50,11 +53,11 @@ export type ToolDefinition = {
   description: string;
   inputSchema: ToolContract["input"];
   outputSchema: ToolContract["output"];
-  annotations: typeof readOnlyAnnotations | typeof writeAnnotations;
+  annotations: typeof readOnlyAnnotations | typeof writeAnnotations | typeof boundedPacketWriteAnnotations;
   handler: ToolHandler;
 };
 
-export const toolCatalog: ToolDefinition[] = [
+export const fullToolCatalog: ToolDefinition[] = [
   {
     name: "repo_list_roots",
     title: "List approved repositories",
@@ -79,7 +82,7 @@ export const toolCatalog: ToolDefinition[] = [
     description: descriptions.repo_hermes_intake,
     inputSchema: toolContracts.repo_hermes_intake.input,
     outputSchema: toolContracts.repo_hermes_intake.output,
-    annotations: writeAnnotations,
+    annotations: boundedPacketWriteAnnotations,
     handler: hermesIntakeHandler
   },
   {
@@ -117,6 +120,15 @@ export const toolCatalog: ToolDefinition[] = [
     outputSchema: toolContracts.repo_last_write.output,
     annotations: readOnlyAnnotations,
     handler: lastWriteHandler
+  },
+  {
+    name: "repo_read",
+    title: "Read repository context",
+    description: descriptions.repo_read,
+    inputSchema: toolContracts.repo_read.input,
+    outputSchema: toolContracts.repo_read.output,
+    annotations: readOnlyAnnotations,
+    handler: repoReadHandler
   },
   {
     name: "repo_tree",
@@ -272,6 +284,15 @@ export const toolCatalog: ToolDefinition[] = [
     handler: cleanupPathsHandler
   },
   {
+    name: "repo_project_context",
+    title: "Read project context",
+    description: descriptions.repo_project_context,
+    inputSchema: toolContracts.repo_project_context.input,
+    outputSchema: toolContracts.repo_project_context.output,
+    annotations: readOnlyAnnotations,
+    handler: repoProjectContextHandler
+  },
+  {
     name: "repo_project_brief",
     title: "Create project brief",
     description: descriptions.repo_project_brief,
@@ -416,3 +437,17 @@ export const toolCatalog: ToolDefinition[] = [
     handler: writeHandoffHandler
   }
 ];
+
+export const compactToolCatalog: ToolDefinition[] = COMPACT_TOOL_NAMES.map((name) => {
+  const tool = fullToolCatalog.find((candidate) => candidate.name === name);
+  if (!tool) {
+    throw new Error(`Compact tool profile references missing tool: ${name}`);
+  }
+  return tool;
+});
+
+export const toolCatalog = fullToolCatalog;
+
+export function getToolCatalogForProfile(profile: ToolCatalogProfile): ToolDefinition[] {
+  return profile === "full" ? fullToolCatalog : compactToolCatalog;
+}
