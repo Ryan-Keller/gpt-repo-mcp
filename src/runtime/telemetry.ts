@@ -10,6 +10,7 @@ export type RequestTelemetryContext = {
   session_fingerprint?: string;
   mcp_method?: string;
   mcp_tool?: string;
+  mcp_resource_uri?: string;
   route_token_present?: boolean;
   route_token_valid?: boolean;
   authorization_header_present?: boolean;
@@ -21,6 +22,7 @@ export type RequestTelemetryContext = {
 };
 
 export type AuditEvent = {
+  observed_at?: string;
   tool: string;
   repo_id?: string;
   paths?: string[];
@@ -31,9 +33,20 @@ export type AuditEvent = {
   request_id?: string;
   mcp_method?: string;
   mcp_tool?: string;
+  mcp_resource_uri?: string;
+  watcher?: {
+    target?: string;
+    watch_seconds?: number;
+    poll_interval_seconds?: number;
+    stop_reason?: string;
+    changed?: boolean;
+    terminal?: boolean;
+    elapsed_ms?: number;
+  };
 };
 
 export type RequestAuditEvent = {
+  observed_at?: string;
   event: "mcp_request_start" | "mcp_request_finish" | "mcp_request_error";
   request_id: string;
   http_method: string;
@@ -43,6 +56,7 @@ export type RequestAuditEvent = {
   mcp_session?: "present" | "missing";
   mcp_method?: string;
   mcp_tool?: string;
+  mcp_resource_uri?: string;
 };
 
 const requestTelemetry = new AsyncLocalStorage<RequestTelemetryContext>();
@@ -152,6 +166,7 @@ export function formatRequestAuditLine(event: RequestAuditEvent): string {
     event.duration_ms === undefined ? undefined : `${event.duration_ms}ms`,
     event.mcp_method,
     event.mcp_tool,
+    event.mcp_resource_uri,
     `req=${shortRequestId(event.request_id)}`
   ]);
 }
@@ -159,13 +174,19 @@ export function formatRequestAuditLine(event: RequestAuditEvent): string {
 export function createAuditEvent(event: AuditEvent): AuditEvent {
   const context = getRequestTelemetry();
   const safe: AuditEvent = {
+    observed_at: event.observed_at ?? new Date().toISOString(),
     request_id: event.request_id ?? context?.request_id,
     ...event,
     mcp_method: sanitizeAuditLabel(event.mcp_method ?? context?.mcp_method),
     mcp_tool: sanitizeAuditLabel(event.mcp_tool ?? context?.mcp_tool),
     paths: event.paths?.map((path) => redactSensitiveText(path)),
     globs: event.globs?.map((glob) => redactSensitiveText(glob)),
-    warnings: event.warnings?.map((warning) => redactSensitiveText(warning))
+    warnings: event.warnings?.map((warning) => redactSensitiveText(warning)),
+    watcher: event.watcher ? {
+      ...event.watcher,
+      target: sanitizeAuditLabel(event.watcher.target),
+      stop_reason: sanitizeAuditLabel(event.watcher.stop_reason)
+    } : undefined
   };
   return withoutUndefinedAuditFields(safe);
 }
@@ -181,6 +202,7 @@ export function audit(event: AuditEvent): void {
 
 export function createRequestAuditEvent(event: RequestAuditEvent): RequestAuditEvent {
   return {
+    observed_at: event.observed_at ?? new Date().toISOString(),
     event: event.event,
     request_id: event.request_id,
     http_method: event.http_method,
@@ -189,7 +211,8 @@ export function createRequestAuditEvent(event: RequestAuditEvent): RequestAuditE
     duration_ms: event.duration_ms,
     mcp_session: event.mcp_session,
     mcp_method: sanitizeAuditLabel(event.mcp_method),
-    mcp_tool: sanitizeAuditLabel(event.mcp_tool)
+    mcp_tool: sanitizeAuditLabel(event.mcp_tool),
+    mcp_resource_uri: sanitizeAuditLabel(event.mcp_resource_uri)
   };
 }
 

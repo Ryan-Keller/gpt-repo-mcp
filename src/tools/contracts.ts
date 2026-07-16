@@ -13,6 +13,7 @@ import { GitDiffInputSchema, GitDiffResultSchema, GitStatusInputSchema, GitStatu
 import { GitReviewInputSchema, GitReviewResultSchema } from "../contracts/git-review.contract.js";
 import { HandoffInputSchema, HandoffResultSchema } from "../contracts/handoff.contract.js";
 import { HermesIntakeInputSchema, HermesIntakeResultSchema } from "../contracts/hermes-intake.contract.js";
+import { HermesCancelInputSchema, HermesCancelResultSchema, HermesInterventionInputSchema, HermesInterventionResultSchema, HermesKanbanCommandInputSchema, HermesKanbanCommandResultSchema, HermesWatchInputSchema, HermesWatchResultSchema } from "../contracts/hermes-supervision.contract.js";
 import { LabExecInputSchema, LabExecResultSchema } from "../contracts/lab-exec.contract.js";
 import { TownPortalReturnInputSchema, TownPortalReturnResultSchema } from "../contracts/town-portal.contract.js";
 import { NextActionInputSchema, NextActionResultSchema } from "../contracts/next-action.contract.js";
@@ -21,6 +22,8 @@ import { PolicyExplainInputSchema, PolicyExplainResultSchema } from "../contract
 import { RepoProjectContextInputSchema, RepoProjectContextResultSchema } from "../contracts/project-context.contract.js";
 import { ProjectBriefInputSchema, ProjectBriefResultSchema } from "../contracts/project.contract.js";
 import { ProjectMemoryDashboardResultSchema, ProjectMemoryInputSchema } from "../contracts/project-memory.contract.js";
+import { PortfolioReportInputSchema, PortfolioReportResultSchema } from "../contracts/portfolio-report.contract.js";
+import { PortfolioActionCommandInputSchema, PortfolioActionCommandResultSchema } from "../contracts/portfolio-action.contract.js";
 import { RepoReadInputSchema, RepoReadResultSchema } from "../contracts/read-hub.contract.js";
 import { RepoInputSchema, RepoListInputSchema, RepoListReferenceResultSchema, RepoTreeInputSchema } from "../contracts/repo.contract.js";
 import { PlanReviewInputSchema, PlanReviewResultSchema } from "../contracts/review.contract.js";
@@ -61,6 +64,8 @@ export type ToolName =
   | "repo_project_context"
   | "repo_project_brief"
   | "repo_project_memory"
+  | "repo_portfolio_report"
+  | "repo_portfolio_action_command"
   | "repo_task_inventory"
   | "repo_decision_memory"
   | "repo_change_plan"
@@ -74,6 +79,10 @@ export type ToolName =
   | "codex_run_and_wait"
   | "repo_lab_exec"
   | "repo_hermes_intake"
+  | "repo_hermes_intervene"
+  | "repo_hermes_cancel"
+  | "repo_hermes_kanban_command"
+  | "repo_hermes_watch"
   | "repo_town_portal_return"
   | "repo_write_file"
   | "repo_write_changes"
@@ -205,6 +214,14 @@ export const toolContracts = {
     input: ProjectMemoryInputSchema,
     output: ProjectMemoryDashboardResultSchema
   },
+  repo_portfolio_report: {
+    input: PortfolioReportInputSchema,
+    output: PortfolioReportResultSchema
+  },
+  repo_portfolio_action_command: {
+    input: PortfolioActionCommandInputSchema,
+    output: PortfolioActionCommandResultSchema
+  },
   repo_task_inventory: {
     input: TaskInventoryInputSchema,
     output: TaskInventoryResultSchema
@@ -256,6 +273,22 @@ export const toolContracts = {
   repo_hermes_intake: {
     input: HermesIntakeInputSchema,
     output: HermesIntakeResultSchema
+  },
+  repo_hermes_intervene: {
+    input: HermesInterventionInputSchema,
+    output: HermesInterventionResultSchema
+  },
+  repo_hermes_cancel: {
+    input: HermesCancelInputSchema,
+    output: HermesCancelResultSchema
+  },
+  repo_hermes_kanban_command: {
+    input: HermesKanbanCommandInputSchema,
+    output: HermesKanbanCommandResultSchema
+  },
+  repo_hermes_watch: {
+    input: HermesWatchInputSchema,
+    output: HermesWatchResultSchema
   },
   repo_town_portal_return: {
     input: TownPortalReturnInputSchema,

@@ -52,10 +52,18 @@ export const ProjectMemoryNextMoveSchema = z.object({
   move: z.string()
 });
 
+export const ProjectMemoryArtifactSchema = z.object({
+  artifact_id: z.string(), project_id: z.string(), project_name: z.string(), title: z.string(),
+  kind: z.enum(["image", "video", "audio", "document", "link", "other"]),
+  source: z.string(), observed_at: z.string(), mime_type: z.string(), preview_url: z.string(), open_url: z.string()
+});
+
 export const ProjectMemoryDashboardResultSchema = z.object({
   ok: z.boolean(),
   repo_id: z.string(),
   memory_root: z.string(),
+  source_paths: z.array(z.string()).optional(),
+  source_project_counts: z.record(z.string(), z.number().int().nonnegative()).optional(),
   generated_at: z.string(),
   project_count: z.number().int().nonnegative(),
   active_projects: z.array(ProjectMemoryProjectSummarySchema),
@@ -64,6 +72,7 @@ export const ProjectMemoryDashboardResultSchema = z.object({
   research_watchlist: z.array(ProjectMemoryWatchlistItemSchema),
   recent_results: z.array(ProjectMemoryRecentResultSchema),
   suggested_next_moves: z.array(ProjectMemoryNextMoveSchema),
+  artifacts: z.array(ProjectMemoryArtifactSchema),
   dream_report_template_path: z.string(),
   warnings: z.array(z.string())
 });

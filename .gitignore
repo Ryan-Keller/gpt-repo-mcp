@@ -23,6 +23,7 @@ coverage/
 
 # Logs
 logs/
+runtime-logs/
 *.log
 npm-debug.log*
 yarn-debug.log*

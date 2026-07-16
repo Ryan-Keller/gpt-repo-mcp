@@ -1,12 +1,13 @@
 # Architecture
 
-GPT Repo MCP (`gpt-repo-mcp`) is a tool-only MCP server. There is no widget in v1. The server exposes a Streamable HTTP `/mcp` endpoint plus a local health route.
+GPT Repo MCP (`gpt-repo-mcp`) is a contract-first MCP server with tool and MCP App resources. It exposes a Streamable HTTP `/mcp` endpoint, a local health route, a Hermes resident-watch surface, and the guarded Portfolio Action Console.
 
 ## Boundaries
 
 - `src/server.ts` owns the HTTP server, `/mcp` transport, and `/health`.
 - `src/instructions.ts` contains server-wide MCP instructions for cross-tool workflows.
-- `src/register.ts` creates the MCP server and registers tools.
+- `src/register.ts` creates the MCP server and registers tools plus versioned MCP App resources and compatibility aliases.
+- `src/apps/*` owns the embedded Hermes and portfolio widget templates.
 - `src/contracts/*` contains Zod input and output contracts.
 - `src/tools/contracts.ts` is the single tool-name to contract map.
 - `src/tools/catalog.ts` is metadata plus handler wiring only.
@@ -31,6 +32,8 @@ This keeps `catalog` metadata-only and prevents inline schema drift.
 ## Data Flow
 
 ChatGPT calls a tool with `repo_id` and repo-relative POSIX paths or globs. The handler resolves `repo_id` through `RootRegistry`, creates the required services, and returns a result envelope.
+
+Portfolio recommendations are deterministic, but their lifecycle is durable. `repo_portfolio_action_command` writes serialized, atomic transitions to `.chatgpt/portfolio-action-ledger.json`; its `sync_console` operation writes low-risk project-seen timestamps, named playbooks, and typed artifact registrations to `.chatgpt/operations-console-state.json`. `repo_portfolio_report` suppresses handled actions and returns active work, history, recent receipts, project workspaces, synchronized console state, and artifacts merged from project memory plus the console registry. Each workspace carries a compact `REENTRY_PACKET_V1` prompt that tells a current or fresh ChatGPT thread to resolve the live project through `repo_bridge_concierge`, re-read project authority, verify runtime and receipts, and avoid duplicate routed work. Client-local state remains only as an offline fallback. A separate `repo_hermes_cancel` boundary derives one validated off-thread transaction path and invokes the Hermes cancellation script, which verifies process ownership before termination.
 
 Read filesystem access goes through shared safety layers:
 

@@ -1,0 +1,97 @@
+import { z } from "zod";
+import { RepoInputSchema } from "./repo.contract.js";
+import { PortfolioConsoleStatePatchSchema, PortfolioConsoleStateSchema } from "./portfolio-console-state.contract.js";
+
+export const PortfolioActionStateSchema = z.enum(["available", "routed", "working", "completed", "stopped", "snoozed", "archived"]);
+
+export const PortfolioActionCommandItemSchema = z.object({
+  action_id: z.string().min(3).max(80),
+  project_id: z.string().min(1).max(120).optional(),
+  project_name: z.string().min(1).max(180).optional(),
+  title: z.string().min(1).max(300).optional(),
+  route: z.string().min(1).max(120).optional(),
+  risk: z.enum(["read_only", "approval_required"]).optional(),
+  expected_state: PortfolioActionStateSchema.optional()
+});
+
+export const PortfolioExecutionRequestSchema = z.object({
+  target_repo_id: z.string().min(1).max(120)
+    .describe("Approved repository id that owns the work. It must resolve through repo_list_roots."),
+  objective: z.string().min(3).max(6000)
+    .describe("Bounded objective sent to the existing Hermes off-thread launcher."),
+  allowed_paths: z.array(z.string().min(1).max(500)).max(40)
+    .describe("Narrow target-repo-relative paths authorized for the transaction. Use an empty array only for read-only work."),
+  proof_boundary: z.string().min(3).max(2000),
+  work_type: z.enum(["code", "knowledge", "art", "broadcast", "marketing"]),
+  satisfaction_gate: z.number().int().min(90).max(95),
+  consent_granted: z.boolean().refine((value) => value, "consent_granted must be true")
+    .describe("Confirms the operator explicitly approved this bounded launch. It does not grant publication, credentials, destructive cleanup, or broader mutation authority.")
+});
+
+export const PortfolioActionCommandInputSchema = RepoInputSchema.extend({
+  operation: z.enum(["route", "working", "complete", "stop", "snooze", "archive", "restore", "sync_console"])
+    .describe("Batch lifecycle or console-state operation. Stop prevents further routing; it does not claim to terminate a Hermes process."),
+  report_id: z.string().max(120).optional(),
+  actions: z.array(PortfolioActionCommandItemSchema).max(40),
+  reason: z.string().max(1800).optional(),
+  receipt_summary: z.string().max(3000).optional(),
+  snooze_until: z.string().datetime().optional().describe("Required future ISO timestamp for snooze operations."),
+  console_patch: PortfolioConsoleStatePatchSchema.optional().describe("Seen timestamps or saved-playbook change for sync_console."),
+  execution: PortfolioExecutionRequestSchema.optional()
+    .describe("Optional guarded off-thread launch. Valid only for one route action; omitted lifecycle calls remain ledger-only.")
+}).superRefine((value, context) => {
+  if (value.operation === "sync_console" && !value.console_patch) context.addIssue({ code: "custom", path: ["console_patch"], message: "console_patch is required for sync_console" });
+  if (value.operation !== "sync_console" && value.actions.length === 0) context.addIssue({ code: "custom", path: ["actions"], message: "at least one action is required" });
+  if (value.execution && value.operation !== "route") context.addIssue({ code: "custom", path: ["execution"], message: "execution is valid only for route" });
+  if (value.execution && value.actions.length !== 1) context.addIssue({ code: "custom", path: ["actions"], message: "execution launches exactly one action" });
+  if (value.execution && value.actions[0]?.risk === "approval_required" && value.execution.allowed_paths.length === 0) {
+    context.addIssue({ code: "custom", path: ["execution", "allowed_paths"], message: "mutating work requires at least one narrow allowed path" });
+  }
+});
+
+export const PortfolioExecutionReceiptSchema = z.object({
+  ok: z.boolean(),
+  goal_id: z.string(),
+  action_id: z.string(),
+  target_repo_id: z.string(),
+  status: z.enum(["started", "resumed", "accepted", "blocked", "readiness_blocked", "failed", "timed_out"]),
+  transaction_id: z.string(),
+  board: z.string(),
+  task_id: z.string(),
+  transaction_path: z.string(),
+  satisfaction_gate: z.number().int(),
+  operator_status: z.string(),
+  observed_at: z.string(),
+  warnings: z.array(z.string()),
+  next_action: z.string()
+});
+
+export const PortfolioActionLedgerEntrySchema = z.object({
+  action_id: z.string(), project_id: z.string(), project_name: z.string(), title: z.string(),
+  route: z.string(), risk: z.string(), state: PortfolioActionStateSchema, report_id: z.string(),
+  attempt_count: z.number().int().nonnegative(), updated_at: z.string(), reason: z.string(), receipt_summary: z.string(),
+  snooze_until: z.string()
+});
+
+export const PortfolioActionActivitySchema = z.object({
+  event_id: z.string(), action_id: z.string(), project_id: z.string(), title: z.string(),
+  operation: z.string(), from_state: z.string(), to_state: z.string(), observed_at: z.string(),
+  reason: z.string(), receipt_summary: z.string()
+});
+
+export const PortfolioActionCommandResultSchema = z.object({
+  ok: z.boolean(), repo_id: z.string(), operation: z.string(), changed_count: z.number().int(),
+  unchanged_count: z.number().int(), entries: z.array(PortfolioActionLedgerEntrySchema),
+  recent_activity: z.array(PortfolioActionActivitySchema), observed_at: z.string(),
+  ledger_path: z.string(), storage_path: z.string(), console_state: PortfolioConsoleStateSchema.optional(),
+  execution_receipts: z.array(PortfolioExecutionReceiptSchema).optional(),
+  warnings: z.array(z.string()), next_action: z.string()
+});
+
+export type PortfolioActionState = z.infer<typeof PortfolioActionStateSchema>;
+export type PortfolioActionCommandInput = z.infer<typeof PortfolioActionCommandInputSchema>;
+export type PortfolioActionLedgerEntry = z.infer<typeof PortfolioActionLedgerEntrySchema>;
+export type PortfolioActionActivity = z.infer<typeof PortfolioActionActivitySchema>;
+export type PortfolioActionCommandResult = z.infer<typeof PortfolioActionCommandResultSchema>;
+export type PortfolioExecutionRequest = z.infer<typeof PortfolioExecutionRequestSchema>;
+export type PortfolioExecutionReceipt = z.infer<typeof PortfolioExecutionReceiptSchema>;

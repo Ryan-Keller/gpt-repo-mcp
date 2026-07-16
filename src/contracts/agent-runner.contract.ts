@@ -23,6 +23,14 @@ export const AgentRunnerStatusInputSchema = RepoInputSchema.extend({
     .regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/)
     .optional()
     .describe("Optional Hermes Kanban board slug to hydrate when capability_id is hermes_kanban."),
+  hermes_transaction: z.string()
+    .regex(/^offthread-[a-f0-9]{16}$/)
+    .optional()
+    .describe("Optional exact Hermes off-thread transaction id for compact supervision status and live-tail evidence."),
+  hermes_cursor: z.string()
+    .max(240)
+    .optional()
+    .describe("Optional cursor from the previous Hermes supervision response; returns newer transaction events when available."),
   detail: z.enum(["summary", "full"]).optional()
     .describe("Payload detail level. Defaults to summary, which keeps status concise and omits bulky result/event bodies. Use full only when debugging or reviewing detailed evidence.")
 });
