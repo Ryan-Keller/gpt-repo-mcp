@@ -33,6 +33,7 @@ describe("PortfolioReportService", () => {
     expect(result.project_workspaces[0]?.recent_results[0]).toContain("Live route verified");
     expect(result.project_workspaces[0]?.artifacts[0]).toMatchObject({ title: "Proof image", previewable: true });
     expect(result.project_workspaces[0]?.reentry_prompt).toContain("artifacts/proof.png");
+    expect(result.project_workspaces.find((project) => project.id === "beta")?.latest_evidence_at).toBe("");
   });
 
   test("filters exact project ids and respects the action cap", () => {
@@ -56,5 +57,26 @@ describe("PortfolioReportService", () => {
     expect(alphaActions.every((action) => action.target_repo_id === "alpha")).toBe(true);
     expect(alphaActions.filter((action) => action.risk === "read_only").every((action) => action.launch_ready)).toBe(true);
     expect(result.actions.filter((action) => action.project_id === "beta").every((action) => !action.launch_ready)).toBe(true);
+  });
+
+  test("ranks active execution first and distributes the action cap across projects", () => {
+    const result = new PortfolioReportService().build(
+      "shared-agent-bridge",
+      memory,
+      { include_paused: true, max_actions: 2 },
+      {
+        entries: [{
+          action_id: "working-beta", report_id: "report", project_id: "beta", project_name: "Beta",
+          title: "Working beta", route: "continue_slice", risk: "approval_required", state: "working",
+          attempt_count: 1, updated_at: "2026-07-15T00:00:00Z", reason: "In progress",
+          receipt_summary: "", snooze_until: ""
+        }],
+        activity: []
+      }
+    );
+    expect(result.projects[0]?.id).toBe("beta");
+    expect(result.project_workspaces[0]?.id).toBe("beta");
+    expect(result.actions).toHaveLength(2);
+    expect(new Set(result.actions.map((action) => action.project_id))).toEqual(new Set(["alpha", "beta"]));
   });
 });

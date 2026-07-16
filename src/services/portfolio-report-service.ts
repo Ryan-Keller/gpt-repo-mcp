@@ -10,10 +10,10 @@ export class PortfolioReportService {
   build(repoId: string, memory: ProjectMemoryDashboardResult, options: Options = {}, ledger: PortfolioActionLedgerSnapshot = { entries: [], activity: [] }, consoleState: PortfolioConsoleState = { version: 1, updated_at: "", project_seen: [], playbooks: [], artifacts: [] }, approvedRepoIds: string[] = []): PortfolioReportResult {
     const now = new Date();
     const requested = new Set(options.project_ids ?? []);
-    const projects = memory.active_projects.filter((project) =>
+    const sourceProjects = memory.active_projects.filter((project) =>
       (!requested.size || requested.has(project.id)) && (options.include_paused || project.status !== "paused")
     );
-    const ids = new Set(projects.map((project) => project.id));
+    const ids = new Set(sourceProjects.map((project) => project.id));
     const topics = options.topics?.length ? options.topics : ["active work", "risks and verification", "next slices", "research watchlist"];
     const sourceDate = Date.parse(memory.generated_at);
     const sourceAgeDays = Number.isFinite(sourceDate) ? Math.max(0, Math.floor((now.getTime() - sourceDate) / 86_400_000)) : -1;
@@ -23,17 +23,32 @@ export class PortfolioReportService {
     const results = memory.recent_results.filter((item) => ids.has(item.project_id));
     const paused = memory.paused_ideas.filter((item) => ids.has(item.project_id));
     const moves = memory.suggested_next_moves.filter((item) => ids.has(item.project_id));
-    const projectName = (id: string) => projects.find((project) => project.id === id)?.name ?? id;
-    const actions: PortfolioReportResult["actions"] = [];
+    const projectName = (id: string) => sourceProjects.find((project) => project.id === id)?.name ?? id;
+    const latestEvidenceByProject = new Map(sourceProjects.map((project) => {
+      const evidenceCandidates = [
+        ...results.filter((item) => item.project_id === project.id).map((item) => item.date),
+        ...ledger.entries.filter((entry) => entry.project_id === project.id).map((entry) => entry.updated_at)
+      ].map((value) => Date.parse(value)).filter(Number.isFinite);
+      return [project.id, evidenceCandidates.length ? Math.max(...evidenceCandidates) : 0] as const;
+    }));
+    const activeActionCount = (projectId: string) => ledger.entries.filter((entry) =>
+      entry.project_id === projectId && (entry.state === "routed" || entry.state === "working")
+    ).length;
+    const projects = [...sourceProjects].sort((left, right) =>
+      activeActionCount(right.id) - activeActionCount(left.id)
+      || (latestEvidenceByProject.get(right.id) ?? 0) - (latestEvidenceByProject.get(left.id) ?? 0)
+      || statusPriority(right.status) - statusPriority(left.status)
+      || left.name.localeCompare(right.name)
+    );
+    const actionCandidates: PortfolioReportResult["actions"] = [];
     const handledEntries = ledger.entries.filter((entry) => entry.state !== "available" && !(entry.state === "snoozed" && Date.parse(entry.snooze_until) <= now.getTime()));
     const handled = new Set(handledEntries.map((entry) => entry.action_id));
     let hiddenActionCount = 0;
     const add = (projectId: string, title: string, rationale: string, source: string, route: PortfolioReportResult["actions"][number]["route"], risk: PortfolioReportResult["actions"][number]["risk"]) => {
-      if (actions.length >= (options.max_actions ?? 20)) return;
       const actionId = "a_" + createHash("sha256").update(`${projectId}:${source}:${title}`).digest("hex").slice(0, 10);
       if (handled.has(actionId)) { hiddenActionCount++; return; }
       const targetRepoId = approvedRepoIds.find((candidate) => normalizeId(candidate) === normalizeId(projectId)) ?? "";
-      actions.push({
+      actionCandidates.push({
         action_id: actionId, project_id: projectId, project_name: projectName(projectId), title, rationale, source, route, risk,
         prompt: `For project ${projectId}, ${title}. First verify current repo evidence. Then use the safest appropriate Shared Agent Bridge route. ${risk === "approval_required" ? "Request approval before any mutation." : "Keep this read-only unless I explicitly approve a change."}`,
         target_repo_id: targetRepoId,
@@ -46,6 +61,7 @@ export class PortfolioReportService {
     for (const item of watch) add(item.project_id, `Review: ${item.topic}`, `Watch status ${item.status}; cadence ${item.cadence}.`, "research watchlist", "research", "read_only");
     for (const idea of paused) add(idea.project_id, idea.next_tiny_experiment, `Paused: ${idea.reason_paused}`, "paused idea", "resume_experiment", "approval_required");
     for (const result of results.slice(0, 8)) add(result.project_id, `Review result from ${result.date}`, result.summary, result.source, "review_result", "read_only");
+    const actions = distributeActions(actionCandidates, projects.map((project) => project.id), options.max_actions ?? 20);
     const warnings = [...memory.warnings];
     if (freshness === "stale") warnings.push(`PROJECT_MEMORY_STALE:${sourceAgeDays}_DAYS`);
     if (requested.size && projects.length !== requested.size) warnings.push("SOME_REQUESTED_PROJECTS_NOT_FOUND");
@@ -73,7 +89,7 @@ export class PortfolioReportService {
         ...projectResults.map((item) => item.date),
         ...projectLedger.map((entry) => entry.updated_at)
       ].map((value) => Date.parse(value)).filter(Number.isFinite);
-      const latestEvidence = evidenceCandidates.length ? new Date(Math.max(...evidenceCandidates)).toISOString() : memory.generated_at;
+      const latestEvidence = evidenceCandidates.length ? new Date(Math.max(...evidenceCandidates)).toISOString() : "";
       const milestones = projectRoadmap.map((item) => `${item.milestone} [${item.state}] — ${item.next_step}`);
       const recent = projectResults.slice(0, 5).map((item) => `${item.date}: ${item.summary} (${item.source})`);
       const nextMoves = projectMoves.map((item) => item.move);
@@ -123,4 +139,51 @@ export class PortfolioReportService {
 
 function normalizeId(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function statusPriority(status: string): number {
+  const normalized = status.toLowerCase();
+  if (/working|running|active|build|current|live/.test(normalized)) return 3;
+  if (/ready|next|planned|seed/.test(normalized)) return 2;
+  if (/paused|snoozed|archived|stopped/.test(normalized)) return 0;
+  return 1;
+}
+
+function actionPriority(action: PortfolioReportResult["actions"][number]): number {
+  const routePriority: Record<PortfolioReportResult["actions"][number]["route"], number> = {
+    continue_slice: 6,
+    verify_project: 5,
+    research: 4,
+    review_result: 3,
+    resume_experiment: 2,
+    ask_user: 1
+  };
+  return routePriority[action.route] ?? 0;
+}
+
+function distributeActions(
+  candidates: PortfolioReportResult["actions"],
+  rankedProjectIds: string[],
+  maxActions: number
+): PortfolioReportResult["actions"] {
+  const grouped = new Map(rankedProjectIds.map((projectId) => [
+    projectId,
+    candidates.filter((action) => action.project_id === projectId)
+      .sort((left, right) => actionPriority(right) - actionPriority(left) || left.title.localeCompare(right.title))
+  ]));
+  const distributed: PortfolioReportResult["actions"] = [];
+  let round = 0;
+  while (distributed.length < maxActions) {
+    let added = false;
+    for (const projectId of rankedProjectIds) {
+      const action = grouped.get(projectId)?.[round];
+      if (!action) continue;
+      distributed.push(action);
+      added = true;
+      if (distributed.length >= maxActions) break;
+    }
+    if (!added) break;
+    round++;
+  }
+  return distributed;
 }
