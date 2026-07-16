@@ -6,6 +6,7 @@ export const REQUIRED_CHATGPT_TOOLS = [
   "repo_list_roots",
   "repo_bridge_concierge",
   "repo_hermes_intake",
+  "repo_hermes_intervene",
   "repo_read",
   "repo_project_context",
   "repo_write_codex_task",

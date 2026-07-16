@@ -29,6 +29,7 @@ import { DecisionLogInputSchema, DecisionLogResultSchema } from "../src/contract
 import { GitReviewResultSchema } from "../src/contracts/git-review.contract.js";
 import { HandoffInputSchema, HandoffResultSchema } from "../src/contracts/handoff.contract.js";
 import { HermesIntakeInputSchema, HermesIntakeResultSchema } from "../src/contracts/hermes-intake.contract.js";
+import { HermesInterventionInputSchema, HermesInterventionResultSchema, HermesKanbanCommandInputSchema, HermesKanbanCommandResultSchema } from "../src/contracts/hermes-supervision.contract.js";
 import { LabExecInputSchema, LabExecResultSchema } from "../src/contracts/lab-exec.contract.js";
 import { TownPortalReturnInputSchema, TownPortalReturnResultSchema } from "../src/contracts/town-portal.contract.js";
 import { LastWriteInputSchema, LastWriteResultSchema } from "../src/contracts/operation-receipt.contract.js";
@@ -56,7 +57,12 @@ function schemaDescription(schema: unknown): string | undefined {
 
 const chatGptDirectToolNames = new Set([
   "repo_bridge_concierge",
-  "repo_hermes_intake"
+  "repo_hermes_intake",
+  "repo_hermes_cancel",
+  "repo_hermes_kanban_command",
+  "repo_hermes_watch",
+  "repo_portfolio_report",
+  "repo_portfolio_action_command"
 ]);
 
 const connectorHostileSchemaKeywords = new Set([
@@ -94,6 +100,12 @@ describe("tool catalog contracts", () => {
       "repo_list_roots",
       "repo_bridge_concierge",
       "repo_hermes_intake",
+      "repo_hermes_intervene",
+      "repo_hermes_cancel",
+      "repo_hermes_kanban_command",
+      "repo_hermes_watch",
+      "repo_portfolio_report",
+      "repo_portfolio_action_command",
       "agent_runner_status",
       "repo_runner_status",
       "repo_run_live_tail",
@@ -141,7 +153,7 @@ describe("tool catalog contracts", () => {
       expect(tool.inputSchema).toBeDefined();
       expect(tool.outputSchema).toBeDefined();
       if (isMutatingToolName(tool.name)) {
-        expect(tool.annotations).toEqual(tool.name === "repo_hermes_intake" ? boundedPacketWriteAnnotations : writeAnnotations);
+        expect(tool.annotations).toEqual(["repo_hermes_intake", "repo_hermes_intervene", "repo_hermes_cancel", "repo_portfolio_action_command"].includes(tool.name) ? boundedPacketWriteAnnotations : writeAnnotations);
       } else {
         expect(tool.annotations).toEqual(readOnlyAnnotations);
       }
@@ -157,6 +169,12 @@ describe("tool catalog contracts", () => {
       "repo_list_roots",
       "repo_bridge_concierge",
       "repo_hermes_intake",
+      "repo_hermes_intervene",
+      "repo_hermes_cancel",
+      "repo_hermes_kanban_command",
+      "repo_hermes_watch",
+      "repo_portfolio_report",
+      "repo_portfolio_action_command",
       "repo_runner_status",
       "repo_last_write",
       "repo_read",
@@ -171,8 +189,8 @@ describe("tool catalog contracts", () => {
       "repo_write_changes",
       "repo_write_handoff"
     ]);
-    expect(compactToolCatalog).toHaveLength(16);
-    expect(fullToolCatalog).toHaveLength(42);
+    expect(compactToolCatalog).toHaveLength(22);
+    expect(fullToolCatalog).toHaveLength(48);
     expect(compactToolCatalog.map((tool) => tool.name)).not.toContain("agent_runner_status");
     expect(compactToolCatalog.map((tool) => tool.name)).not.toContain("repo_run_live_tail");
     expect(compactToolCatalog.map((tool) => tool.name)).not.toContain("repo_lab_exec");
@@ -192,6 +210,10 @@ describe("tool catalog contracts", () => {
       "codex_run_and_wait",
       "repo_lab_exec",
       "repo_hermes_intake",
+      "repo_hermes_intervene",
+      "repo_hermes_cancel",
+      "repo_hermes_kanban_command",
+      "repo_portfolio_action_command",
       "repo_town_portal_return",
       "repo_git_stage",
       "repo_git_unstage",
@@ -214,6 +236,8 @@ describe("tool catalog contracts", () => {
     const codexRunAndWait = toolCatalog.find((tool) => tool.name === "codex_run_and_wait");
     const labExec = toolCatalog.find((tool) => tool.name === "repo_lab_exec");
     const hermesIntake = toolCatalog.find((tool) => tool.name === "repo_hermes_intake");
+    const hermesIntervene = toolCatalog.find((tool) => tool.name === "repo_hermes_intervene");
+    const hermesKanbanCommand = toolCatalog.find((tool) => tool.name === "repo_hermes_kanban_command");
     const townPortalReturn = toolCatalog.find((tool) => tool.name === "repo_town_portal_return");
     const writeChanges = toolCatalog.find((tool) => tool.name === "repo_write_changes");
     const writeHandoff = toolCatalog.find((tool) => tool.name === "repo_write_handoff");
@@ -262,6 +286,14 @@ describe("tool catalog contracts", () => {
     expect(hermesIntake?.inputSchema).toBe(HermesIntakeInputSchema);
     expect(hermesIntake?.outputSchema).toBe(HermesIntakeResultSchema);
     expect(hermesIntake?.annotations).toEqual(boundedPacketWriteAnnotations);
+    expect(hermesIntervene).toBeDefined();
+    expect(hermesIntervene?.inputSchema).toBe(HermesInterventionInputSchema);
+    expect(hermesIntervene?.outputSchema).toBe(HermesInterventionResultSchema);
+    expect(hermesIntervene?.annotations).toEqual(boundedPacketWriteAnnotations);
+    expect(hermesKanbanCommand).toBeDefined();
+    expect(hermesKanbanCommand?.inputSchema).toBe(HermesKanbanCommandInputSchema);
+    expect(hermesKanbanCommand?.outputSchema).toBe(HermesKanbanCommandResultSchema);
+    expect(hermesKanbanCommand?.annotations).toEqual(writeAnnotations);
     expect(townPortalReturn).toBeDefined();
     expect(townPortalReturn?.inputSchema).toBe(TownPortalReturnInputSchema);
     expect(townPortalReturn?.outputSchema).toBe(TownPortalReturnResultSchema);
@@ -434,6 +466,8 @@ describe("tool catalog contracts", () => {
       "detail",
       "heartbeat_stale_seconds",
       "hermes_board",
+      "hermes_cursor",
+      "hermes_transaction",
       "live_tail_max_events",
       "poll_count",
       "poll_interval_seconds",
@@ -501,6 +535,7 @@ describe("tool catalog contracts", () => {
     });
 
     expect(event).toEqual({
+      observed_at: expect.any(String),
       tool: "repo_git_review",
       repo_id: "fixture",
       counts: { changed: 2, recommended: 1 },
@@ -1001,8 +1036,9 @@ describe("tool catalog contracts", () => {
     const appserverTurn = surface.find((tool) => tool.name === "repo_codex_appserver_turn");
     const townPortalReturn = surface.find((tool) => tool.name === "repo_town_portal_return");
     const hermesIntake = surface.find((tool) => tool.name === "repo_hermes_intake");
+    const hermesIntervene = surface.find((tool) => tool.name === "repo_hermes_intervene");
 
-    expect(names).toHaveLength(42);
+    expect(names).toHaveLength(48);
     expect(names).toContain("repo_bridge_concierge");
     expect(names.indexOf("repo_hermes_intake")).toBeLessThan(3);
     expect(names).toContain("repo_read");
@@ -1015,6 +1051,11 @@ describe("tool catalog contracts", () => {
     expect(names).toContain("repo_codex_appserver_turn");
     expect(names).toContain("repo_lab_exec");
     expect(names).toContain("repo_hermes_intake");
+    expect(names).toContain("repo_hermes_intervene");
+    expect(names).toContain("repo_hermes_cancel");
+    expect(names).toContain("repo_hermes_kanban_command");
+    expect(names).toContain("repo_hermes_watch");
+    expect(names).toContain("repo_portfolio_action_command");
     expect(names).toContain("repo_town_portal_return");
     expect(names).toContain("agent_runner_status");
     expect(concierge?.inputKeys).toEqual(["include_evidence", "repo_id", "request"]);
@@ -1041,6 +1082,8 @@ describe("tool catalog contracts", () => {
       "detail",
       "heartbeat_stale_seconds",
       "hermes_board",
+      "hermes_cursor",
+      "hermes_transaction",
       "live_tail_max_events",
       "poll_count",
       "poll_interval_seconds",
@@ -1109,6 +1152,11 @@ describe("tool catalog contracts", () => {
         "workstream"
       ]
     });
+    expect(hermesIntervene).toMatchObject({
+      title: "Steer an active Hermes transaction",
+      inputKeys: ["expected_evidence", "instruction", "intervention_type", "reason", "repo_id", "transaction_id"],
+      outputKeys: ["checkpoint_path", "intervention_id", "intervention_type", "next_action", "observed_at", "ok", "operator_status", "receipt_path", "repo_id", "status", "transaction_id", "warnings"]
+    });
     expect(liveTail).toMatchObject({
       title: "Show Codex run live tail",
       inputKeys: ["cursor", "max_events", "repo_id", "run_id"],
@@ -1171,7 +1219,12 @@ describe("tool catalog contracts", () => {
 
     expect(directTools.map((tool) => tool.name).sort()).toEqual([
       "repo_bridge_concierge",
-      "repo_hermes_intake"
+      "repo_hermes_cancel",
+      "repo_hermes_intake",
+      "repo_hermes_kanban_command",
+      "repo_hermes_watch",
+      "repo_portfolio_action_command",
+      "repo_portfolio_report"
     ]);
 
     for (const tool of directTools) {

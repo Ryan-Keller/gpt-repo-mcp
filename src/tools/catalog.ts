@@ -21,6 +21,10 @@ import {
   gitUnstageHandler,
   lastWriteHandler,
   hermesIntakeHandler,
+  hermesInterveneHandler,
+  hermesCancelHandler,
+  hermesKanbanCommandHandler,
+  hermesWatchHandler,
   labExecHandler,
   listRootsHandler,
   nextActionHandler,
@@ -28,6 +32,8 @@ import {
   repoReadHandler,
   projectBriefHandler,
   projectMemoryHandler,
+  portfolioReportHandler,
+  portfolioActionCommandHandler,
   readManyHandler,
   searchHandler,
   taskInventoryHandler,
@@ -55,6 +61,7 @@ export type ToolDefinition = {
   outputSchema: ToolContract["output"];
   annotations: typeof readOnlyAnnotations | typeof writeAnnotations | typeof boundedPacketWriteAnnotations;
   handler: ToolHandler;
+  meta?: Record<string, unknown>;
 };
 
 export const fullToolCatalog: ToolDefinition[] = [
@@ -84,6 +91,91 @@ export const fullToolCatalog: ToolDefinition[] = [
     outputSchema: toolContracts.repo_hermes_intake.output,
     annotations: boundedPacketWriteAnnotations,
     handler: hermesIntakeHandler
+  },
+  {
+    name: "repo_hermes_intervene",
+    title: "Steer an active Hermes transaction",
+    description: descriptions.repo_hermes_intervene,
+    inputSchema: toolContracts.repo_hermes_intervene.input,
+    outputSchema: toolContracts.repo_hermes_intervene.output,
+    annotations: boundedPacketWriteAnnotations,
+    handler: hermesInterveneHandler
+  },
+  {
+    name: "repo_hermes_cancel",
+    title: "Stop a Hermes transaction",
+    description: descriptions.repo_hermes_cancel,
+    inputSchema: toolContracts.repo_hermes_cancel.input,
+    outputSchema: toolContracts.repo_hermes_cancel.output,
+    annotations: boundedPacketWriteAnnotations,
+    handler: hermesCancelHandler,
+    meta: {
+      "ui/visibility": ["model", "app"],
+      "openai/toolInvocation/invoking": "Stopping verified Hermes work…",
+      "openai/toolInvocation/invoked": "Hermes cancellation recorded"
+    }
+  },
+  {
+    name: "repo_hermes_kanban_command",
+    title: "Change Hermes Kanban safely",
+    description: descriptions.repo_hermes_kanban_command,
+    inputSchema: toolContracts.repo_hermes_kanban_command.input,
+    outputSchema: toolContracts.repo_hermes_kanban_command.output,
+    annotations: writeAnnotations,
+    handler: hermesKanbanCommandHandler,
+    meta: {
+      "ui/visibility": ["model", "app"],
+      "openai/toolInvocation/invoking": "Applying approved Kanban change…",
+      "openai/toolInvocation/invoked": "Kanban change recorded"
+    }
+  },
+  {
+    name: "repo_hermes_watch",
+    title: "Watch Hermes resident work",
+    description: descriptions.repo_hermes_watch,
+    inputSchema: toolContracts.repo_hermes_watch.input,
+    outputSchema: toolContracts.repo_hermes_watch.output,
+    annotations: readOnlyAnnotations,
+    handler: hermesWatchHandler,
+    meta: {
+      "ui/resourceUri": "ui://widget/portfolio-console-v8.html",
+      "ui/visibility": ["model", "app"],
+      "openai/outputTemplate": "ui://widget/portfolio-console-v8.html",
+      "openai/widgetAccessible": true,
+      "openai/toolInvocation/invoking": "Watching Hermes evidence…",
+      "openai/toolInvocation/invoked": "Hermes observation received"
+    }
+  },
+  {
+    name: "repo_portfolio_report",
+    title: "Open portfolio action console",
+    description: descriptions.repo_portfolio_report,
+    inputSchema: toolContracts.repo_portfolio_report.input,
+    outputSchema: toolContracts.repo_portfolio_report.output,
+    annotations: readOnlyAnnotations,
+    handler: portfolioReportHandler,
+    meta: {
+      "ui/resourceUri": "ui://widget/portfolio-console-v8.html",
+      "ui/visibility": ["model", "app"],
+      "openai/outputTemplate": "ui://widget/portfolio-console-v8.html",
+      "openai/widgetAccessible": true,
+      "openai/toolInvocation/invoking": "Assembling portfolio report…",
+      "openai/toolInvocation/invoked": "Portfolio report ready"
+    }
+  },
+  {
+    name: "repo_portfolio_action_command",
+    title: "Update portfolio action lifecycle",
+    description: descriptions.repo_portfolio_action_command,
+    inputSchema: toolContracts.repo_portfolio_action_command.input,
+    outputSchema: toolContracts.repo_portfolio_action_command.output,
+    annotations: boundedPacketWriteAnnotations,
+    handler: portfolioActionCommandHandler,
+    meta: {
+      "ui/visibility": ["model", "app"],
+      "openai/toolInvocation/invoking": "Recording action lifecycle…",
+      "openai/toolInvocation/invoked": "Action ledger updated"
+    }
   },
   {
     name: "agent_runner_status",

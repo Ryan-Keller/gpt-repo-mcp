@@ -12,6 +12,14 @@ export const RepoListInputSchema = z.object({
     .regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/)
     .optional()
     .describe("Optional Hermes Kanban board slug to hydrate when capability_id is hermes_kanban."),
+  hermes_transaction: z.string()
+    .regex(/^offthread-[a-f0-9]{16}$/)
+    .optional()
+    .describe("Optional exact Hermes off-thread transaction id for compact supervision status and live-tail evidence."),
+  hermes_cursor: z.string()
+    .max(240)
+    .optional()
+    .describe("Optional cursor from a previous Hermes supervision response."),
   detail: z.enum(["summary", "full"]).optional()
     .describe("Payload detail level. Defaults to summary, which keeps repo roots compact. Use full only for runner, capability, and vision diagnostics.")
 });

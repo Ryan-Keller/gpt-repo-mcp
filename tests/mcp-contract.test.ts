@@ -23,7 +23,7 @@ describe("MCP contract", () => {
     const { client, close } = await connectFixtureServer();
     try {
       expect(client.getServerVersion()).toMatchObject({ name: "gpt-repo-mcp", version: "0.1.0" });
-      expect(client.getServerCapabilities()).toMatchObject({ tools: {} });
+      expect(client.getServerCapabilities()).toMatchObject({ tools: {}, resources: {} });
       expect(client.getInstructions()).toBe(SERVER_INSTRUCTIONS);
       expect(SERVER_INSTRUCTIONS).not.toContain("read-only repository app");
       expect(SERVER_INSTRUCTIONS).toContain("Mutating tools are disabled by default and require repo-local config opt-in");
@@ -48,7 +48,7 @@ describe("MCP contract", () => {
     }
   });
 
-  test("tools/list exposes schemas and appropriate annotations for every tool", async () => {
+  test("tools/list exposes compact input schemas and appropriate annotations for every tool", async () => {
     const { client, close } = await connectFixtureServer();
     try {
       const listed = await client.listTools();
@@ -58,13 +58,17 @@ describe("MCP contract", () => {
         expect(tool.title).toEqual(expect.any(String));
         expect(tool.description).toEqual(expect.stringMatching(/^Use this when/));
         expect(tool.inputSchema).toBeDefined();
-        expect(tool.outputSchema).toBeDefined();
+        // Result payloads remain server-side validated by the catalog contracts.
+        // Omitting them from tools/list keeps ChatGPT's connector cache below
+        // the browser storage quota so app templates can mount reliably.
+        expect(tool.outputSchema).toBeUndefined();
         if (isMutatingToolName(tool.name)) {
-          expect(tool.annotations).toMatchObject(tool.name === "repo_hermes_intake" ? boundedPacketWriteAnnotations : writeAnnotations);
+          expect(tool.annotations).toMatchObject(["repo_hermes_intake", "repo_hermes_intervene", "repo_hermes_cancel", "repo_portfolio_action_command"].includes(tool.name) ? boundedPacketWriteAnnotations : writeAnnotations);
         } else {
           expect(tool.annotations).toMatchObject(readOnlyAnnotations);
         }
       }
+      expect(Buffer.byteLength(JSON.stringify(listed.tools))).toBeLessThan(100_000);
     } finally {
       await close();
     }
@@ -79,22 +83,51 @@ describe("MCP contract", () => {
         title: tool.title,
         description: tool.description,
         annotations: tool.annotations,
-        inputKeys: Object.keys(tool.inputSchema.properties ?? {}).sort(),
-        outputKeys: Object.keys(tool.outputSchema?.properties ?? {}).sort()
+        inputKeys: Object.keys(tool.inputSchema.properties ?? {}).sort()
       }));
       const names = surface.map((tool) => tool.name);
       const hermesIntake = surface.find((tool) => tool.name === "repo_hermes_intake");
+      const hermesIntervene = surface.find((tool) => tool.name === "repo_hermes_intervene");
+      const hermesKanbanCommand = surface.find((tool) => tool.name === "repo_hermes_kanban_command");
       const repoRead = surface.find((tool) => tool.name === "repo_read");
       const repoProjectContext = surface.find((tool) => tool.name === "repo_project_context");
       const runnerStatus = surface.find((tool) => tool.name === "repo_runner_status");
 
-      expect(names).toHaveLength(16);
+      expect(names).toHaveLength(22);
       expect(names).toContain("repo_bridge_concierge");
       expect(names.indexOf("repo_hermes_intake")).toBeLessThan(3);
       expect(names).toContain("repo_runner_status");
       expect(names).toContain("repo_read");
       expect(names).toContain("repo_project_context");
       expect(names).toContain("repo_hermes_intake");
+      expect(names).toContain("repo_hermes_intervene");
+      expect(names).toContain("repo_hermes_cancel");
+      expect(names).toContain("repo_hermes_watch");
+      expect(names).toContain("repo_hermes_kanban_command");
+      expect(names).toContain("repo_portfolio_report");
+      expect(names).toContain("repo_portfolio_action_command");
+      expect(hermesIntervene?.inputKeys).toEqual(["expected_evidence", "instruction", "intervention_type", "reason", "repo_id", "transaction_id"]);
+      expect(hermesKanbanCommand).toMatchObject({
+        title: "Change Hermes Kanban safely",
+        annotations: expect.objectContaining({
+          readOnlyHint: false,
+          destructiveHint: true
+        }),
+        inputKeys: [
+          "assignee",
+          "block_kind",
+          "board",
+          "body",
+          "dry_run",
+          "expected_status",
+          "idempotency_key",
+          "instruction",
+          "operation",
+          "repo_id",
+          "task_id",
+          "title"
+        ]
+      });
       expect(names).not.toContain("agent_runner_status");
       expect(names).not.toContain("repo_run_live_tail");
       expect(names).not.toContain("repo_tree");
@@ -116,28 +149,7 @@ describe("MCP contract", () => {
       expect(names).not.toContain("repo_cleanup_paths");
       expect(hermesIntake).toMatchObject({
         title: "Submit Hermes intake",
-        inputKeys: ["board", "intake_markdown", "job_id", "max_output_bytes", "repo_id", "submit", "timeout_seconds", "title"],
-        outputKeys: [
-          "board",
-          "duration_ms",
-          "exit_code",
-          "intake_path",
-          "job_id",
-          "manifest_path",
-          "ok",
-          "repo_id",
-          "result_path",
-          "result_read",
-          "result_text",
-          "spawned",
-          "status",
-          "stderr_tail",
-          "stdout_tail",
-          "submitted",
-          "target",
-          "timed_out",
-          "warnings"
-        ]
+        inputKeys: ["board", "intake_markdown", "job_id", "max_output_bytes", "repo_id", "submit", "timeout_seconds", "title"]
       });
       expect(repoRead).toMatchObject({
         title: "Read repository context",
@@ -166,8 +178,7 @@ describe("MCP contract", () => {
           "respect_default_excludes",
           "search_mode",
           "start_line"
-        ],
-        outputKeys: ["delegated_tool", "mode", "ok", "result", "warnings"]
+        ]
       });
       expect(repoProjectContext).toMatchObject({
         title: "Read project context",
@@ -187,14 +198,15 @@ describe("MCP contract", () => {
           "next_action_mode",
           "planning_depth",
           "repo_id"
-        ],
-        outputKeys: ["delegated_tool", "mode", "ok", "result", "warnings"]
+        ]
       });
       expect(runnerStatus?.inputKeys).toEqual([
         "capability_id",
         "detail",
         "heartbeat_stale_seconds",
         "hermes_board",
+        "hermes_cursor",
+        "hermes_transaction",
         "live_tail_max_events",
         "poll_count",
         "poll_interval_seconds",
@@ -202,34 +214,75 @@ describe("MCP contract", () => {
         "repo_id",
         "stale_lock_seconds"
       ]);
-      expect(runnerStatus?.outputKeys).toEqual([
-        "active_count",
-        "active_run_id",
-        "active_run_ids",
-        "blocked_count",
-        "capability_summary",
-        "central_queue",
-        "completed_count",
-        "detail_level",
-        "details_truncated",
-        "full_detail_hint",
-        "ok",
-        "pending_count",
-        "plain_text",
-        "ready_results",
-        "repo_id",
-        "runner",
-        "runtime_assessment",
-        "stale_lock_count",
-        "warnings",
-        "worker"
-      ]);
-      const runnerStatusSchema = JSON.stringify(listed.tools.find((tool) => tool.name === "repo_runner_status")?.outputSchema);
-      expect(runnerStatusSchema).not.toContain("result_text");
-      expect(runnerStatusSchema).not.toContain("worker_slots");
-      expect(runnerStatusSchema).not.toContain("active_run_live_tail");
-      expect(runnerStatusSchema).not.toContain("poll_history");
-      expect(runnerStatusSchema.length).toBeLessThan(8_500);
+      expect(listed.tools.find((tool) => tool.name === "repo_runner_status")?.outputSchema).toBeUndefined();
+    } finally {
+      await close();
+    }
+  });
+
+  test("Hermes watch exposes an app-callable tool and versioned MCP App resource", async () => {
+    const { client, close } = await connectFixtureServer();
+    try {
+      const listed = await client.listTools();
+      const watch = listed.tools.find((tool) => tool.name === "repo_hermes_watch");
+      expect(watch?._meta).toMatchObject({
+        "ui/resourceUri": "ui://widget/portfolio-console-v8.html",
+        "ui/visibility": ["model", "app"],
+        "openai/outputTemplate": "ui://widget/portfolio-console-v8.html",
+        "openai/widgetAccessible": true
+      });
+      const resources = await client.listResources();
+      expect(resources.resources).toEqual(expect.arrayContaining([
+        expect.objectContaining({
+          uri: "ui://widget/hermes-watch-v3.html",
+          mimeType: "text/html;profile=mcp-app"
+        }),
+        expect.objectContaining({
+          uri: "ui://widget/hermes-watch-v4.html",
+          mimeType: "text/html;profile=mcp-app"
+        }),
+        expect.objectContaining({
+          uri: "ui://widget/portfolio-console-v4.html",
+          mimeType: "text/html;profile=mcp-app"
+        }),
+        expect.objectContaining({
+          uri: "ui://widget/portfolio-console-v5.html",
+          mimeType: "text/html;profile=mcp-app"
+        }),
+        expect.objectContaining({
+          uri: "ui://widget/portfolio-console-v6.html",
+          mimeType: "text/html;profile=mcp-app"
+        }),
+        expect.objectContaining({
+          uri: "ui://widget/portfolio-console-v7.html",
+          mimeType: "text/html;profile=mcp-app"
+        }),
+        expect.objectContaining({
+          uri: "ui://widget/portfolio-console-v8.html",
+          mimeType: "text/html;profile=mcp-app"
+        })
+      ]));
+      const resource = await client.readResource({ uri: "ui://widget/hermes-watch-v4.html" });
+      expect(resource.contents[0]).toMatchObject({
+        uri: "ui://widget/hermes-watch-v4.html",
+        mimeType: "text/html;profile=mcp-app",
+        text: expect.stringContaining("Shared Agent Bridge · field console")
+      });
+      expect((resource.contents[0] as { text?: string }).text).toContain("repo_hermes_watch");
+      expect((resource.contents[0] as { text?: string }).text).toContain("Copy for new thread");
+      expect((resource.contents[0] as { text?: string }).text).toContain("openai:set_globals");
+      const legacyHermes = await client.readResource({ uri: "ui://widget/hermes-watch-v3.html" });
+      expect(legacyHermes.contents[0]).toMatchObject({
+        uri: "ui://widget/hermes-watch-v3.html",
+        mimeType: "text/html;profile=mcp-app",
+        text: expect.stringContaining("Shared Agent Bridge · field console")
+      });
+      const legacyPortfolio = await client.readResource({ uri: "ui://widget/portfolio-console-v4.html" });
+      expect(legacyPortfolio.contents[0]).toMatchObject({
+        uri: "ui://widget/portfolio-console-v4.html",
+        mimeType: "text/html;profile=mcp-app",
+        text: expect.stringContaining("Shared Agent Bridge · field console")
+      });
     } finally {
       await close();
     }
@@ -240,7 +293,7 @@ describe("MCP contract", () => {
     try {
       const listed = await client.listTools();
       const names = listed.tools.map((tool) => tool.name);
-      expect(names).toHaveLength(42);
+      expect(names).toHaveLength(48);
       expect(new Set(names)).toEqual(new Set(fullToolCatalog.map((tool) => tool.name)));
       expect(names).toContain("agent_runner_status");
       expect(names).toContain("repo_read");

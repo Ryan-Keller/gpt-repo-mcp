@@ -12,6 +12,9 @@ import { GitReviewService } from "../services/git-review-service.js";
 import { GitOperationsService } from "../services/git-operations-service.js";
 import { HandoffService } from "../services/handoff-service.js";
 import { HermesKanbanStatusService } from "../services/hermes-kanban-status-service.js";
+import { HermesSupervisionService } from "../services/hermes-supervision-service.js";
+import { HermesCancelService } from "../services/hermes-cancel-service.js";
+import { HermesKanbanCommandService } from "../services/hermes-kanban-command-service.js";
 import { HermesIntakeService } from "../services/hermes-intake-service.js";
 import { LabExecService } from "../services/lab-exec-service.js";
 import { TownPortalConsumptionStore } from "../services/town-portal-consumption-store.js";
@@ -21,6 +24,10 @@ import { ReviewPlanner } from "../services/review-planner.js";
 import { ReadManyService } from "../services/read-many-service.js";
 import { ProjectBriefService } from "../services/project-brief-service.js";
 import { ProjectMemoryService } from "../services/project-memory-service.js";
+import { PortfolioReportService } from "../services/portfolio-report-service.js";
+import { PortfolioActionLedgerService } from "../services/portfolio-action-ledger-service.js";
+import { PortfolioExecutionService } from "../services/portfolio-execution-service.js";
+import { PortfolioConsoleStateService } from "../services/portfolio-console-state-service.js";
 import { TaskInventoryService } from "../services/task-inventory-service.js";
 import { VisionRouteService, buildVisionAnalysisFallback } from "../services/vision-route-service.js";
 import { buildCapabilitySummary } from "../services/capability-summary-service.js";
@@ -38,7 +45,7 @@ import { WriteChangesService } from "../services/write-changes-service.js";
 import { WritePolicy } from "../services/write-policy.js";
 import { OperationReceiptService } from "../services/operation-receipt-service.js";
 import { createErrorEnvelope, createSuccessEnvelope } from "../runtime/result-envelope.js";
-import { toRepoReaderError } from "../runtime/errors.js";
+import { RepoReaderError, toRepoReaderError } from "../runtime/errors.js";
 import { audit, getRequestTelemetry, type RequestTelemetryContext } from "../runtime/telemetry.js";
 import { getConnectorDiagnostics } from "../runtime/connector-session.js";
 import { buildConnectorIdentitySnapshot } from "../runtime/connector-identity.js";
@@ -50,6 +57,8 @@ import type { FetchFileOptions } from "../services/file-reader.js";
 import type { TreeOptions } from "../services/repo-tree-service.js";
 import type { ProjectBriefInput } from "../contracts/project.contract.js";
 import type { ProjectMemoryInput } from "../contracts/project-memory.contract.js";
+import type { PortfolioReportInput } from "../contracts/portfolio-report.contract.js";
+import type { PortfolioActionCommandInput } from "../contracts/portfolio-action.contract.js";
 import type { TaskInventoryInput } from "../contracts/task.contract.js";
 import type { DecisionLogInput } from "../contracts/decision.contract.js";
 import type { ChangePlanInput } from "../contracts/change-plan.contract.js";
@@ -67,9 +76,11 @@ import type { GitReviewInput } from "../contracts/git-review.contract.js";
 import type { CleanupPathsInput } from "../contracts/cleanup.contract.js";
 import type { HandoffInput } from "../contracts/handoff.contract.js";
 import type { HermesIntakeInput } from "../contracts/hermes-intake.contract.js";
+import type { HermesCancelInput, HermesInterventionInput, HermesKanbanCommandInput, HermesWatchInput } from "../contracts/hermes-supervision.contract.js";
 import type { LabExecInput } from "../contracts/lab-exec.contract.js";
 import { TownPortalReturnInputSchema, type TownPortalReturnInput } from "../contracts/town-portal.contract.js";
 import type { ConnectorWhoamiResult } from "../contracts/connector-whoami.contract.js";
+import { HermesWatchService } from "../services/hermes-watch-service.js";
 
 type RepoInput = { repo_id: string };
 type ReadManyInput = RepoInput & {
@@ -104,6 +115,8 @@ const RepoListRootsInput = z.object({
     .max(160)
     .regex(/^[a-z0-9][a-z0-9-]*[a-z0-9]$/)
     .optional(),
+  hermes_transaction: z.string().regex(/^offthread-[a-f0-9]{16}$/).optional(),
+  hermes_cursor: z.string().max(240).optional(),
   detail: z.enum(["summary", "full"]).optional()
 });
 
@@ -166,6 +179,8 @@ export const listRootsHandler: ToolHandler = async (input, context) => {
         capabilityId: args.capability_id,
         portalId: args.portal_id,
         hermesBoard: args.hermes_board,
+        hermesTransaction: args.hermes_transaction,
+        hermesCursor: args.hermes_cursor,
         repoRoot: repo.root
       }),
       vision_capabilities: detail === "full"
@@ -278,6 +293,8 @@ export const agentRunnerStatusHandler: ToolHandler = async (input, context) => s
       capabilityId: args.capability_id,
       portalId: args.portal_id,
       hermesBoard: args.hermes_board,
+      hermesTransaction: args.hermes_transaction,
+      hermesCursor: args.hermes_cursor,
       repoRoot: repo.root,
       runnerStatusSurface: true
     })
@@ -690,6 +707,69 @@ export const projectMemoryHandler: ToolHandler = async (input, context) => safeT
   return createSuccessEnvelope(result, summary, { warnings: result.warnings });
 });
 
+export const portfolioReportHandler: ToolHandler = async (input, context) => safeTool<PortfolioReportInput>("repo_portfolio_report", input, context, async (args) => {
+  const repo = context.registry.get(args.repo_id);
+  const memory = await new ProjectMemoryService(repo, new PathSandbox(repo.root)).dashboard({ include_archived: false });
+  const ledger = await new PortfolioActionLedgerService(repo.root).read();
+  const consoleState = await new PortfolioConsoleStateService(repo.root).read();
+  const result = new PortfolioReportService().build(args.repo_id, memory, {
+    topics: args.topics, project_ids: args.project_ids, include_paused: args.include_paused, max_actions: args.max_actions
+  }, ledger, consoleState, context.registry.list().map((item) => item.repo_id));
+  audit({ tool: "repo_portfolio_report", repo_id: args.repo_id, counts: { projects: result.projects.length, actions: result.actions.length }, warnings: result.warnings });
+  return createSuccessEnvelope(result, result.summary, { warnings: result.warnings });
+});
+
+export const portfolioActionCommandHandler: ToolHandler = async (input, context) => safeTool<PortfolioActionCommandInput>("repo_portfolio_action_command", input, context, async (args) => {
+  const repo = context.registry.get(args.repo_id);
+  if (args.operation === "sync_console") {
+    const consoleState = await new PortfolioConsoleStateService(repo.root).update(args.console_patch ?? {});
+    const observedAt = new Date().toISOString();
+    const result = {
+      ok: true, repo_id: args.repo_id, operation: args.operation, changed_count: 1, unchanged_count: 0,
+      entries: [], recent_activity: [], observed_at: observedAt,
+      ledger_path: ".chatgpt/portfolio-action-ledger.json", storage_path: ".chatgpt/operations-console-state.json",
+      console_state: consoleState, warnings: [], next_action: "refresh_repo_portfolio_report_to_verify_console_state"
+    };
+    audit({ tool: "repo_portfolio_action_command", repo_id: args.repo_id, counts: { changed: 1, unchanged: 0 }, warnings: [] });
+    return createSuccessEnvelope(result, "Operations Console preferences synchronized.");
+  }
+  const ledgerService = new PortfolioActionLedgerService(repo.root);
+  let executionReceipts;
+  let effectiveArgs = args;
+  if (args.execution) {
+    const action = args.actions[0]!;
+    const target = context.registry.get(args.execution.target_repo_id);
+    const execution = await new PortfolioExecutionService().launch({
+      repo_id: args.repo_id,
+      action_id: action.action_id,
+      target_repo_id: args.execution.target_repo_id,
+      target_repo_root: target.root,
+      execution: args.execution
+    });
+    executionReceipts = [execution];
+    if (!execution.ok) {
+      const snapshot = await ledgerService.read();
+      const observedAt = new Date().toISOString();
+      const blocked = {
+        ok: false, repo_id: args.repo_id, operation: args.operation, changed_count: 0, unchanged_count: 1,
+        entries: [], recent_activity: snapshot.activity.slice(0, 30), observed_at: observedAt,
+        ledger_path: ".chatgpt/portfolio-action-ledger.json", storage_path: ".chatgpt/portfolio-action-ledger.json",
+        execution_receipts: executionReceipts, warnings: execution.warnings, next_action: execution.next_action
+      };
+      audit({ tool: "repo_portfolio_action_command", repo_id: args.repo_id, counts: { changed: 0, unchanged: 1 }, warnings: execution.warnings });
+      return createSuccessEnvelope(blocked, execution.operator_status, { warnings: execution.warnings });
+    }
+    effectiveArgs = {
+      ...args,
+      receipt_summary: `Hermes ${execution.status}: goal ${execution.goal_id}; transaction ${execution.transaction_id}; board ${execution.board}; task ${execution.task_id}.`
+    };
+  }
+  const result = await ledgerService.execute(args.repo_id, effectiveArgs);
+  const resultWithExecution = executionReceipts ? { ...result, execution_receipts: executionReceipts, next_action: executionReceipts[0]!.next_action } : result;
+  audit({ tool: "repo_portfolio_action_command", repo_id: args.repo_id, counts: { changed: result.changed_count, unchanged: result.unchanged_count }, warnings: result.warnings });
+  return createSuccessEnvelope(resultWithExecution, executionReceipts ? executionReceipts[0]!.operator_status : `${result.changed_count} portfolio action(s) moved by ${args.operation}.`, { warnings: result.warnings });
+});
+
 export const taskInventoryHandler: ToolHandler = async (input, context) => safeTool<TaskInventoryInput>("repo_task_inventory", input, context, async (args) => {
   const repoId = readOnlyRepoId(args.repo_id);
   const effectiveArgs = { ...args, repo_id: repoId };
@@ -1024,6 +1104,112 @@ export const hermesIntakeHandler: ToolHandler = async (input, context) => safeTo
   return createSuccessEnvelope(result, summary, { warnings: result.warnings });
 });
 
+export const hermesInterveneHandler: ToolHandler = async (input, context) => safeTool<HermesInterventionInput>("repo_hermes_intervene", input, context, async (args) => {
+  context.registry.get(args.repo_id);
+  const result = await new HermesSupervisionService().intervene(args);
+  audit({
+    tool: "repo_hermes_intervene",
+    repo_id: args.repo_id,
+    paths: [result.checkpoint_path, result.receipt_path].filter(Boolean),
+    counts: { appended: result.status === "checkpoint_appended" ? 1 : 0 },
+    warnings: result.warnings
+  });
+  const summary = result.status === "checkpoint_appended"
+    ? `Hermes checkpoint ${result.intervention_id} appended to ${result.transaction_id}.`
+    : `Hermes intervention rejected for ${result.transaction_id}.`;
+  return createSuccessEnvelope(result, summary, { warnings: result.warnings });
+});
+
+export const hermesCancelHandler: ToolHandler = async (input, context) => safeTool<HermesCancelInput>("repo_hermes_cancel", input, context, async (args) => {
+  context.registry.get(args.repo_id);
+  const result = await new HermesCancelService().execute(args);
+  audit({ tool: "repo_hermes_cancel", repo_id: args.repo_id, counts: { stopped_processes: result.stopped_process_count }, warnings: result.warnings });
+  return createSuccessEnvelope(result, result.status === "cancelled" ? `Hermes transaction ${result.transaction_id} cancelled with ${result.stopped_process_count} verified process stop(s).` : `Hermes cancellation ${result.status}.`, { warnings: result.warnings });
+});
+
+export const hermesKanbanCommandHandler: ToolHandler = async (input, context) => safeTool<HermesKanbanCommandInput>("repo_hermes_kanban_command", input, context, async (args) => {
+  context.registry.get(args.repo_id);
+  const result = await new HermesKanbanCommandService().execute(args);
+  audit({
+    tool: "repo_hermes_kanban_command",
+    repo_id: args.repo_id,
+    counts: { executed: result.status === "executed" ? 1 : 0, dry_run: result.status === "dry_run" ? 1 : 0 },
+    warnings: result.warnings
+  });
+  const summary = result.ok
+    ? `Hermes Kanban ${result.operation} ${result.status}: ${result.task_id || result.board}.`
+    : `Hermes Kanban ${result.operation} rejected before mutation.`;
+  return createSuccessEnvelope(result, summary, { warnings: result.warnings });
+});
+
+export const hermesWatchHandler: ToolHandler = async (input, context) => safeTool<HermesWatchInput>("repo_hermes_watch", input, context, async (args) => {
+  const repo = context.registry.get(args.repo_id);
+  if (args.hermes_board === "portfolio-console") {
+    const memory = await new ProjectMemoryService(repo, new PathSandbox(repo.root)).dashboard({ include_archived: false });
+    const ledger = await new PortfolioActionLedgerService(repo.root).read();
+    const report = new PortfolioReportService().build(args.repo_id, memory, { include_paused: true, max_actions: 30 }, ledger, undefined, context.registry.list().map((item) => item.repo_id));
+    audit({ tool: "repo_hermes_watch", repo_id: args.repo_id, counts: { projects: report.projects.length, actions: report.actions.length }, warnings: report.warnings });
+    const compatibilityResult = {
+      ...report,
+      watch_id: `portfolio-compat-${Date.now()}`,
+      observed_at: report.generated_at,
+      target_type: "board" as const,
+      hermes_board: "portfolio-console",
+      hermes_transaction: "",
+      state: "waiting" as const,
+      operator_status: report.summary,
+      changed: true,
+      heartbeat: false,
+      terminal: true,
+      continue_required: false,
+      final_response_allowed: true,
+      stop_reason: "terminal" as const,
+      poll_count: 1,
+      elapsed_ms: 0,
+      next_cursor: report.report_id,
+      acceptance_status: "portfolio_report_ready",
+      satisfaction_gate: -1,
+      board_counts: report.projects.map((project) => ({ status: project.status, count: 1 })),
+      tasks: [],
+      events: [],
+      request: {
+        repo_id: args.repo_id,
+        hermes_board: "portfolio-console",
+        hermes_transaction: "",
+        watch_seconds: args.watch_seconds ?? 10,
+        poll_interval_seconds: args.poll_interval_seconds ?? 5,
+        max_events: args.max_events ?? 1
+      }
+    };
+    return createSuccessEnvelope(compatibilityResult, `Portfolio compatibility route: ${report.summary}`, { warnings: report.warnings });
+  }
+  if (!args.hermes_board && !args.hermes_transaction) {
+    throw new RepoReaderError("VALIDATION_ERROR", "Provide hermes_board, hermes_transaction, or both.");
+  }
+  const result = await new HermesWatchService().watch(args);
+  audit({
+    tool: "repo_hermes_watch",
+    repo_id: args.repo_id,
+    counts: { polls: result.poll_count, events: result.events.length, tasks: result.tasks.length },
+    warnings: result.warnings,
+    watcher: {
+      target: args.hermes_transaction ?? args.hermes_board ?? "",
+      watch_seconds: result.request.watch_seconds,
+      poll_interval_seconds: result.request.poll_interval_seconds,
+      stop_reason: result.stop_reason,
+      changed: result.changed,
+      terminal: result.terminal,
+      elapsed_ms: result.elapsed_ms
+    }
+  });
+  const summary = result.terminal
+    ? `Hermes watch reached terminal state ${result.state}; acceptance=${result.acceptance_status}.`
+    : result.heartbeat
+      ? `Hermes watch heartbeat after ${result.poll_count} polls; state=${result.state}; continue with next_cursor.`
+      : `Hermes watch returned ${result.events.length} new event(s); state=${result.state}; continue with next_cursor.`;
+  return createSuccessEnvelope(result, summary, { warnings: result.warnings });
+});
+
 function codexQueueForTarget(context: RuntimeContext, targetRepoId: string): {
   targetRepo: RegisteredRepo;
   queueRepo: RegisteredRepo;
@@ -1268,7 +1454,7 @@ type CapabilitySummaryResult = Awaited<ReturnType<typeof buildCapabilitySummary>
 
 async function capabilitySummaryForResponse(
   summary: CapabilitySummaryResult,
-  options: { detail: "summary" | "full"; capabilityId?: string; portalId?: string; hermesBoard?: string; repoRoot?: string; runnerStatusSurface?: boolean }
+  options: { detail: "summary" | "full"; capabilityId?: string; portalId?: string; hermesBoard?: string; hermesTransaction?: string; hermesCursor?: string; repoRoot?: string; runnerStatusSurface?: boolean }
 ) {
   const capabilityId = normalizeCapabilityId(options.capabilityId);
   if (capabilityId) {
@@ -1363,7 +1549,7 @@ function compactWsBridgeRoom(wsBridgeRoom: CapabilitySummaryResult["ws_bridge_ro
 async function focusedCapabilitySummary(
   summary: CapabilitySummaryResult,
   capabilityId: string,
-  options: { portalId?: string; hermesBoard?: string; repoRoot?: string }
+  options: { detail: "summary" | "full"; portalId?: string; hermesBoard?: string; hermesTransaction?: string; hermesCursor?: string; repoRoot?: string }
 ) {
   const capability = summary.capability_toc.capabilities.find((entry) => entry.capability_id === capabilityId);
   const virtualCapability = capabilityId === "ws_bridge_room"
@@ -1380,16 +1566,21 @@ async function focusedCapabilitySummary(
       ? {
           capability_id: "hermes_kanban",
           status: "read_only_focused_hub",
-          summary: "Read-only Hermes Kanban board status and recent task summaries through the existing capability_summary hub.",
+          summary: "Read-only Hermes Kanban, off-thread transaction status, receipt gate, and compact live-tail evidence through the existing capability_summary hub.",
           existing_tool_or_hub_route: "repo_runner_status with capability_id hermes_kanban; repo_list_roots with capability_id hermes_kanban",
-          safe_operations: ["observe_boards", "read_task_status", "read_latest_task_results", "report_current_status"],
-          blocked_operations: ["create_task", "claim_task", "complete_task", "mutate_repo", "stage_commit_push", "delete_artifacts", "restart_services"],
-          suggested_next_action: "use hermes_board for one board, or omit it for recent boards; verify bridge artifacts for durable artifact readback"
+          safe_operations: ["observe_boards", "read_task_status", "read_transaction_live_tail", "inspect_receipt_gate", "report_current_status"],
+          blocked_operations: ["create_task", "claim_task", "complete_task", "mutate_repo", "stage_commit_push", "delete_artifacts", "restart_services", "acceptance_override"],
+          suggested_next_action: "use hermes_transaction for one supervised transaction; use repo_hermes_intervene only for an explicitly approved bounded checkpoint correction"
         }
     : undefined;
   const focusedCapability = capability ?? virtualCapability;
   const hermesKanban = capabilityId === "hermes_kanban"
-    ? await new HermesKanbanStatusService().status({ board: options.hermesBoard })
+    ? await new HermesKanbanStatusService().status({
+        board: options.hermesBoard,
+        transaction: options.hermesTransaction,
+        cursor: options.hermesCursor,
+        max_supervision_events: options.detail === "full" ? 30 : 12
+      })
     : undefined;
   const moduleHandles = summary.module_registry.modules.map((entry) => ({
     module_id: entry.module_id,

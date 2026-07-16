@@ -239,6 +239,10 @@ function createMcpRequestContext(req: Request): RequestTelemetryContext {
     method === "tools/call" && typeof req.body?.params?.name === "string"
       ? req.body.params.name
       : undefined;
+  const resourceUri =
+    method === "resources/read" && typeof req.body?.params?.uri === "string"
+      ? req.body.params.uri
+      : undefined;
   const publicTokenPath = req.path.startsWith("/t/");
 
   return {
@@ -249,6 +253,7 @@ function createMcpRequestContext(req: Request): RequestTelemetryContext {
     session_fingerprint: sessionFingerprint(typeof req.headers["mcp-session-id"] === "string" ? req.headers["mcp-session-id"] : undefined),
     mcp_method: method,
     mcp_tool: tool,
+    mcp_resource_uri: resourceUri,
     route_token_present: publicTokenPath,
     route_token_valid: publicTokenPath && isPublicTokenMcpPath(req.path, publicPathToken),
     authorization_header_present: typeof req.headers.authorization === "string",
@@ -278,7 +283,8 @@ function attachMcpRequestAuditing(res: Response, context: RequestTelemetryContex
       duration_ms: Date.now() - startedAt,
       mcp_session: context.mcp_session,
       mcp_method: context.mcp_method,
-      mcp_tool: context.mcp_tool
+      mcp_tool: context.mcp_tool,
+      mcp_resource_uri: context.mcp_resource_uri
     });
   });
 }
@@ -471,7 +477,8 @@ app.post(mcpRoutePatterns, async (req: Request, res: Response) => {
       route: requestContext.route ?? "/mcp",
       mcp_session: requestContext.mcp_session,
       mcp_method: requestContext.mcp_method,
-      mcp_tool: requestContext.mcp_tool
+      mcp_tool: requestContext.mcp_tool,
+      mcp_resource_uri: requestContext.mcp_resource_uri
     });
 
     if (rejectUnauthorizedMcpPath(req, res)) {

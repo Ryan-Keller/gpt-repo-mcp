@@ -62,6 +62,16 @@ describe("ProjectMemoryService", () => {
               source: ".chatgpt/codex-runs/2026-06-08T031000Z-concurrency-canary-a/RESULT.md"
             }
           ],
+          artifacts: [{
+            id: "proof-image",
+            title: "Proof image",
+            kind: "image",
+            source: "artifacts/proof.png",
+            observed_at: "2026-06-08T03:10:00Z",
+            mime_type: "image/png",
+            preview_url: "https://example.com/proof.png",
+            open_url: "https://example.com/proof.png"
+          }],
           suggested_next_moves: [
             "Write a dashboard reader."
           ]
@@ -108,7 +118,63 @@ describe("ProjectMemoryService", () => {
     expect(result.suggested_next_moves).toEqual([
       { project_id: "shared-agent-bridge", move: "Write a dashboard reader." }
     ]);
+    expect(result.artifacts[0]).toMatchObject({ artifact_id: "proof-image", project_id: "shared-agent-bridge", kind: "image" });
     expect(result.dream_report_template_path).toBe(".chatgpt/project-memory/dream-report-template.md");
+    expect(result.source_paths).toEqual([".chatgpt/project-memory/projects.json"]);
+    expect(result.source_project_counts).toEqual({ ".chatgpt/project-memory/projects.json": 1 });
+    expect(result.warnings).toEqual([]);
+  });
+
+  test("merges the tracked portfolio with local-only records and canonicalizes aliases", async () => {
+    const fixture = await createRepoFixture();
+    await mkdir(join(fixture.root, ".chatgpt", "project-memory"), { recursive: true });
+    await mkdir(join(fixture.root, "shared", "state"), { recursive: true });
+    await writeFile(join(fixture.root, ".chatgpt", "project-memory", "projects.json"), JSON.stringify({
+      schema_version: 1,
+      generated_at: "2026-06-08T03:20:00Z",
+      projects: [
+        {
+          id: "shared-agent-bridge", name: "Old Bridge", status: "active", phase: "old",
+          product_track: "old", confidence: "draft", summary: "Old summary."
+        },
+        {
+          id: "local-only", name: "Local Only", status: "draft", phase: "idea",
+          product_track: "experiment", confidence: "low", summary: "Preserve me."
+        }
+      ]
+    }));
+    await writeFile(join(fixture.root, "shared", "state", "project_memory_v1.json"), JSON.stringify({
+      schema_version: 1,
+      updated_at: "2026-06-25T22:49:54Z",
+      projects: [{
+        key: "bridge", label: "Bridge", status: "active", phase: "current",
+        product_track: "execution", confidence: "high", summary: "Current summary.",
+        roadmap: [{ item: "Current slice", state: "active", next_step: "Verify it." }],
+        next_moves: ["Continue safely"]
+      }]
+    }));
+
+    const result = await new ProjectMemoryService({
+      repo_id: "fixture", display_name: "Fixture", root: fixture.root
+    }, new PathSandbox(fixture.root)).dashboard();
+
+    expect(result.generated_at).toBe("2026-06-25T22:49:54Z");
+    expect(result.project_count).toBe(2);
+    expect(result.active_projects).toEqual([
+      expect.objectContaining({ id: "shared-agent-bridge", name: "Shared Agent Bridge", phase: "current" }),
+      expect.objectContaining({ id: "local-only", name: "Local Only" })
+    ]);
+    expect(result.roadmap).toEqual([expect.objectContaining({
+      project_id: "shared-agent-bridge", milestone: "Current slice"
+    })]);
+    expect(result.source_paths).toEqual([
+      ".chatgpt/project-memory/projects.json",
+      "shared/state/project_memory_v1.json"
+    ]);
+    expect(result.source_project_counts).toEqual({
+      ".chatgpt/project-memory/projects.json": 2,
+      "shared/state/project_memory_v1.json": 1
+    });
     expect(result.warnings).toEqual([]);
   });
 

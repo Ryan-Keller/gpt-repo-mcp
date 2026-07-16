@@ -1,5 +1,6 @@
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
+import { HermesSupervisionService, type HermesSupervisionStatus } from "./hermes-supervision-service.js";
 
 const execFileAsync = promisify(execFile);
 const DEFAULT_WSL_DISTRO = "HermesUbuntu";
@@ -42,6 +43,7 @@ export type HermesKanbanStatus = {
   boards_root: string;
   board_count: number;
   boards: HermesKanbanBoardSummary[];
+  supervision: HermesSupervisionStatus;
   evidence: string[];
   warnings: string[];
   safe_operations: string[];
@@ -51,8 +53,12 @@ export type HermesKanbanStatus = {
 
 export type HermesKanbanStatusInput = {
   board?: string;
+  transaction?: string;
+  cursor?: string;
   max_boards?: number;
   max_tasks_per_board?: number;
+  max_supervision_events?: number;
+  skip_supervision?: boolean;
 };
 
 export class HermesKanbanStatusService {
@@ -61,6 +67,7 @@ export class HermesKanbanStatusService {
       wslDistro?: string;
       boardsRoot?: string;
       commandRunner?: CommandRunner;
+      supervisionService?: HermesSupervisionService;
     } = {}
   ) {}
 
@@ -68,22 +75,35 @@ export class HermesKanbanStatusService {
     const distro = this.options.wslDistro ?? process.env.HERMES_WSL_DISTRO ?? DEFAULT_WSL_DISTRO;
     const boardsRoot = this.options.boardsRoot ?? process.env.HERMES_KANBAN_BOARDS_ROOT ?? DEFAULT_BOARDS_ROOT;
     const requestedBoard = normalizeBoard(input.board);
+    const supervisionService = this.options.supervisionService ?? new HermesSupervisionService();
+    const supervision = input.skip_supervision
+      ? emptySupervisionStatus()
+      : await supervisionService.status({
+          transaction: input.transaction,
+          board: requestedBoard || undefined,
+          cursor: input.cursor,
+          maxEvents: input.max_supervision_events
+        });
     if (input.board && !requestedBoard) {
       return blockedStatus({
         distro,
         boardsRoot,
         requestedBoard: input.board,
-        warning: "HERMES_KANBAN_INVALID_BOARD_SLUG"
+        warning: "HERMES_KANBAN_INVALID_BOARD_SLUG",
+        supervision
       });
     }
 
     try {
-      const boardNames = requestedBoard
-        ? [requestedBoard]
+      const transactionBoard = normalizeBoard(supervision.transactions[0]?.board);
+      const focusedBoard = requestedBoard || transactionBoard;
+      const boardNames = focusedBoard
+        ? [focusedBoard]
         : await this.listRecentBoards(distro, boardsRoot, input.max_boards ?? DEFAULT_RECENT_BOARD_COUNT);
       if (boardNames.length === 0) {
         return {
           ...baseStatus(distro, boardsRoot, requestedBoard),
+          supervision,
           state: "unavailable",
           evidence: [`No Hermes Kanban boards found under ${boardsRoot}.`],
           warnings: [],
@@ -107,6 +127,7 @@ export class HermesKanbanStatusService {
         state: boards.length > 0 ? "available" : "blocked",
         board_count: boards.length,
         boards,
+        supervision,
         evidence: boards.length > 0
           ? [`Read ${boards.length} Hermes Kanban board(s) through the local Hermes CLI.`]
           : ["Hermes CLI was reachable but no requested board status could be read."],
@@ -118,10 +139,13 @@ export class HermesKanbanStatusService {
     } catch (error) {
       return {
         ...baseStatus(distro, boardsRoot, requestedBoard),
+        supervision,
         state: "blocked",
-        evidence: ["Hermes Kanban readback failed before returning board status."],
+        evidence: ["Hermes Kanban readback failed; off-thread transaction evidence was inspected independently."],
         warnings: [formatCommandError(error)],
-        suggested_next_action: "verify_HermesUbuntu_wsl_and_hermes_cli_then_retry"
+        suggested_next_action: supervision.state === "available"
+          ? "report_transaction_evidence_and_verify_HermesUbuntu_kanban_readback_separately"
+          : "verify_HermesUbuntu_wsl_and_hermes_cli_then_retry"
       };
     }
   }
@@ -189,6 +213,21 @@ export class HermesKanbanStatusService {
   }
 }
 
+function emptySupervisionStatus(): HermesSupervisionStatus {
+  return {
+    state: "unavailable",
+    requested_transaction: "",
+    transaction_root: "",
+    transaction_count: 0,
+    transactions: [],
+    evidence: ["Transaction supervision was not requested for this board-only observation."],
+    warnings: [],
+    safe_operations: ["observe_board"],
+    blocked_operations: [],
+    suggested_next_action: "continue_board_observation"
+  };
+}
+
 type CommandRunner = (command: string, args: string[]) => Promise<string>;
 
 async function defaultCommandRunner(command: string, args: string[]): Promise<string> {
@@ -208,8 +247,20 @@ function baseStatus(distro: string, boardsRoot: string, requestedBoard: string):
     boards_root: boardsRoot,
     board_count: 0,
     boards: [],
-    safe_operations: ["observe_boards", "read_task_status", "read_latest_task_results", "report_current_status"],
-    blocked_operations: ["create_task", "claim_task", "complete_task", "mutate_repo", "stage_commit_push", "delete_artifacts", "restart_services"],
+    supervision: {
+      state: "unavailable",
+      requested_transaction: "",
+      transaction_root: "",
+      transaction_count: 0,
+      transactions: [],
+      evidence: [],
+      warnings: [],
+      safe_operations: [],
+      blocked_operations: [],
+      suggested_next_action: "request_a_transaction_or_board"
+    },
+    safe_operations: ["observe_boards", "read_task_status", "read_latest_task_results", "read_transaction_live_tail", "report_current_status"],
+    blocked_operations: ["create_task", "claim_task", "complete_task", "mutate_repo", "stage_commit_push", "delete_artifacts", "restart_services", "acceptance_override"],
   };
 }
 
@@ -218,9 +269,11 @@ function blockedStatus(input: {
   boardsRoot: string;
   requestedBoard: string;
   warning: string;
+  supervision: HermesSupervisionStatus;
 }): HermesKanbanStatus {
   return {
     ...baseStatus(input.distro, input.boardsRoot, input.requestedBoard),
+    supervision: input.supervision,
     state: "blocked",
     evidence: ["Requested board id failed the Hermes board slug guard."],
     warnings: [input.warning],
