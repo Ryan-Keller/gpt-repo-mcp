@@ -29,6 +29,7 @@ describe("HermesIntakeService", () => {
       spawned: false,
       job_id: "hermes-handoff-review",
       board: "hermes-intake-hermes-handoff-review",
+      workspace: expect.stringMatching(/^dir:/),
       target: "hermes-orchestrator",
       manifest_path: "shared/hermes-intake/hermes-handoff-review/manifest.json",
       intake_path: "shared/hermes-intake/hermes-handoff-review/INTAKE.md",
@@ -43,12 +44,40 @@ describe("HermesIntakeService", () => {
       job_id: "hermes-handoff-review",
       mode: "roadmap-to-kanban",
       board: "hermes-intake-hermes-handoff-review",
+      workspace: expect.stringMatching(/^dir:/),
       target: "hermes-orchestrator",
       skillsmith: true,
       preserve_full_context: true
     });
     await expect(readFile(join(root, "shared/hermes-intake/hermes-handoff-review/INTAKE.md"), "utf8"))
       .resolves.toContain("Send this to Hermes Orchestrator.");
+  });
+
+  test("binds a Windows target repository to its real WSL directory", async () => {
+    const root = await createBridgeFixture();
+    const service = new HermesIntakeService(root, undefined, "M:\\Bridge Field Console");
+
+    const result = await service.submit({
+      repo_id: "bridge-field-console",
+      title: "Project Advisors",
+      job_id: "project-advisors-workspace",
+      intake_markdown: "Use the real repository.",
+      submit: false
+    });
+
+    expect(result.workspace).toBe("dir:/mnt/m/Bridge Field Console");
+    const manifest = JSON.parse(await readFile(
+      join(root, "shared/hermes-intake/project-advisors-workspace/manifest.json"),
+      "utf8"
+    ));
+    expect(manifest).toMatchObject({
+      target_repo_id: "bridge-field-console",
+      workspace: "dir:/mnt/m/Bridge Field Console"
+    });
+    expect(manifest.notes).toEqual(expect.arrayContaining([
+      expect.stringContaining("do not create implementation tasks in scratch"),
+      expect.stringContaining("Do not invent MCP tool names")
+    ]));
   });
 
   test("submits the manifest through the guarded PowerShell helper and reads RESULT.md", async () => {

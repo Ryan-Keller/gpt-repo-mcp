@@ -34,7 +34,8 @@ export type HermesIntakeSpawner = (
 export class HermesIntakeService {
   constructor(
     private readonly root: string,
-    private readonly spawnSubmit: HermesIntakeSpawner = defaultSpawner
+    private readonly spawnSubmit: HermesIntakeSpawner = defaultSpawner,
+    private readonly targetRoot: string = root
   ) {}
 
   async submit(rawInput: HermesIntakeInput): Promise<HermesIntakeResult> {
@@ -42,14 +43,16 @@ export class HermesIntakeService {
     const started = Date.now();
     const paths = this.pathsFor(input.job_id);
     const board = input.board ?? `hermes-intake-${input.job_id}`;
+    const workspace = toHermesWorkspace(this.targetRoot);
     const manifest = {
       title: input.title,
       job_id: input.job_id,
+      target_repo_id: input.repo_id,
       mode: "roadmap-to-kanban",
       board,
       intake_file: "INTAKE.md",
       result_file: "RESULT.md",
-      workspace: "scratch",
+      workspace,
       created_by: "chatgpt-hermes-intake",
       target: TARGET,
       skillsmith: true,
@@ -57,7 +60,12 @@ export class HermesIntakeService {
       create_board: true,
       artifact_links_required: true,
       thread_ids_required_when_available: true,
-      notes: "Do not include secrets, tokens, credential paths, or private connector URLs."
+      notes: [
+        "Repository work must inherit this exact workspace; do not create implementation tasks in scratch.",
+        "Do not assign a forced skill until the assignee profile proves it is actively loadable.",
+        "Do not invent MCP tool names or operations. Cite the inspected bridge contract before adding any external dispatch path.",
+        "Do not include secrets, tokens, credential paths, or private connector URLs."
+      ]
     };
 
     await mkdir(join(this.root, ...paths.directory.split("/")), { recursive: true });
@@ -72,6 +80,7 @@ export class HermesIntakeService {
         status: "packet_written",
         job_id: input.job_id,
         board,
+        workspace,
         target: TARGET,
         manifest_path: paths.manifestPath,
         intake_path: paths.intakePath,
@@ -115,6 +124,7 @@ export class HermesIntakeService {
       status: timedOut ? "timed_out" : exitCode === 0 ? "submitted" : "failed",
       job_id: input.job_id,
       board,
+      workspace,
       target: TARGET,
       manifest_path: paths.manifestPath,
       intake_path: paths.intakePath,
@@ -158,6 +168,20 @@ export class HermesIntakeService {
       return "";
     }
   }
+}
+
+export function toHermesWorkspace(targetRoot: string): string {
+  const normalized = targetRoot.trim().replaceAll("\\", "/");
+  const driveMatch = /^([a-zA-Z]):\/(.+)$/.exec(normalized);
+  if (driveMatch) {
+    const drive = driveMatch[1].toLowerCase();
+    const path = driveMatch[2].replace(/\/+/g, "/");
+    return `dir:/mnt/${drive}/${path}`;
+  }
+  if (normalized.startsWith("/")) {
+    return `dir:${normalized.replace(/\/+/g, "/")}`;
+  }
+  throw new Error(`Approved repository root cannot be mapped to a Hermes WSL workspace: ${targetRoot}`);
 }
 
 async function defaultSpawner(
