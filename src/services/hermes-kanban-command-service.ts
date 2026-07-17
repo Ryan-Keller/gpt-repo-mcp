@@ -61,7 +61,7 @@ export class HermesKanbanCommandService {
         after_status: created.status || "created",
         command_summary: summary,
         observed_at: observedAt,
-        next_action: "return_to_repo_hermes_watch_and_verify_the_followup_task",
+        next_action: "return_to_repo_runner_status_with_capability_id_hermes_kanban_and_verify_the_followup_task",
         warnings: []
       };
     }
@@ -98,7 +98,7 @@ export class HermesKanbanCommandService {
       after_status: after.status || before.status,
       command_summary: summary,
       observed_at: observedAt,
-      next_action: "return_to_repo_hermes_watch_and_verify_the_task_event",
+      next_action: "return_to_repo_runner_status_with_capability_id_hermes_kanban_and_verify_the_task_event",
       warnings: []
     };
   }
@@ -200,7 +200,7 @@ export class HermesKanbanCommandService {
       after_status: input.expected_status ?? "",
       command_summary: "Guarded Hermes Kanban command rejected before mutation.",
       observed_at: observedAt,
-      next_action: "refresh_repo_hermes_watch_evidence_and_retry_only_with_current_exact_fields",
+      next_action: "refresh_repo_runner_status_hermes_kanban_evidence_and_retry_only_with_current_exact_fields",
       warnings: [warning]
     };
   }

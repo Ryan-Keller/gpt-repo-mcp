@@ -24,7 +24,6 @@ import {
   hermesInterveneHandler,
   hermesCancelHandler,
   hermesKanbanCommandHandler,
-  hermesWatchHandler,
   labExecHandler,
   listRootsHandler,
   nextActionHandler,
@@ -117,15 +116,6 @@ export const fullToolCatalog: ToolDefinition[] = [
     outputSchema: toolContracts.repo_hermes_kanban_command.output,
     annotations: writeAnnotations,
     handler: hermesKanbanCommandHandler
-  },
-  {
-    name: "repo_hermes_watch",
-    title: "Watch Hermes resident work",
-    description: descriptions.repo_hermes_watch,
-    inputSchema: toolContracts.repo_hermes_watch.input,
-    outputSchema: toolContracts.repo_hermes_watch.output,
-    annotations: readOnlyAnnotations,
-    handler: hermesWatchHandler
   },
   {
     name: "repo_portfolio_report",

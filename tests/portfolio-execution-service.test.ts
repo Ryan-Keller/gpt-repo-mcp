@@ -46,7 +46,7 @@ describe("PortfolioExecutionService", () => {
     expect(receipt).toMatchObject({
       ok: true, status: "started", transaction_id: "offthread-0123456789abcdef",
       board: "offthread-live-surface", task_id: "t_12345678", satisfaction_gate: 95,
-      next_action: "watch_repo_hermes_transaction_with_repo_hermes_watch"
+      next_action: "inspect_repo_runner_status_with_capability_id_hermes_kanban_and_the_same_transaction"
     });
     expect(receipt.goal_id).toMatch(/^goal-[a-f0-9]{16}$/);
   });

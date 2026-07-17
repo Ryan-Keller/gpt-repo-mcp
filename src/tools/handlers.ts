@@ -78,11 +78,10 @@ import type { GitReviewInput } from "../contracts/git-review.contract.js";
 import type { CleanupPathsInput } from "../contracts/cleanup.contract.js";
 import type { HandoffInput } from "../contracts/handoff.contract.js";
 import type { HermesIntakeInput } from "../contracts/hermes-intake.contract.js";
-import type { HermesCancelInput, HermesInterventionInput, HermesKanbanCommandInput, HermesWatchInput } from "../contracts/hermes-supervision.contract.js";
+import type { HermesCancelInput, HermesInterventionInput, HermesKanbanCommandInput } from "../contracts/hermes-supervision.contract.js";
 import type { LabExecInput } from "../contracts/lab-exec.contract.js";
 import { TownPortalReturnInputSchema, type TownPortalReturnInput } from "../contracts/town-portal.contract.js";
 import type { ConnectorWhoamiResult } from "../contracts/connector-whoami.contract.js";
-import { HermesWatchService } from "../services/hermes-watch-service.js";
 
 type RepoInput = { repo_id: string };
 type ReadManyInput = RepoInput & {
@@ -784,7 +783,7 @@ export const portfolioActionCommandHandler: ToolHandler = async (input, context)
         transaction_id: existingGoal.hermes_transaction, board: existingGoal.hermes_board, task_id: existingGoal.hermes_task,
         transaction_path: "", satisfaction_gate: existingGoal.satisfaction_threshold,
         operator_status: "Existing durable execution resumed; no duplicate launch was created.", observed_at: observedAt,
-        warnings: ["IDEMPOTENT_EXECUTION_RESUMED"], next_action: "watch_repo_hermes_transaction_with_repo_hermes_watch"
+        warnings: ["IDEMPOTENT_EXECUTION_RESUMED"], next_action: "inspect_repo_runner_status_with_capability_id_hermes_kanban_and_the_same_transaction"
       };
       const snapshot = await ledgerService.read();
       const result = { ok: true, repo_id: args.repo_id, operation: args.operation, changed_count: 0, unchanged_count: 1,
@@ -1206,84 +1205,6 @@ export const hermesKanbanCommandHandler: ToolHandler = async (input, context) =>
   const summary = result.ok
     ? `Hermes Kanban ${result.operation} ${result.status}: ${result.task_id || result.board}.`
     : `Hermes Kanban ${result.operation} rejected before mutation.`;
-  return createSuccessEnvelope(result, summary, { warnings: result.warnings });
-});
-
-export const hermesWatchHandler: ToolHandler = async (input, context) => safeTool<HermesWatchInput>("repo_hermes_watch", input, context, async (args) => {
-  const repo = context.registry.get(args.repo_id);
-  if (args.hermes_board === "portfolio-console") {
-    const memory = await new ProjectMemoryService(repo, new PathSandbox(repo.root)).dashboard({ include_archived: false });
-    const ledger = await new PortfolioActionLedgerService(repo.root).read();
-    const report = new PortfolioReportService().build(args.repo_id, memory, { include_paused: true, max_actions: 30 }, ledger, undefined, context.registry.list().map((item) => item.repo_id));
-    audit({ tool: "repo_hermes_watch", repo_id: args.repo_id, counts: { projects: report.projects.length, actions: report.actions.length }, warnings: report.warnings });
-    const compatibilityResult = {
-      ...report,
-      watch_id: `portfolio-compat-${Date.now()}`,
-      observed_at: report.generated_at,
-      target_type: "board" as const,
-      hermes_board: "portfolio-console",
-      hermes_transaction: "",
-      state: "waiting" as const,
-      operator_status: report.summary,
-      changed: true,
-      heartbeat: false,
-      terminal: true,
-      continue_required: false,
-      final_response_allowed: true,
-      stop_reason: "terminal" as const,
-      poll_count: 1,
-      elapsed_ms: 0,
-      next_cursor: report.report_id,
-      acceptance_status: "portfolio_report_ready",
-      satisfaction_gate: -1,
-      board_counts: report.projects.map((project) => ({ status: project.status, count: 1 })),
-      tasks: [],
-      events: [],
-      request: {
-        repo_id: args.repo_id,
-        hermes_board: "portfolio-console",
-        hermes_transaction: "",
-        watch_seconds: args.watch_seconds ?? 10,
-        poll_interval_seconds: args.poll_interval_seconds ?? 5,
-        max_events: args.max_events ?? 1
-      }
-    };
-    return createSuccessEnvelope(compatibilityResult, `Portfolio compatibility route: ${report.summary}`, { warnings: report.warnings });
-  }
-  if (!args.hermes_board && !args.hermes_transaction) {
-    throw new RepoReaderError("VALIDATION_ERROR", "Provide hermes_board, hermes_transaction, or both.");
-  }
-  const result = await new HermesWatchService().watch(args);
-  const reconciledGoal = await new GoalRecordService(repo.root).reconcileHermes(result);
-  if (reconciledGoal?.action_id) {
-    const ledgerService = new PortfolioActionLedgerService(repo.root);
-    const entry = (await ledgerService.read()).entries.find((item) => item.action_id === reconciledGoal.action_id);
-    const operation = result.state === "accepted" ? "complete" : result.state === "stopped" ? "stop" : result.state === "working" && entry?.state === "routed" ? "working" : undefined;
-    if (operation && entry) await ledgerService.execute(args.repo_id, {
-      repo_id: args.repo_id, operation, actions: [{ action_id: entry.action_id, expected_state: entry.state }],
-      receipt_summary: `Execution ${result.state}; transaction ${result.hermes_transaction}; acceptance ${result.acceptance_status}.`
-    });
-  }
-  audit({
-    tool: "repo_hermes_watch",
-    repo_id: args.repo_id,
-    counts: { polls: result.poll_count, events: result.events.length, tasks: result.tasks.length },
-    warnings: result.warnings,
-    watcher: {
-      target: args.hermes_transaction ?? args.hermes_board ?? "",
-      watch_seconds: result.request.watch_seconds,
-      poll_interval_seconds: result.request.poll_interval_seconds,
-      stop_reason: result.stop_reason,
-      changed: result.changed,
-      terminal: result.terminal,
-      elapsed_ms: result.elapsed_ms
-    }
-  });
-  const summary = result.terminal
-    ? `Hermes watch reached terminal state ${result.state}; acceptance=${result.acceptance_status}.`
-    : result.heartbeat
-      ? `Hermes watch heartbeat after ${result.poll_count} polls; state=${result.state}; continue with next_cursor.`
-      : `Hermes watch returned ${result.events.length} new event(s); state=${result.state}; continue with next_cursor.`;
   return createSuccessEnvelope(result, summary, { warnings: result.warnings });
 });
 
