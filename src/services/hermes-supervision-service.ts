@@ -258,7 +258,9 @@ export class HermesSupervisionService {
           summary: safeText(block, 700)
         });
       }
-    } catch {}
+    } catch {
+      // Optional checkpoint evidence may not exist yet.
+    }
   }
 
   private async addInterventionEvents(dir: string, events: Array<Omit<HermesSupervisionEvent, "cursor">>): Promise<void> {
@@ -273,7 +275,9 @@ export class HermesSupervisionService {
           summary: safeText(`${stringValue(record.intervention_type)}: ${stringValue(record.instruction)}`, 700)
         });
       }
-    } catch {}
+    } catch {
+      // Optional intervention evidence may not exist yet.
+    }
   }
 
   private async addProcessLogEvents(dir: string, events: Array<Omit<HermesSupervisionEvent, "cursor">>): Promise<void> {
@@ -295,7 +299,9 @@ export class HermesSupervisionService {
           summary: safeText(lines.join(" | "), 700)
         });
       }
-    } catch {}
+    } catch {
+      // Optional process-log evidence may not exist yet.
+    }
   }
 
   private async addReceiptEvents(dir: string, events: Array<Omit<HermesSupervisionEvent, "cursor">>): Promise<void> {
@@ -310,14 +316,20 @@ export class HermesSupervisionService {
           source: name,
           summary: safeText(text, 700)
         });
-      } catch {}
+      } catch {
+        // Optional receipt evidence may not exist yet.
+      }
     }
   }
 
   private async appendCheckpointAtomic(path: string, block: string): Promise<void> {
     await mkdir(resolve(path, ".."), { recursive: true });
     let current = "# Checkpoint Queue\n";
-    try { current = await readFile(path, "utf8"); } catch {}
+    try {
+      current = await readFile(path, "utf8");
+    } catch {
+      // A missing queue starts from the default heading.
+    }
     const next = `${current.trimEnd()}\n\n${block.trim()}\n`;
     const temp = `${path}.tmp-${process.pid}-${Date.now()}`;
     await writeFile(temp, next, "utf8");

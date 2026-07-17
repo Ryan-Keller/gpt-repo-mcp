@@ -13,20 +13,22 @@ const LAB_ROUTE_MODULE = new URL(
   TOWN_PORTAL_LAB_ROOT
 ).href;
 
+type JsonRecord = Record<string, unknown>;
+
 type LabRouteModule = {
   SEMANTIC_HASH: string;
   STRICT_HASH: string;
-  cloneDefaultTownPortal: () => Record<string, any>;
-  cloneDefaultTownPortalPayload: () => Record<string, any>;
+  cloneDefaultTownPortal: () => JsonRecord;
+  cloneDefaultTownPortalPayload: () => JsonRecord;
   createTownPortalReturnLabRoute: (options: {
-    adapter: (handoff: Record<string, any>) => Promise<Record<string, any>> | Record<string, any>;
+    adapter: (handoff: JsonRecord) => Promise<JsonRecord> | JsonRecord;
   }) => {
     returnToTownPortal: (input: {
-      portal: Record<string, any> | null;
-      payload: Record<string, any>;
+      portal: JsonRecord | null;
+      payload: JsonRecord;
       currentStateHash: string;
       turnId: string;
-    }) => Promise<Record<string, any>>;
+    }) => Promise<JsonRecord>;
   };
 };
 
@@ -40,7 +42,7 @@ type StressHarnessModule = {
     pass_count: number;
     fail_count: number;
     case_count: number;
-    cases: Array<Record<string, any>>;
+    cases: JsonRecord[];
     risk_notes: string[];
   }>;
 };
@@ -61,7 +63,7 @@ describe("town portal return lab route", () => {
 
   test("hands accepted returns to the lab display adapter only after validator acceptance", async () => {
     const lab = await loadLabRoute();
-    const adapterCalls: Record<string, any>[] = [];
+    const adapterCalls: JsonRecord[] = [];
     const route = lab.createTownPortalReturnLabRoute({
       adapter: async (handoff) => {
         adapterCalls.push(handoff);
@@ -100,11 +102,11 @@ describe("town portal return lab route", () => {
   });
 
   test.each([
-    ["expired portal", (portal: Record<string, any>, payload: Record<string, any>) => { portal.expires_turn_id = "turn-000"; }, "expired", "portal_expired"],
-    ["target mismatch", (_portal: Record<string, any>, payload: Record<string, any>) => { payload.target_path = "shared/experiments/town-lab-2026-06-13/wrong-target.md"; }, "rejected", "target_path_mismatch"],
-    ["unsafe operation", (_portal: Record<string, any>, payload: Record<string, any>) => { payload.operation = "launch_agent"; }, "rejected", "operation_mismatch"],
-    ["wrong payload kind", (_portal: Record<string, any>, payload: Record<string, any>) => { payload.kind = "arbitrary_note"; }, "rejected", "payload_kind_mismatch"],
-    ["display-only violation", (_portal: Record<string, any>, payload: Record<string, any>) => { payload.display_only = false; }, "rejected", "display_only_required"],
+    ["expired portal", (portal: JsonRecord, payload: JsonRecord) => { void payload; portal.expires_turn_id = "turn-000"; }, "expired", "portal_expired"],
+    ["target mismatch", (portal: JsonRecord, payload: JsonRecord) => { void portal; payload.target_path = "shared/experiments/town-lab-2026-06-13/wrong-target.md"; }, "rejected", "target_path_mismatch"],
+    ["unsafe operation", (portal: JsonRecord, payload: JsonRecord) => { void portal; payload.operation = "launch_agent"; }, "rejected", "operation_mismatch"],
+    ["wrong payload kind", (portal: JsonRecord, payload: JsonRecord) => { void portal; payload.kind = "arbitrary_note"; }, "rejected", "payload_kind_mismatch"],
+    ["display-only violation", (portal: JsonRecord, payload: JsonRecord) => { void portal; payload.display_only = false; }, "rejected", "display_only_required"],
   ])("rejects %s before any lab adapter handoff", async (_name, mutate, expectedStatus, expectedReason) => {
     const lab = await loadLabRoute();
     let adapterCalls = 0;

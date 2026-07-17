@@ -1,6 +1,5 @@
 import { spawn } from "node:child_process";
 import { createHash } from "node:crypto";
-import type { Readable } from "node:stream";
 import { lstat } from "node:fs/promises";
 import { LabExecInputSchema, type LabExecInput, type LabExecResult } from "../contracts/lab-exec.contract.js";
 import { redactSensitiveText } from "../runtime/result-envelope.js";

@@ -330,7 +330,7 @@ export const runLiveTailHandler: ToolHandler = async (input, context) => safeToo
   return createSuccessEnvelope(result, summary, { warnings: result.warnings });
 });
 
-export const connectorWhoamiHandler: ToolHandler = async (_input, _context) => {
+export const connectorWhoamiHandler: ToolHandler = async () => {
   const telemetry = getRequestTelemetry();
   const observedAt = new Date().toISOString();
   const routeTokenValid = telemetry?.route_token_valid === true;

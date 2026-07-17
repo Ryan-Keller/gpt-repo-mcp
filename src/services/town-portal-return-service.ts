@@ -66,11 +66,32 @@ export type TownPortalReturnResult = {
 
 type TownPortalReturnInput = {
   repo_id: string;
-  portal: Record<string, any> | null | undefined;
-  payload: Record<string, any>;
+  portal: TownPortalRecord | null | undefined;
+  payload: TownPortalPayload;
   current_state_hash: string;
   turn_id: string;
   approval_present?: boolean;
+};
+
+export type TownPortalRecord = Record<string, unknown> & {
+  portal_id?: unknown;
+  status?: unknown;
+  kind?: unknown;
+  schema_version?: unknown;
+  expires_turn_id?: unknown;
+  location?: Record<string, unknown>;
+  return_contract?: Record<string, unknown>;
+  constraints?: Record<string, unknown>;
+};
+
+export type TownPortalPayload = Record<string, unknown> & {
+  schema_version?: unknown;
+  repo_id?: unknown;
+  target_path?: unknown;
+  operation?: unknown;
+  kind?: unknown;
+  display_only?: unknown;
+  body?: unknown;
 };
 
 type ServiceOptions = {
@@ -181,7 +202,7 @@ export function createTownPortalFixture({
   portalId?: string;
   targetPath?: string;
   stateHash?: string;
-} = {}): Record<string, any> {
+} = {}): TownPortalRecord {
   return {
     kind: "town_portal",
     schema_version: 1,
@@ -218,7 +239,7 @@ export function createTownPortalPayloadFixture({
   targetPath = "shared/status/town-portal-lab/happy-path.md"
 }: {
   targetPath?: string;
-} = {}): Record<string, any> {
+} = {}): TownPortalPayload {
   return {
     kind: "bridge_status_lab_note",
     schema_version: 1,
@@ -295,21 +316,24 @@ function validateTownPortalReturn(input: TownPortalReturnInput, consumedPortalId
   if (!adapterAllows(input.payload.target_path, input.payload.operation, input.payload.kind)) {
     return terminal("rejected", "adapter_gate_rejected", true);
   }
+  const targetPath = String(input.payload.target_path);
+  const operation = String(input.payload.operation);
+  const payloadKind = String(input.payload.kind);
 
   return {
     ...terminal("accepted", "accepted_once", true),
     handoff: {
       repo_id: APPROVED_REPO_ID,
-      target_path: input.payload.target_path,
-      operation: input.payload.operation,
-      payload_kind: input.payload.kind
+      target_path: targetPath,
+      operation,
+      payload_kind: payloadKind
     },
     adapterHandoff: {
       portal_id: portalId,
       repo_id: APPROVED_REPO_ID,
-      target_path: input.payload.target_path,
-      operation: input.payload.operation,
-      payload_kind: input.payload.kind,
+      target_path: targetPath,
+      operation,
+      payload_kind: payloadKind,
       state_hash: oldStateHash,
       body: String(input.payload.body ?? "")
     }
@@ -371,7 +395,8 @@ function terminal(status: TownPortalReturnStatus, reason: string, consumeHandle:
 }
 
 function withoutAdapterHandoff(decision: Decision): Omit<TownPortalReturnResult, "adapter_called" | "audit_receipt"> {
-  const { adapterHandoff: _adapterHandoff, ...result } = decision;
+  const { adapterHandoff, ...result } = decision;
+  void adapterHandoff;
   return result;
 }
 

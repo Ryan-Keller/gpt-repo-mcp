@@ -25,7 +25,7 @@ import { ProjectMemoryDashboardResultSchema, ProjectMemoryInputSchema } from "..
 import { PortfolioReportInputSchema, PortfolioReportResultSchema } from "../contracts/portfolio-report.contract.js";
 import { PortfolioActionCommandInputSchema, PortfolioActionCommandResultSchema } from "../contracts/portfolio-action.contract.js";
 import { RepoReadInputSchema, RepoReadResultSchema } from "../contracts/read-hub.contract.js";
-import { RepoInputSchema, RepoListInputSchema, RepoListReferenceResultSchema, RepoTreeInputSchema } from "../contracts/repo.contract.js";
+import { RepoListInputSchema, RepoListReferenceResultSchema, RepoTreeInputSchema } from "../contracts/repo.contract.js";
 import { PlanReviewInputSchema, PlanReviewResultSchema } from "../contracts/review.contract.js";
 import { SearchInputSchema, SearchResponseSchema } from "../contracts/search.contract.js";
 import { TaskInventoryInputSchema, TaskInventoryResultSchema } from "../contracts/task.contract.js";

@@ -117,7 +117,7 @@ export class PortfolioReportService {
       const reentryPrompt = [
         `Resume the ${project.name} project from this Shared Agent Bridge re-entry packet.`,
         "Treat the packet as orientation, not unquestionable current truth.",
-        `First call repo_bridge_concierge for repo_id \"shared-agent-bridge\" with a request to resolve the current ${project.name} project destination and include evidence.`,
+        `First call repo_bridge_concierge for repo_id "shared-agent-bridge" with a request to resolve the current ${project.name} project destination and include evidence.`,
         "Then verify the resolved project's current onboarding, runtime, dirty state, and newest receipts before proposing or continuing work.",
         "Report: what the project is, current phase and product track, runtime status, what changed, active work, top unknowns, and the smallest useful next choices.",
         "Do not duplicate any routed or working action. Preserve approval boundaries for mutations and durable dispatch.",

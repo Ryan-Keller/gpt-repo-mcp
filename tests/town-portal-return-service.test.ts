@@ -7,7 +7,9 @@ import {
   createTownPortalPayloadFixture,
   createTownPortalFixture,
   semanticTownPortalHash,
-  type TownPortalDisplayAdapter
+  type TownPortalDisplayAdapter,
+  type TownPortalPayload,
+  type TownPortalRecord
 } from "../src/services/town-portal-return-service.js";
 
 describe("TownPortalReturnService", () => {
@@ -68,16 +70,16 @@ describe("TownPortalReturnService", () => {
   });
 
   test.each([
-    ["wrong kind", (portal: Record<string, any>, _payload: Record<string, any>) => { portal.kind = "memory_portal"; }, "rejected", "portal_kind_mismatch"],
-    ["wrong schema", (portal: Record<string, any>, _payload: Record<string, any>) => { portal.schema_version = 2; }, "rejected", "unsupported_schema_version"],
-    ["repo mismatch", (_portal: Record<string, any>, payload: Record<string, any>) => { payload.repo_id = "other"; }, "rejected", "repo_id_mismatch"],
-    ["path mismatch", (_portal: Record<string, any>, payload: Record<string, any>) => { payload.target_path = "shared/status/town-portal-lab/other.md"; }, "rejected", "target_path_mismatch"],
-    ["operation mismatch", (_portal: Record<string, any>, payload: Record<string, any>) => { payload.operation = "launch_agent"; }, "rejected", "operation_mismatch"],
-    ["payload kind mismatch", (_portal: Record<string, any>, payload: Record<string, any>) => { payload.kind = "arbitrary_note"; }, "rejected", "payload_kind_mismatch"],
-    ["display violation", (_portal: Record<string, any>, payload: Record<string, any>) => { payload.display_only = false; }, "rejected", "display_only_required"],
-    ["single-use violation", (portal: Record<string, any>, _payload: Record<string, any>) => { portal.return_contract.single_use = false; }, "rejected", "single_use_required"],
-    ["follow-up violation", (portal: Record<string, any>, _payload: Record<string, any>) => { portal.constraints.no_followup_activity = false; }, "rejected", "no_followup_activity_required"],
-    ["approval missing", (portal: Record<string, any>, _payload: Record<string, any>) => { portal.constraints.requires_approval = true; }, "rejected", "approval_required"]
+    ["wrong kind", (portal: TownPortalRecord, payload: TownPortalPayload) => { void payload; portal.kind = "memory_portal"; }, "rejected", "portal_kind_mismatch"],
+    ["wrong schema", (portal: TownPortalRecord, payload: TownPortalPayload) => { void payload; portal.schema_version = 2; }, "rejected", "unsupported_schema_version"],
+    ["repo mismatch", (portal: TownPortalRecord, payload: TownPortalPayload) => { void portal; payload.repo_id = "other"; }, "rejected", "repo_id_mismatch"],
+    ["path mismatch", (portal: TownPortalRecord, payload: TownPortalPayload) => { void portal; payload.target_path = "shared/status/town-portal-lab/other.md"; }, "rejected", "target_path_mismatch"],
+    ["operation mismatch", (portal: TownPortalRecord, payload: TownPortalPayload) => { void portal; payload.operation = "launch_agent"; }, "rejected", "operation_mismatch"],
+    ["payload kind mismatch", (portal: TownPortalRecord, payload: TownPortalPayload) => { void portal; payload.kind = "arbitrary_note"; }, "rejected", "payload_kind_mismatch"],
+    ["display violation", (portal: TownPortalRecord, payload: TownPortalPayload) => { void portal; payload.display_only = false; }, "rejected", "display_only_required"],
+    ["single-use violation", (portal: TownPortalRecord, payload: TownPortalPayload) => { void payload; portal.return_contract!.single_use = false; }, "rejected", "single_use_required"],
+    ["follow-up violation", (portal: TownPortalRecord, payload: TownPortalPayload) => { void payload; portal.constraints!.no_followup_activity = false; }, "rejected", "no_followup_activity_required"],
+    ["approval missing", (portal: TownPortalRecord, payload: TownPortalPayload) => { void payload; portal.constraints!.requires_approval = true; }, "rejected", "approval_required"]
   ])("rejects %s before adapter handoff", async (_name, mutate, expectedStatus, expectedReason) => {
     let adapterCalls = 0;
     const service = new TownPortalReturnService({
@@ -163,9 +165,9 @@ describe("TownPortalReturnService", () => {
     })).reason).toBe("portal_already_consumed");
 
     for (const [portalId, mutate, expected] of [
-      ["rejected", (portal: Record<string, any>) => { portal.kind = "bad"; }, "rejected"],
-      ["expired", (portal: Record<string, any>) => { portal.expires_turn_id = "turn-000"; }, "expired"],
-      ["conflict", (_portal: Record<string, any>) => {}, "conflict"]
+      ["rejected", (portal: TownPortalRecord) => { portal.kind = "bad"; }, "rejected"],
+      ["expired", (portal: TownPortalRecord) => { portal.expires_turn_id = "turn-000"; }, "expired"],
+      ["conflict", (portal: TownPortalRecord) => { void portal; }, "conflict"]
     ] as const) {
       const portal = createTownPortalFixture({ portalId, stateHash });
       mutate(portal);
