@@ -45,6 +45,7 @@ export const HermesIntakeResultSchema = z.object({
   status: z.enum(["packet_written", "submitted", "failed", "timed_out"]).describe("Packet and submit outcome."),
   job_id: z.string().describe("Stable intake job id."),
   board: z.string().describe("Hermes board slug requested in the manifest."),
+  workspace: z.string().describe("Hermes workspace binding for the approved target repository."),
   target: z.string().describe("Hermes intake target profile."),
   manifest_path: z.string().describe("Repo-relative manifest path."),
   intake_path: z.string().describe("Repo-relative INTAKE.md path."),

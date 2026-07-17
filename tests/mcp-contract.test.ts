@@ -220,75 +220,14 @@ describe("MCP contract", () => {
     }
   });
 
-  test("Hermes watch and portfolio report stay app-callable without auto-rendering a ChatGPT widget", async () => {
+  test("the MCP surface advertises no ChatGPT widget resources or UI metadata", async () => {
     const { client, close } = await connectFixtureServer();
     try {
       const listed = await client.listTools();
-      const watch = listed.tools.find((tool) => tool.name === "repo_hermes_watch");
-      const portfolio = listed.tools.find((tool) => tool.name === "repo_portfolio_report");
-      expect(watch?._meta).toMatchObject({
-        "ui/visibility": ["model", "app"]
-      });
-      expect(portfolio?._meta).toMatchObject({
-        "ui/visibility": ["model", "app"]
-      });
-      for (const tool of [watch, portfolio]) {
-        expect(tool?._meta).not.toHaveProperty("ui/resourceUri");
-        expect(tool?._meta).not.toHaveProperty("openai/outputTemplate");
-        expect(tool?._meta).not.toHaveProperty("openai/widgetAccessible");
+      for (const tool of listed.tools) {
+        expect(tool._meta).toBeUndefined();
       }
-      const resources = await client.listResources();
-      expect(resources.resources).toEqual(expect.arrayContaining([
-        expect.objectContaining({
-          uri: "ui://widget/hermes-watch-v3.html",
-          mimeType: "text/html;profile=mcp-app"
-        }),
-        expect.objectContaining({
-          uri: "ui://widget/hermes-watch-v4.html",
-          mimeType: "text/html;profile=mcp-app"
-        }),
-        expect.objectContaining({
-          uri: "ui://widget/portfolio-console-v4.html",
-          mimeType: "text/html;profile=mcp-app"
-        }),
-        expect.objectContaining({
-          uri: "ui://widget/portfolio-console-v5.html",
-          mimeType: "text/html;profile=mcp-app"
-        }),
-        expect.objectContaining({
-          uri: "ui://widget/portfolio-console-v6.html",
-          mimeType: "text/html;profile=mcp-app"
-        }),
-        expect.objectContaining({
-          uri: "ui://widget/portfolio-console-v7.html",
-          mimeType: "text/html;profile=mcp-app"
-        }),
-        expect.objectContaining({
-          uri: "ui://widget/portfolio-console-v8.html",
-          mimeType: "text/html;profile=mcp-app"
-        })
-      ]));
-      const resource = await client.readResource({ uri: "ui://widget/hermes-watch-v4.html" });
-      expect(resource.contents[0]).toMatchObject({
-        uri: "ui://widget/hermes-watch-v4.html",
-        mimeType: "text/html;profile=mcp-app",
-        text: expect.stringContaining("Shared Agent Bridge · field console")
-      });
-      expect((resource.contents[0] as { text?: string }).text).toContain("repo_hermes_watch");
-      expect((resource.contents[0] as { text?: string }).text).toContain("Copy for new thread");
-      expect((resource.contents[0] as { text?: string }).text).toContain("openai:set_globals");
-      const legacyHermes = await client.readResource({ uri: "ui://widget/hermes-watch-v3.html" });
-      expect(legacyHermes.contents[0]).toMatchObject({
-        uri: "ui://widget/hermes-watch-v3.html",
-        mimeType: "text/html;profile=mcp-app",
-        text: expect.stringContaining("Shared Agent Bridge · field console")
-      });
-      const legacyPortfolio = await client.readResource({ uri: "ui://widget/portfolio-console-v4.html" });
-      expect(legacyPortfolio.contents[0]).toMatchObject({
-        uri: "ui://widget/portfolio-console-v4.html",
-        mimeType: "text/html;profile=mcp-app",
-        text: expect.stringContaining("Shared Agent Bridge · field console")
-      });
+      await expect(client.listResources()).rejects.toThrow(/Method not found/);
     } finally {
       await close();
     }

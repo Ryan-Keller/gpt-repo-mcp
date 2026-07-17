@@ -523,6 +523,40 @@ app.post(mcpRoutePatterns, async (req: Request, res: Response) => {
           toolCatalog: activeToolCatalog,
           instructions: getServerInstructions(toolProfile)
         }).connect(transport);
+      } else if (!sessionId && isSessionlessToolCall(req.body)) {
+        // ChatGPT occasionally completes discovery on a stateful session and
+        // then omits Mcp-Session-Id on the subsequent tools/call request. The
+        // request has already passed the normal route and authorization gates,
+        // so handle this one call through the SDK's stateless transport rather
+        // than disabling the connector with a transport-only 400 response.
+        transport = new StreamableHTTPServerTransport({
+          sessionIdGenerator: undefined
+        });
+        const oneShotServer = createMcpServer(context, {
+          toolProfile,
+          toolCatalog: activeToolCatalog,
+          instructions: getServerInstructions(toolProfile)
+        });
+        await oneShotServer.connect(transport);
+        res.on("close", () => {
+          void transport?.close();
+          void oneShotServer.close();
+        });
+        await appendBridgeSecurityEvent(registry, {
+          event_type: "connector_session_recovered",
+          severity: "info",
+          caller_classification: "connector",
+          operation: requestContext.mcp_tool ?? "tools/call",
+          allowed: true,
+          reason: "Authenticated sessionless tools/call handled with one-shot stateless transport",
+          evidence: {
+            request_id: requestContext.request_id,
+            mcp_session: "missing",
+            bridge_process_id: process.pid,
+            bridge_started_at: startedAt
+          },
+          suggested_next_action: "continue"
+        });
       } else {
         const errorCode = -32000;
         await appendBridgeSecurityEvent(registry, {
@@ -589,6 +623,15 @@ app.post(mcpRoutePatterns, async (req: Request, res: Response) => {
     }
   });
 });
+
+function isSessionlessToolCall(body: unknown): boolean {
+  return Boolean(
+    body &&
+    typeof body === "object" &&
+    "method" in body &&
+    (body as { method?: unknown }).method === "tools/call"
+  );
+}
 
 app.get(mcpRoutePatterns, async (req: Request, res: Response) => {
   const requestContext = createMcpRequestContext(req);

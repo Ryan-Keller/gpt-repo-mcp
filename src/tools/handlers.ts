@@ -1152,8 +1152,12 @@ export const labExecHandler: ToolHandler = async (input, context) => safeTool<La
 });
 
 export const hermesIntakeHandler: ToolHandler = async (input, context) => safeTool<HermesIntakeInput>("repo_hermes_intake", input, context, async (args) => {
-  const repo = context.registry.get(args.repo_id);
-  const result = await new HermesIntakeService(repo.root).submit(args);
+  // repo_id identifies the project receiving the work, but Hermes intake is
+  // bridge-owned control-plane state. Always write and submit from the Shared
+  // Agent Bridge root after validating that the target repository is approved.
+  const targetRepo = context.registry.get(args.repo_id);
+  const bridgeRepo = context.registry.get("shared-agent-bridge");
+  const result = await new HermesIntakeService(bridgeRepo.root, undefined, targetRepo.root).submit(args);
   audit({
     tool: "repo_hermes_intake",
     repo_id: args.repo_id,

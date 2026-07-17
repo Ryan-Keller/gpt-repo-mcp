@@ -1209,7 +1209,8 @@ describe("tool catalog contracts", () => {
         "submitted",
         "target",
         "timed_out",
-        "warnings"
+        "warnings",
+        "workspace"
       ]
     });
   });

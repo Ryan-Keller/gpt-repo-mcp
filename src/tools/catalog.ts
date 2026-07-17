@@ -61,7 +61,6 @@ export type ToolDefinition = {
   outputSchema: ToolContract["output"];
   annotations: typeof readOnlyAnnotations | typeof writeAnnotations | typeof boundedPacketWriteAnnotations;
   handler: ToolHandler;
-  meta?: Record<string, unknown>;
 };
 
 export const fullToolCatalog: ToolDefinition[] = [
@@ -108,12 +107,7 @@ export const fullToolCatalog: ToolDefinition[] = [
     inputSchema: toolContracts.repo_hermes_cancel.input,
     outputSchema: toolContracts.repo_hermes_cancel.output,
     annotations: boundedPacketWriteAnnotations,
-    handler: hermesCancelHandler,
-    meta: {
-      "ui/visibility": ["model", "app"],
-      "openai/toolInvocation/invoking": "Stopping verified Hermes work…",
-      "openai/toolInvocation/invoked": "Hermes cancellation recorded"
-    }
+    handler: hermesCancelHandler
   },
   {
     name: "repo_hermes_kanban_command",
@@ -122,12 +116,7 @@ export const fullToolCatalog: ToolDefinition[] = [
     inputSchema: toolContracts.repo_hermes_kanban_command.input,
     outputSchema: toolContracts.repo_hermes_kanban_command.output,
     annotations: writeAnnotations,
-    handler: hermesKanbanCommandHandler,
-    meta: {
-      "ui/visibility": ["model", "app"],
-      "openai/toolInvocation/invoking": "Applying approved Kanban change…",
-      "openai/toolInvocation/invoked": "Kanban change recorded"
-    }
+    handler: hermesKanbanCommandHandler
   },
   {
     name: "repo_hermes_watch",
@@ -136,12 +125,7 @@ export const fullToolCatalog: ToolDefinition[] = [
     inputSchema: toolContracts.repo_hermes_watch.input,
     outputSchema: toolContracts.repo_hermes_watch.output,
     annotations: readOnlyAnnotations,
-    handler: hermesWatchHandler,
-    meta: {
-      "ui/visibility": ["model", "app"],
-      "openai/toolInvocation/invoking": "Watching Hermes evidence…",
-      "openai/toolInvocation/invoked": "Hermes observation received"
-    }
+    handler: hermesWatchHandler
   },
   {
     name: "repo_portfolio_report",
@@ -150,12 +134,7 @@ export const fullToolCatalog: ToolDefinition[] = [
     inputSchema: toolContracts.repo_portfolio_report.input,
     outputSchema: toolContracts.repo_portfolio_report.output,
     annotations: readOnlyAnnotations,
-    handler: portfolioReportHandler,
-    meta: {
-      "ui/visibility": ["model", "app"],
-      "openai/toolInvocation/invoking": "Assembling portfolio report…",
-      "openai/toolInvocation/invoked": "Portfolio report ready"
-    }
+    handler: portfolioReportHandler
   },
   {
     name: "repo_portfolio_action_command",
@@ -164,12 +143,7 @@ export const fullToolCatalog: ToolDefinition[] = [
     inputSchema: toolContracts.repo_portfolio_action_command.input,
     outputSchema: toolContracts.repo_portfolio_action_command.output,
     annotations: boundedPacketWriteAnnotations,
-    handler: portfolioActionCommandHandler,
-    meta: {
-      "ui/visibility": ["model", "app"],
-      "openai/toolInvocation/invoking": "Recording action lifecycle…",
-      "openai/toolInvocation/invoked": "Action ledger updated"
-    }
+    handler: portfolioActionCommandHandler
   },
   {
     name: "agent_runner_status",
