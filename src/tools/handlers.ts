@@ -715,9 +715,10 @@ export const portfolioReportHandler: ToolHandler = async (input, context) => saf
   const ledger = await new PortfolioActionLedgerService(repo.root).read();
   const consoleState = await new PortfolioConsoleStateService(repo.root).read();
   const goals = await new GoalRecordService(repo.root).read();
+  const ideas = args.repo_id === "shared-agent-bridge" ? await new IdeaInboxService(repo.root).latest() : [];
   const result = new PortfolioReportService().build(args.repo_id, memory, {
     topics: args.topics, project_ids: args.project_ids, include_paused: args.include_paused, max_actions: args.max_actions, cursor: args.cursor
-  }, ledger, consoleState, context.registry.list().map((item) => item.repo_id), goals);
+  }, ledger, consoleState, context.registry.list().map((item) => item.repo_id), goals, ideas);
   audit({ tool: "repo_portfolio_report", repo_id: args.repo_id, counts: { projects: result.projects.length, actions: result.actions.length }, warnings: result.warnings });
   return createSuccessEnvelope(result, result.summary, { warnings: result.warnings });
 });

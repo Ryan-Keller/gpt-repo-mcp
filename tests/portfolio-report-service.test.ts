@@ -103,4 +103,14 @@ describe("PortfolioReportService", () => {
     expect(result.actions.map((action) => action.title)).not.toContain("Install release 0.5.0 and verify OTA");
     expect(result.hidden_action_count).toBeGreaterThan(0);
   });
+
+  test("promotes ready existing Idea Inbox records into deduplicated project suggestions", () => {
+    const result = new PortfolioReportService().build("shared-agent-bridge", memory, { max_actions: 30 }, undefined, undefined, ["alpha"], [], [{
+      idea_id: "idea-alpha", captured_at: "2026-07-16T20:00:00.000Z", updated_at: "2026-07-16T20:00:00.000Z", dedupe_key: "key",
+      raw_phrase: "Add a compact recovery heartbeat", normalized_title: "Add compact recovery heartbeat", status: "ready_for_slice",
+      related_projects: ["alpha"], urgency: "medium", visibility_target: "portfolio_suggestion", next_prompt: "What is the smallest poll?",
+      tags: ["recovery"], source_kind: "codex"
+    }]);
+    expect(result.actions.find((action) => action.title === "Add compact recovery heartbeat")).toMatchObject({ project_id: "alpha", risk: "approval_required" });
+  });
 });

@@ -4,11 +4,12 @@ import type { ProjectMemoryDashboardResult } from "../contracts/project-memory.c
 import type { PortfolioActionLedgerSnapshot } from "./portfolio-action-ledger-service.js";
 import type { PortfolioConsoleState } from "../contracts/portfolio-console-state.contract.js";
 import type { GoalRecord } from "../contracts/goal-record.contract.js";
+import type { IdeaRecord } from "../contracts/portfolio-intake.contract.js";
 
 type Options = Omit<PortfolioReportInput, "repo_id">;
 
 export class PortfolioReportService {
-  build(repoId: string, memory: ProjectMemoryDashboardResult, options: Options = {}, ledger: PortfolioActionLedgerSnapshot = { entries: [], activity: [] }, consoleState: PortfolioConsoleState = { version: 1, updated_at: "", project_seen: [], playbooks: [], artifacts: [] }, approvedRepoIds: string[] = [], goals: GoalRecord[] = []): PortfolioReportResult {
+  build(repoId: string, memory: ProjectMemoryDashboardResult, options: Options = {}, ledger: PortfolioActionLedgerSnapshot = { entries: [], activity: [] }, consoleState: PortfolioConsoleState = { version: 1, updated_at: "", project_seen: [], playbooks: [], artifacts: [] }, approvedRepoIds: string[] = [], goals: GoalRecord[] = [], ideas: IdeaRecord[] = []): PortfolioReportResult {
     const now = new Date();
     const requested = new Set(options.project_ids ?? []);
     const sourceProjects = memory.active_projects.filter((project) =>
@@ -64,6 +65,10 @@ export class PortfolioReportService {
     for (const item of watch) add(item.project_id, `Review: ${item.topic}`, `Watch status ${item.status}; cadence ${item.cadence}.`, "research watchlist", "research", "read_only");
     for (const idea of paused) add(idea.project_id, idea.next_tiny_experiment, `Paused: ${idea.reason_paused}`, "paused idea", "resume_experiment", "approval_required");
     for (const result of results.slice(0, 8)) add(result.project_id, `Review result from ${result.date}`, result.summary, result.source, "review_result", "read_only");
+    for (const idea of ideas.filter((item) => item.status === "ready_for_slice" || item.status === "watch")) {
+      const projectId = idea.related_projects.find((id) => ids.has(id));
+      if (projectId) add(projectId, idea.normalized_title, `Idea Inbox: ${idea.raw_phrase}`, `idea inbox ${idea.idea_id}`, idea.status === "watch" ? "research" : "continue_slice", idea.status === "watch" ? "read_only" : "approval_required");
+    }
     const allActions = distributeActions(actionCandidates, projects.map((project) => project.id), Number.MAX_SAFE_INTEGER);
     const pageSize = Math.min(options.max_actions ?? 20, 30);
     const offset = parseCursor(options.cursor);
