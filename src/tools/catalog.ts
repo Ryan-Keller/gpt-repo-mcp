@@ -138,27 +138,21 @@ export const fullToolCatalog: ToolDefinition[] = [
     annotations: readOnlyAnnotations,
     handler: hermesWatchHandler,
     meta: {
-      "ui/resourceUri": "ui://widget/portfolio-console-v8.html",
       "ui/visibility": ["model", "app"],
-      "openai/outputTemplate": "ui://widget/portfolio-console-v8.html",
-      "openai/widgetAccessible": true,
       "openai/toolInvocation/invoking": "Watching Hermes evidence…",
       "openai/toolInvocation/invoked": "Hermes observation received"
     }
   },
   {
     name: "repo_portfolio_report",
-    title: "Open portfolio action console",
+    title: "Get portfolio report",
     description: descriptions.repo_portfolio_report,
     inputSchema: toolContracts.repo_portfolio_report.input,
     outputSchema: toolContracts.repo_portfolio_report.output,
     annotations: readOnlyAnnotations,
     handler: portfolioReportHandler,
     meta: {
-      "ui/resourceUri": "ui://widget/portfolio-console-v8.html",
       "ui/visibility": ["model", "app"],
-      "openai/outputTemplate": "ui://widget/portfolio-console-v8.html",
-      "openai/widgetAccessible": true,
       "openai/toolInvocation/invoking": "Assembling portfolio report…",
       "openai/toolInvocation/invoked": "Portfolio report ready"
     }

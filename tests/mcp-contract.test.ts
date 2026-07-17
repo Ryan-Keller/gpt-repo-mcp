@@ -220,17 +220,23 @@ describe("MCP contract", () => {
     }
   });
 
-  test("Hermes watch exposes an app-callable tool and versioned MCP App resource", async () => {
+  test("Hermes watch and portfolio report stay app-callable without auto-rendering a ChatGPT widget", async () => {
     const { client, close } = await connectFixtureServer();
     try {
       const listed = await client.listTools();
       const watch = listed.tools.find((tool) => tool.name === "repo_hermes_watch");
+      const portfolio = listed.tools.find((tool) => tool.name === "repo_portfolio_report");
       expect(watch?._meta).toMatchObject({
-        "ui/resourceUri": "ui://widget/portfolio-console-v8.html",
-        "ui/visibility": ["model", "app"],
-        "openai/outputTemplate": "ui://widget/portfolio-console-v8.html",
-        "openai/widgetAccessible": true
+        "ui/visibility": ["model", "app"]
       });
+      expect(portfolio?._meta).toMatchObject({
+        "ui/visibility": ["model", "app"]
+      });
+      for (const tool of [watch, portfolio]) {
+        expect(tool?._meta).not.toHaveProperty("ui/resourceUri");
+        expect(tool?._meta).not.toHaveProperty("openai/outputTemplate");
+        expect(tool?._meta).not.toHaveProperty("openai/widgetAccessible");
+      }
       const resources = await client.listResources();
       expect(resources.resources).toEqual(expect.arrayContaining([
         expect.objectContaining({
