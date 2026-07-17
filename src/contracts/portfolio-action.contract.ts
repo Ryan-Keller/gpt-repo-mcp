@@ -1,6 +1,8 @@
 import { z } from "zod";
 import { RepoInputSchema } from "./repo.contract.js";
 import { PortfolioConsoleStatePatchSchema, PortfolioConsoleStateSchema } from "./portfolio-console-state.contract.js";
+import { GoalCommandSchema, GoalRecordSchema } from "./goal-record.contract.js";
+import { DecisionBundleCommandSchema, DecisionBundleRecordSchema, IdeaCommandSchema, IdeaRecordSchema } from "./portfolio-intake.contract.js";
 
 export const PortfolioActionStateSchema = z.enum(["available", "routed", "working", "completed", "stopped", "snoozed", "archived"]);
 
@@ -25,11 +27,20 @@ export const PortfolioExecutionRequestSchema = z.object({
   work_type: z.enum(["code", "knowledge", "art", "broadcast", "marketing"]),
   satisfaction_gate: z.number().int().min(90).max(95),
   consent_granted: z.boolean().refine((value) => value, "consent_granted must be true")
-    .describe("Confirms the operator explicitly approved this bounded launch. It does not grant publication, credentials, destructive cleanup, or broader mutation authority.")
+    .describe("Confirms the operator explicitly approved this bounded launch. It does not grant publication, credentials, destructive cleanup, or broader mutation authority."),
+  idempotency_key: z.string().min(3).max(200).optional(),
+  executor: z.enum(["hermes", "local", "codex"]).optional(),
+  routing_reason: z.string().min(3).max(2000).optional(),
+  source_kind: z.enum(["chatgpt", "codex", "field_console", "bridge"]).optional(),
+  source_reference: z.string().max(1000).optional(),
+  project_id: z.string().max(120).optional(), project_name: z.string().max(180).optional(),
+  plan: z.array(z.string().max(1000)).max(80).optional(), dependencies: z.array(z.string().max(120)).max(80).optional(),
+  parallel_wave: z.number().int().min(0).max(100).optional(), serial_after: z.array(z.string().max(120)).max(80).optional(),
+  privacy_scope: z.enum(["private_local", "private_tailnet"]).optional()
 });
 
 export const PortfolioActionCommandInputSchema = RepoInputSchema.extend({
-  operation: z.enum(["route", "working", "complete", "stop", "snooze", "archive", "restore", "sync_console"])
+  operation: z.enum(["route", "working", "complete", "stop", "snooze", "archive", "restore", "sync_console", "register_codex", "update_goal", "capture_idea", "update_idea", "route_bundle", "cancel_bundle"])
     .describe("Batch lifecycle or console-state operation. Stop prevents further routing; it does not claim to terminate a Hermes process."),
   report_id: z.string().max(120).optional(),
   actions: z.array(PortfolioActionCommandItemSchema).max(40),
@@ -38,10 +49,16 @@ export const PortfolioActionCommandInputSchema = RepoInputSchema.extend({
   snooze_until: z.string().datetime().optional().describe("Required future ISO timestamp for snooze operations."),
   console_patch: PortfolioConsoleStatePatchSchema.optional().describe("Seen timestamps or saved-playbook change for sync_console."),
   execution: PortfolioExecutionRequestSchema.optional()
-    .describe("Optional guarded off-thread launch. Valid only for one route action; omitted lifecycle calls remain ledger-only.")
+    .describe("Optional guarded off-thread launch. Valid only for one route action; omitted lifecycle calls remain ledger-only."),
+  goal: GoalCommandSchema.optional().describe("Durable direct-Codex registration or goal heartbeat/update."),
+  idea: IdeaCommandSchema.optional().describe("Capture or lifecycle update using the existing local Idea Inbox."),
+  bundle: DecisionBundleCommandSchema.optional().describe("Durable server-side decision bundle for several operator choices.")
 }).superRefine((value, context) => {
   if (value.operation === "sync_console" && !value.console_patch) context.addIssue({ code: "custom", path: ["console_patch"], message: "console_patch is required for sync_console" });
-  if (value.operation !== "sync_console" && value.actions.length === 0) context.addIssue({ code: "custom", path: ["actions"], message: "at least one action is required" });
+  if (!["sync_console", "register_codex", "update_goal", "capture_idea", "update_idea", "cancel_bundle"].includes(value.operation) && value.actions.length === 0) context.addIssue({ code: "custom", path: ["actions"], message: "at least one action is required" });
+  if (["register_codex", "update_goal"].includes(value.operation) && !value.goal) context.addIssue({ code: "custom", path: ["goal"], message: "goal is required" });
+  if (["capture_idea", "update_idea"].includes(value.operation) && !value.idea) context.addIssue({ code: "custom", path: ["idea"], message: "idea is required" });
+  if (["route_bundle", "cancel_bundle"].includes(value.operation) && !value.bundle) context.addIssue({ code: "custom", path: ["bundle"], message: "bundle is required" });
   if (value.execution && value.operation !== "route") context.addIssue({ code: "custom", path: ["execution"], message: "execution is valid only for route" });
   if (value.execution && value.actions.length !== 1) context.addIssue({ code: "custom", path: ["actions"], message: "execution launches exactly one action" });
   if (value.execution && value.actions[0]?.risk === "approval_required" && value.execution.allowed_paths.length === 0) {
@@ -85,6 +102,8 @@ export const PortfolioActionCommandResultSchema = z.object({
   recent_activity: z.array(PortfolioActionActivitySchema), observed_at: z.string(),
   ledger_path: z.string(), storage_path: z.string(), console_state: PortfolioConsoleStateSchema.optional(),
   execution_receipts: z.array(PortfolioExecutionReceiptSchema).optional(),
+  goal_records: z.array(GoalRecordSchema).optional(),
+  idea_records: z.array(IdeaRecordSchema).optional(), decision_bundles: z.array(DecisionBundleRecordSchema).optional(),
   warnings: z.array(z.string()), next_action: z.string()
 });
 

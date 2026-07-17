@@ -27,6 +27,8 @@ import { ProjectMemoryService } from "../services/project-memory-service.js";
 import { PortfolioReportService } from "../services/portfolio-report-service.js";
 import { PortfolioActionLedgerService } from "../services/portfolio-action-ledger-service.js";
 import { PortfolioExecutionService } from "../services/portfolio-execution-service.js";
+import { GoalRecordService } from "../services/goal-record-service.js";
+import { DecisionBundleService, IdeaInboxService } from "../services/portfolio-intake-service.js";
 import { PortfolioConsoleStateService } from "../services/portfolio-console-state-service.js";
 import { TaskInventoryService } from "../services/task-inventory-service.js";
 import { VisionRouteService, buildVisionAnalysisFallback } from "../services/vision-route-service.js";
@@ -712,15 +714,48 @@ export const portfolioReportHandler: ToolHandler = async (input, context) => saf
   const memory = await new ProjectMemoryService(repo, new PathSandbox(repo.root)).dashboard({ include_archived: false });
   const ledger = await new PortfolioActionLedgerService(repo.root).read();
   const consoleState = await new PortfolioConsoleStateService(repo.root).read();
+  const goals = await new GoalRecordService(repo.root).read();
   const result = new PortfolioReportService().build(args.repo_id, memory, {
-    topics: args.topics, project_ids: args.project_ids, include_paused: args.include_paused, max_actions: args.max_actions
-  }, ledger, consoleState, context.registry.list().map((item) => item.repo_id));
+    topics: args.topics, project_ids: args.project_ids, include_paused: args.include_paused, max_actions: args.max_actions, cursor: args.cursor
+  }, ledger, consoleState, context.registry.list().map((item) => item.repo_id), goals);
   audit({ tool: "repo_portfolio_report", repo_id: args.repo_id, counts: { projects: result.projects.length, actions: result.actions.length }, warnings: result.warnings });
   return createSuccessEnvelope(result, result.summary, { warnings: result.warnings });
 });
 
 export const portfolioActionCommandHandler: ToolHandler = async (input, context) => safeTool<PortfolioActionCommandInput>("repo_portfolio_action_command", input, context, async (args) => {
   const repo = context.registry.get(args.repo_id);
+  const goalService = new GoalRecordService(repo.root);
+  if (args.operation === "capture_idea" || args.operation === "update_idea") {
+    if (args.repo_id !== "shared-agent-bridge") throw new RepoReaderError("VALIDATION_ERROR", "Idea Inbox is owned by repo_id shared-agent-bridge.");
+    const idea = await new IdeaInboxService(repo.root).capture(args.idea!); const observedAt = new Date().toISOString();
+    const result = { ok: true, repo_id: args.repo_id, operation: args.operation, changed_count: 1, unchanged_count: 0,
+      entries: [], recent_activity: [], observed_at: observedAt, ledger_path: ".chatgpt/portfolio-action-ledger.json", storage_path: "shared/ideas/inbox.jsonl",
+      idea_records: [idea], warnings: [], next_action: idea.status === "ready_for_slice" ? "promote_to_portfolio_suggestion_or_goal_when_approved" : "keep_in_local_idea_inbox" };
+    return createSuccessEnvelope(result, `Idea ${idea.idea_id} recorded as ${idea.status}.`);
+  }
+  if (args.operation === "route_bundle" || args.operation === "cancel_bundle") {
+    const service = new DecisionBundleService(repo.root);
+    const bundle = args.operation === "cancel_bundle"
+      ? await service.cancel(args.bundle!.bundle_id ?? "", args.reason ?? "Cancelled by operator.")
+      : await service.create(args.bundle!, args.actions.map((action) => action.action_id));
+    if (!bundle) throw new RepoReaderError("VALIDATION_ERROR", "Decision bundle not found.");
+    const result = { ok: true, repo_id: args.repo_id, operation: args.operation, changed_count: 1, unchanged_count: 0,
+      entries: [], recent_activity: [], observed_at: bundle.updated_at, ledger_path: ".chatgpt/portfolio-action-ledger.json", storage_path: ".chatgpt/decision-bundles-v1.json",
+      decision_bundles: [bundle], warnings: [], next_action: bundle.state === "cancelled" ? "preserve_receipts_and_refresh_portfolio" : "route_bundle_actions_by_dependency_wave" };
+    return createSuccessEnvelope(result, `Decision bundle ${bundle.bundle_id} is ${bundle.state}.`);
+  }
+  if (args.operation === "register_codex" || args.operation === "update_goal") {
+    const goal = await goalService.upsert(args.goal!);
+    const observedAt = new Date().toISOString();
+    const result = {
+      ok: true, repo_id: args.repo_id, operation: args.operation, changed_count: 1, unchanged_count: 0,
+      entries: [], recent_activity: [], observed_at: observedAt,
+      ledger_path: ".chatgpt/portfolio-action-ledger.json", storage_path: ".chatgpt/goal-records-v1.json",
+      goal_records: [goal], warnings: [], next_action: "refresh_repo_portfolio_report_to_verify_goal_timeline"
+    };
+    audit({ tool: "repo_portfolio_action_command", repo_id: args.repo_id, counts: { changed: 1, unchanged: 0 }, warnings: [] });
+    return createSuccessEnvelope(result, `${goal.executor} goal ${goal.goal_id} registered as ${goal.state}.`);
+  }
   if (args.operation === "sync_console") {
     const consoleState = await new PortfolioConsoleStateService(repo.root).update(args.console_patch ?? {});
     const observedAt = new Date().toISOString();
@@ -738,6 +773,32 @@ export const portfolioActionCommandHandler: ToolHandler = async (input, context)
   let effectiveArgs = args;
   if (args.execution) {
     const action = args.actions[0]!;
+    const goalCommand = goalService.fromExecution({ repo_id: args.repo_id, action_id: action.action_id, execution: args.execution });
+    const existingGoal = await goalService.findIdempotent(goalCommand.idempotency_key);
+    if (existingGoal?.hermes_transaction) {
+      const observedAt = new Date().toISOString();
+      const receipt = {
+        ok: true, goal_id: existingGoal.goal_id, action_id: action.action_id, target_repo_id: existingGoal.repository_id,
+        status: existingGoal.state === "accepted" ? "accepted" as const : "resumed" as const,
+        transaction_id: existingGoal.hermes_transaction, board: existingGoal.hermes_board, task_id: existingGoal.hermes_task,
+        transaction_path: "", satisfaction_gate: existingGoal.satisfaction_threshold,
+        operator_status: "Existing durable execution resumed; no duplicate launch was created.", observed_at: observedAt,
+        warnings: ["IDEMPOTENT_EXECUTION_RESUMED"], next_action: "watch_repo_hermes_transaction_with_repo_hermes_watch"
+      };
+      const snapshot = await ledgerService.read();
+      const result = { ok: true, repo_id: args.repo_id, operation: args.operation, changed_count: 0, unchanged_count: 1,
+        entries: [], recent_activity: snapshot.activity.slice(0, 30), observed_at: observedAt,
+        ledger_path: ".chatgpt/portfolio-action-ledger.json", storage_path: ".chatgpt/goal-records-v1.json",
+        execution_receipts: [receipt], goal_records: [existingGoal], warnings: receipt.warnings, next_action: receipt.next_action };
+      return createSuccessEnvelope(result, receipt.operator_status, { warnings: receipt.warnings });
+    }
+    if (args.execution.executor && args.execution.executor !== "hermes") {
+      const blocked = await goalService.upsert({ ...goalCommand, state: "blocked", unmet_dimensions: ["Requested executor has no approved launch adapter on this action path."] });
+      const result = { ok: false, repo_id: args.repo_id, operation: args.operation, changed_count: 0, unchanged_count: 1,
+        entries: [], recent_activity: [], observed_at: blocked.updated_at, ledger_path: ".chatgpt/portfolio-action-ledger.json", storage_path: ".chatgpt/goal-records-v1.json",
+        goal_records: [blocked], warnings: ["EXECUTOR_ADAPTER_UNAVAILABLE"], next_action: "register_direct_codex_or_choose_the_existing_hermes_route" };
+      return createSuccessEnvelope(result, "Execution failed closed because the requested executor has no approved adapter.", { warnings: result.warnings });
+    }
     const target = context.registry.get(args.execution.target_repo_id);
     const execution = await new PortfolioExecutionService().launch({
       repo_id: args.repo_id,
@@ -746,6 +807,7 @@ export const portfolioActionCommandHandler: ToolHandler = async (input, context)
       target_repo_root: target.root,
       execution: args.execution
     });
+    const launchGoal = await goalService.recordLaunch(goalCommand, execution);
     executionReceipts = [execution];
     if (!execution.ok) {
       const snapshot = await ledgerService.read();
@@ -754,7 +816,7 @@ export const portfolioActionCommandHandler: ToolHandler = async (input, context)
         ok: false, repo_id: args.repo_id, operation: args.operation, changed_count: 0, unchanged_count: 1,
         entries: [], recent_activity: snapshot.activity.slice(0, 30), observed_at: observedAt,
         ledger_path: ".chatgpt/portfolio-action-ledger.json", storage_path: ".chatgpt/portfolio-action-ledger.json",
-        execution_receipts: executionReceipts, warnings: execution.warnings, next_action: execution.next_action
+        execution_receipts: executionReceipts, goal_records: [launchGoal], warnings: execution.warnings, next_action: execution.next_action
       };
       audit({ tool: "repo_portfolio_action_command", repo_id: args.repo_id, counts: { changed: 0, unchanged: 1 }, warnings: execution.warnings });
       return createSuccessEnvelope(blocked, execution.operator_status, { warnings: execution.warnings });
@@ -765,7 +827,7 @@ export const portfolioActionCommandHandler: ToolHandler = async (input, context)
     };
   }
   const result = await ledgerService.execute(args.repo_id, effectiveArgs);
-  const resultWithExecution = executionReceipts ? { ...result, execution_receipts: executionReceipts, next_action: executionReceipts[0]!.next_action } : result;
+  const resultWithExecution = executionReceipts ? { ...result, execution_receipts: executionReceipts, goal_records: await goalService.read().then((goals) => goals.filter((goal) => goal.goal_id === executionReceipts![0]!.goal_id)), next_action: executionReceipts[0]!.next_action } : result;
   audit({ tool: "repo_portfolio_action_command", repo_id: args.repo_id, counts: { changed: result.changed_count, unchanged: result.unchanged_count }, warnings: result.warnings });
   return createSuccessEnvelope(resultWithExecution, executionReceipts ? executionReceipts[0]!.operator_status : `${result.changed_count} portfolio action(s) moved by ${args.operation}.`, { warnings: result.warnings });
 });
@@ -1187,6 +1249,16 @@ export const hermesWatchHandler: ToolHandler = async (input, context) => safeToo
     throw new RepoReaderError("VALIDATION_ERROR", "Provide hermes_board, hermes_transaction, or both.");
   }
   const result = await new HermesWatchService().watch(args);
+  const reconciledGoal = await new GoalRecordService(repo.root).reconcileHermes(result);
+  if (reconciledGoal?.action_id) {
+    const ledgerService = new PortfolioActionLedgerService(repo.root);
+    const entry = (await ledgerService.read()).entries.find((item) => item.action_id === reconciledGoal.action_id);
+    const operation = result.state === "accepted" ? "complete" : result.state === "stopped" ? "stop" : result.state === "working" && entry?.state === "routed" ? "working" : undefined;
+    if (operation && entry) await ledgerService.execute(args.repo_id, {
+      repo_id: args.repo_id, operation, actions: [{ action_id: entry.action_id, expected_state: entry.state }],
+      receipt_summary: `Execution ${result.state}; transaction ${result.hermes_transaction}; acceptance ${result.acceptance_status}.`
+    });
+  }
   audit({
     tool: "repo_hermes_watch",
     repo_id: args.repo_id,

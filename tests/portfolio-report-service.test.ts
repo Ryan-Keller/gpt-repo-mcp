@@ -79,4 +79,28 @@ describe("PortfolioReportService", () => {
     expect(result.actions).toHaveLength(2);
     expect(new Set(result.actions.map((action) => action.project_id))).toEqual(new Set(["alpha", "beta"]));
   });
+
+  test("paginates more than thirty legitimate suggestions without discarding them", () => {
+    const expanded = {
+      ...memory,
+      suggested_next_moves: Array.from({ length: 55 }, (_, index) => ({ project_id: "alpha", move: `Legitimate slice ${index + 1}` }))
+    };
+    const first = new PortfolioReportService().build("shared-agent-bridge", expanded, { max_actions: 30 });
+    const second = new PortfolioReportService().build("shared-agent-bridge", expanded, { max_actions: 30, cursor: first.next_cursor });
+    expect(first.actions).toHaveLength(30);
+    expect(first.total_action_count).toBeGreaterThanOrEqual(50);
+    expect(first.next_cursor).not.toBe("");
+    expect(new Set([...first.actions, ...second.actions].map((action) => action.action_id)).size).toBe(first.actions.length + second.actions.length);
+  });
+
+  test("retires a stale suggestion when completion evidence proves it satisfied", () => {
+    const completed = {
+      ...memory,
+      suggested_next_moves: [{ project_id: "alpha", move: "Install release 0.5.0 and verify OTA" }],
+      recent_results: [{ project_id: "alpha", project_name: "Alpha", date: "2026-07-16", summary: "Release 0.5.0 installed successfully and OTA verified on Pixel.", source: "CURRENT_STATE.md" }]
+    };
+    const result = new PortfolioReportService().build("shared-agent-bridge", completed, { max_actions: 30 });
+    expect(result.actions.map((action) => action.title)).not.toContain("Install release 0.5.0 and verify OTA");
+    expect(result.hidden_action_count).toBeGreaterThan(0);
+  });
 });

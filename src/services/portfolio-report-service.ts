@@ -3,11 +3,12 @@ import type { PortfolioReportInput, PortfolioReportResult } from "../contracts/p
 import type { ProjectMemoryDashboardResult } from "../contracts/project-memory.contract.js";
 import type { PortfolioActionLedgerSnapshot } from "./portfolio-action-ledger-service.js";
 import type { PortfolioConsoleState } from "../contracts/portfolio-console-state.contract.js";
+import type { GoalRecord } from "../contracts/goal-record.contract.js";
 
 type Options = Omit<PortfolioReportInput, "repo_id">;
 
 export class PortfolioReportService {
-  build(repoId: string, memory: ProjectMemoryDashboardResult, options: Options = {}, ledger: PortfolioActionLedgerSnapshot = { entries: [], activity: [] }, consoleState: PortfolioConsoleState = { version: 1, updated_at: "", project_seen: [], playbooks: [], artifacts: [] }, approvedRepoIds: string[] = []): PortfolioReportResult {
+  build(repoId: string, memory: ProjectMemoryDashboardResult, options: Options = {}, ledger: PortfolioActionLedgerSnapshot = { entries: [], activity: [] }, consoleState: PortfolioConsoleState = { version: 1, updated_at: "", project_seen: [], playbooks: [], artifacts: [] }, approvedRepoIds: string[] = [], goals: GoalRecord[] = []): PortfolioReportResult {
     const now = new Date();
     const requested = new Set(options.project_ids ?? []);
     const sourceProjects = memory.active_projects.filter((project) =>
@@ -48,6 +49,8 @@ export class PortfolioReportService {
       const actionId = "a_" + createHash("sha256").update(`${projectId}:${source}:${title}`).digest("hex").slice(0, 10);
       if (handled.has(actionId)) { hiddenActionCount++; return; }
       const targetRepoId = approvedRepoIds.find((candidate) => normalizeId(candidate) === normalizeId(projectId)) ?? "";
+      if (isSatisfiedByEvidence(projectId, title, results)) { hiddenActionCount++; return; }
+      if (actionCandidates.some((candidate) => candidate.project_id === projectId && normalizeText(candidate.title) === normalizeText(title))) return;
       actionCandidates.push({
         action_id: actionId, project_id: projectId, project_name: projectName(projectId), title, rationale, source, route, risk,
         prompt: `For project ${projectId}, ${title}. First verify current repo evidence. Then use the safest appropriate Shared Agent Bridge route. ${risk === "approval_required" ? "Request approval before any mutation." : "Keep this read-only unless I explicitly approve a change."}`,
@@ -61,7 +64,11 @@ export class PortfolioReportService {
     for (const item of watch) add(item.project_id, `Review: ${item.topic}`, `Watch status ${item.status}; cadence ${item.cadence}.`, "research watchlist", "research", "read_only");
     for (const idea of paused) add(idea.project_id, idea.next_tiny_experiment, `Paused: ${idea.reason_paused}`, "paused idea", "resume_experiment", "approval_required");
     for (const result of results.slice(0, 8)) add(result.project_id, `Review result from ${result.date}`, result.summary, result.source, "review_result", "read_only");
-    const actions = distributeActions(actionCandidates, projects.map((project) => project.id), options.max_actions ?? 20);
+    const allActions = distributeActions(actionCandidates, projects.map((project) => project.id), Number.MAX_SAFE_INTEGER);
+    const pageSize = Math.min(options.max_actions ?? 20, 30);
+    const offset = parseCursor(options.cursor);
+    const actions = allActions.slice(offset, offset + pageSize);
+    const nextCursor = offset + pageSize < allActions.length ? `p_${offset + pageSize}` : "";
     const warnings = [...memory.warnings];
     if (freshness === "stale") warnings.push(`PROJECT_MEMORY_STALE:${sourceAgeDays}_DAYS`);
     if (requested.size && projects.length !== requested.size) warnings.push("SOME_REQUESTED_PROJECTS_NOT_FOUND");
@@ -131,7 +138,10 @@ export class PortfolioReportService {
       topics, projects, sections, project_workspaces: projectWorkspaces, console_state: consoleState, actions,
       active_actions: ledger.entries.filter((entry) => entry.state === "routed" || entry.state === "working").sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
       history_actions: ledger.entries.filter((entry) => ["completed", "stopped", "snoozed", "archived"].includes(entry.state)).sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
-      recent_activity: ledger.activity.slice(0, 30), hidden_action_count: hiddenActionCount, warnings,
+      recent_activity: ledger.activity.slice(0, 30), hidden_action_count: hiddenActionCount,
+      active_goals: goals.filter((goal) => !["accepted", "cancelled", "archived", "failed"].includes(goal.state)).sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
+      goal_history: goals.filter((goal) => ["accepted", "cancelled", "archived", "failed"].includes(goal.state)).sort((a, b) => b.updated_at.localeCompare(a.updated_at)).slice(0, 50),
+      next_cursor: nextCursor, total_action_count: allActions.length, choice_sufficient: allActions.length >= 2, warnings,
       next_action: "review_actions_select_several_then_send_one_decision_bundle_to_chatgpt"
     };
   }
@@ -139,6 +149,27 @@ export class PortfolioReportService {
 
 function normalizeId(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]/g, "");
+}
+
+function parseCursor(cursor?: string): number {
+  if (!cursor) return 0;
+  const match = /^p_(\d+)$/.exec(cursor);
+  return match ? Number(match[1]) : 0;
+}
+
+function normalizeText(value: string): string { return value.toLowerCase().replace(/[^a-z0-9.]+/g, " ").trim(); }
+
+function isSatisfiedByEvidence(projectId: string, title: string, results: ProjectMemoryDashboardResult["recent_results"]): boolean {
+  const titleWords = new Set(normalizeText(title).split(" ").filter((word) => word.length > 3));
+  const versions = title.match(/\b\d+\.\d+(?:\.\d+)?\b/g) ?? [];
+  return results.some((result) => {
+    if (result.project_id !== projectId) return false;
+    const summary = normalizeText(result.summary);
+    if (!/complete|completed|success|successful|verified|accepted|installed|shipped|released/.test(summary)) return false;
+    if (versions.length && !versions.every((version) => summary.includes(version))) return false;
+    const overlap = [...titleWords].filter((word) => summary.includes(word)).length;
+    return overlap >= Math.min(2, titleWords.size);
+  });
 }
 
 function statusPriority(status: string): number {

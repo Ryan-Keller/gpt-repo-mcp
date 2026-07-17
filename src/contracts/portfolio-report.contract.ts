@@ -2,6 +2,7 @@ import { z } from "zod";
 import { RepoInputSchema } from "./repo.contract.js";
 import { PortfolioActionActivitySchema, PortfolioActionLedgerEntrySchema } from "./portfolio-action.contract.js";
 import { PortfolioConsoleStateSchema } from "./portfolio-console-state.contract.js";
+import { GoalRecordSchema } from "./goal-record.contract.js";
 
 export const PortfolioReportInputSchema = RepoInputSchema.extend({
   topics: z.array(z.string().min(1).max(100)).max(12).optional()
@@ -9,7 +10,8 @@ export const PortfolioReportInputSchema = RepoInputSchema.extend({
   project_ids: z.array(z.string().min(1).max(100)).max(30).optional()
     .describe("Optional exact project-memory ids to include."),
   include_paused: z.boolean().optional().describe("Include paused projects and experiments."),
-  max_actions: z.number().int().min(1).max(40).optional().describe("Maximum selectable actions. Defaults to 20.")
+  max_actions: z.number().int().min(1).max(30).optional().describe("Page size for selectable actions. Defaults to 20 and never exceeds 30."),
+  cursor: z.string().max(120).optional().describe("Opaque continuation cursor returned by the previous portfolio report page.")
 });
 
 export const PortfolioReportProjectSchema = z.object({
@@ -55,6 +57,8 @@ export const PortfolioReportResultSchema = z.object({
   actions: z.array(PortfolioActionSchema), active_actions: z.array(PortfolioActionLedgerEntrySchema),
   history_actions: z.array(PortfolioActionLedgerEntrySchema),
   recent_activity: z.array(PortfolioActionActivitySchema), hidden_action_count: z.number().int().nonnegative(),
+  active_goals: z.array(GoalRecordSchema), goal_history: z.array(GoalRecordSchema),
+  next_cursor: z.string(), total_action_count: z.number().int().nonnegative(), choice_sufficient: z.boolean(),
   warnings: z.array(z.string()), next_action: z.string()
 });
 
