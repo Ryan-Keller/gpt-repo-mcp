@@ -43,13 +43,13 @@ This project is a closed-world MCP server for approved local repositories. Quali
 Run the focused checks for the area changed, then run:
 
 ```bash
-npm run typecheck
-npm test -- tests/tool-contracts.test.ts tests/mcp-contract.test.ts
-npm run lint
-npm run check:public
-npm run build
+npm run verify
 git diff --check
 ```
+
+`npm run verify` is the canonical local and CI gate. It runs lint, typecheck,
+the full test suite, public-hygiene checks, and the production build in the
+same order used by GitHub Actions.
 
 Run service tests when touching service behavior:
 

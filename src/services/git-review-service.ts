@@ -23,8 +23,11 @@ export class GitReviewService {
 
   async review(input: GitReviewInput): Promise<GitReviewResult> {
     const git = new GitService(this.root);
-    const [status, unstagedDiff, stagedDiff] = await Promise.all([
-      git.status(),
+    // `git status` may refresh the index on Windows. Finish that operation
+    // before starting concurrent read-only diffs so temporary repositories do
+    // not intermittently fail to open `.git/index`.
+    const status = await git.status();
+    const [unstagedDiff, stagedDiff] = await Promise.all([
       git.diff({}),
       git.diff({ staged: true })
     ]);

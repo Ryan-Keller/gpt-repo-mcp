@@ -44,6 +44,7 @@
     "typecheck": "tsc --noEmit",
     "lint": "eslint .",
     "check:public": "node scripts/check-public.mjs",
+    "verify": "npm run lint && npm run typecheck && npm test && npm run check:public && npm run build",
     "test": "vitest run"
   },
   "dependencies": {
