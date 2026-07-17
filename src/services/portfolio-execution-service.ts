@@ -80,7 +80,7 @@ export class PortfolioExecutionService {
         operator_status: text(parsed.operator_status) || text(transaction.operator_status) || operatorStatus(status),
         observed_at: observedAt,
         warnings: ok ? [] : [status === "readiness_blocked" ? "HERMES_JOB_SITE_READINESS_BLOCKED" : "HERMES_OFF_THREAD_LAUNCH_BLOCKED"],
-        next_action: ok && transactionId ? "watch_repo_hermes_transaction_with_repo_hermes_watch" : "review_launch_blocker_before_retry"
+        next_action: ok && transactionId ? "inspect_repo_runner_status_with_capability_id_hermes_kanban_and_the_same_transaction" : "review_launch_blocker_before_retry"
       };
     } catch (error) {
       return failureReceipt("failed", `Hermes returned an unreadable launch receipt: ${error instanceof Error ? error.message : "unknown parse error"}`, ["HERMES_OFF_THREAD_RECEIPT_INVALID"]);

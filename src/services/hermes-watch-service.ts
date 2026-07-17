@@ -106,7 +106,7 @@ export class HermesWatchService {
         ? "report_terminal_hermes_evidence"
         : stopReason === "blocked" || stopReason === "unavailable"
           ? latest!.suggested_next_action
-          : "call_repo_hermes_watch_again_with_next_cursor"
+          : "refresh_repo_runner_status_with_capability_id_hermes_kanban_and_the_next_cursor"
     };
   }
 

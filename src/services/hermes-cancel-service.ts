@@ -26,6 +26,6 @@ export class HermesCancelService {
   }
 
   private result(input: HermesCancelInput, status: HermesCancelResult["status"], before: string, after: string, count: number, receipt: string, warnings: string[]): HermesCancelResult {
-    return { ok: warnings.length === 0, status, repo_id: input.repo_id, transaction_id: input.transaction_id, before_status: before, after_status: after, stopped_process_count: count, receipt_path: receipt, observed_at: new Date().toISOString(), warnings, next_action: "refresh_repo_hermes_watch_then_archive_any_irrelevant_kanban_task" };
+    return { ok: warnings.length === 0, status, repo_id: input.repo_id, transaction_id: input.transaction_id, before_status: before, after_status: after, stopped_process_count: count, receipt_path: receipt, observed_at: new Date().toISOString(), warnings, next_action: "refresh_repo_runner_status_with_capability_id_hermes_kanban_then_archive_any_irrelevant_kanban_task" };
   }
 }

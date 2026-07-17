@@ -13,7 +13,7 @@ import { GitDiffInputSchema, GitDiffResultSchema, GitStatusInputSchema, GitStatu
 import { GitReviewInputSchema, GitReviewResultSchema } from "../contracts/git-review.contract.js";
 import { HandoffInputSchema, HandoffResultSchema } from "../contracts/handoff.contract.js";
 import { HermesIntakeInputSchema, HermesIntakeResultSchema } from "../contracts/hermes-intake.contract.js";
-import { HermesCancelInputSchema, HermesCancelResultSchema, HermesInterventionInputSchema, HermesInterventionResultSchema, HermesKanbanCommandInputSchema, HermesKanbanCommandResultSchema, HermesWatchInputSchema, HermesWatchResultSchema } from "../contracts/hermes-supervision.contract.js";
+import { HermesCancelInputSchema, HermesCancelResultSchema, HermesInterventionInputSchema, HermesInterventionResultSchema, HermesKanbanCommandInputSchema, HermesKanbanCommandResultSchema } from "../contracts/hermes-supervision.contract.js";
 import { LabExecInputSchema, LabExecResultSchema } from "../contracts/lab-exec.contract.js";
 import { TownPortalReturnInputSchema, TownPortalReturnResultSchema } from "../contracts/town-portal.contract.js";
 import { NextActionInputSchema, NextActionResultSchema } from "../contracts/next-action.contract.js";
@@ -82,7 +82,6 @@ export type ToolName =
   | "repo_hermes_intervene"
   | "repo_hermes_cancel"
   | "repo_hermes_kanban_command"
-  | "repo_hermes_watch"
   | "repo_town_portal_return"
   | "repo_write_file"
   | "repo_write_changes"
@@ -285,10 +284,6 @@ export const toolContracts = {
   repo_hermes_kanban_command: {
     input: HermesKanbanCommandInputSchema,
     output: HermesKanbanCommandResultSchema
-  },
-  repo_hermes_watch: {
-    input: HermesWatchInputSchema,
-    output: HermesWatchResultSchema
   },
   repo_town_portal_return: {
     input: TownPortalReturnInputSchema,
