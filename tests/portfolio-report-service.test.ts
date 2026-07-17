@@ -113,4 +113,32 @@ describe("PortfolioReportService", () => {
     }]);
     expect(result.actions.find((action) => action.title === "Add compact recovery heartbeat")).toMatchObject({ project_id: "alpha", risk: "approval_required" });
   });
+
+  test("surfaces an active direct Codex project without granting launch access", () => {
+    const goal = {
+      version: 1 as const, goal_id: "goal-lead-follow", idempotency_key: "codex-lead-follow",
+      project_id: "lead-and-follow", project_name: "Lead and Follow", repository_id: "lead-and-follow",
+      action_id: "", objective: "Refine the phone-first ballroom lesson.", source_kind: "codex" as const,
+      source_reference: "codex-task", plan: [], dependencies: [], parallel_wave: 0, serial_after: [],
+      executor: "codex" as const, routing_reason: "Direct repository work", execution_scope: [],
+      privacy_scope: "private_local" as const, proof_boundary: "Repo-local verification", hermes_transaction: "",
+      hermes_board: "", hermes_task: "", hermes_cursor: "", codex_arbiter: "Codex",
+      satisfaction_threshold: 95 as const, satisfaction_score: 72, iteration: 1, unmet_dimensions: ["runtime proof"],
+      evidence: [], artifacts: [], changed_files: [], state: "working" as const, provisional_completion: false,
+      final_acceptance: false, cancellation_reason: "", intervention: "", retry_count: 0,
+      created_at: "2026-07-16T20:00:00.000Z", updated_at: "2026-07-16T21:00:00.000Z",
+      heartbeat_at: "2026-07-16T21:00:00.000Z", terminal_at: "", events: []
+    };
+    const result = new PortfolioReportService().build(
+      "shared-agent-bridge", memory, { max_actions: 30 }, undefined, undefined, [], [goal]
+    );
+
+    expect(result.projects.find((project) => project.id === "lead-and-follow")).toMatchObject({
+      name: "Lead and Follow", phase: "direct Codex working"
+    });
+    expect(result.project_workspaces.find((project) => project.id === "lead-and-follow")?.latest_evidence_at)
+      .toBe("2026-07-16T21:00:00.000Z");
+    expect(result.actions.filter((action) => action.project_id === "lead-and-follow").every((action) => !action.launch_ready))
+      .toBe(true);
+  });
 });

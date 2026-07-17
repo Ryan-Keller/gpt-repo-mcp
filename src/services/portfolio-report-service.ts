@@ -12,9 +12,30 @@ export class PortfolioReportService {
   build(repoId: string, memory: ProjectMemoryDashboardResult, options: Options = {}, ledger: PortfolioActionLedgerSnapshot = { entries: [], activity: [] }, consoleState: PortfolioConsoleState = { version: 1, updated_at: "", project_seen: [], playbooks: [], artifacts: [] }, approvedRepoIds: string[] = [], goals: GoalRecord[] = [], ideas: IdeaRecord[] = []): PortfolioReportResult {
     const now = new Date();
     const requested = new Set(options.project_ids ?? []);
-    const sourceProjects = memory.active_projects.filter((project) =>
+    const memoryProjects = memory.active_projects.filter((project) =>
       (!requested.size || requested.has(project.id)) && (options.include_paused || project.status !== "paused")
     );
+    const knownProjectIds = new Set(memoryProjects.map((project) => project.id));
+    const recentCodexProjects = goals
+      .filter((goal) =>
+        goal.source_kind === "codex"
+        && goal.project_id
+        && !knownProjectIds.has(goal.project_id)
+        && (!requested.size || requested.has(goal.project_id))
+        && isActiveGoal(goal)
+      )
+      .sort((left, right) => right.updated_at.localeCompare(left.updated_at))
+      .filter((goal, index, items) => items.findIndex((item) => item.project_id === goal.project_id) === index)
+      .map((goal) => ({
+        id: goal.project_id,
+        name: goal.project_name || goal.project_id,
+        status: `direct Codex ${goal.state}`,
+        phase: `direct Codex ${goal.state}`,
+        product_track: "Direct Codex repository work",
+        confidence: "high",
+        summary: goal.objective
+      }));
+    const sourceProjects = [...memoryProjects, ...recentCodexProjects];
     const ids = new Set(sourceProjects.map((project) => project.id));
     const topics = options.topics?.length ? options.topics : ["active work", "risks and verification", "next slices", "research watchlist"];
     const sourceDate = Date.parse(memory.generated_at);
@@ -29,7 +50,8 @@ export class PortfolioReportService {
     const latestEvidenceByProject = new Map(sourceProjects.map((project) => {
       const evidenceCandidates = [
         ...results.filter((item) => item.project_id === project.id).map((item) => item.date),
-        ...ledger.entries.filter((entry) => entry.project_id === project.id).map((entry) => entry.updated_at)
+        ...ledger.entries.filter((entry) => entry.project_id === project.id).map((entry) => entry.updated_at),
+        ...goals.filter((goal) => goal.project_id === project.id).map((goal) => goal.updated_at)
       ].map((value) => Date.parse(value)).filter(Number.isFinite);
       return [project.id, evidenceCandidates.length ? Math.max(...evidenceCandidates) : 0] as const;
     }));
@@ -99,7 +121,8 @@ export class PortfolioReportService {
       const projectLedger = ledger.entries.filter((entry) => entry.project_id === project.id);
       const evidenceCandidates = [
         ...projectResults.map((item) => item.date),
-        ...projectLedger.map((entry) => entry.updated_at)
+        ...projectLedger.map((entry) => entry.updated_at),
+        ...goals.filter((goal) => goal.project_id === project.id).map((goal) => goal.updated_at)
       ].map((value) => Date.parse(value)).filter(Number.isFinite);
       const latestEvidence = evidenceCandidates.length ? new Date(Math.max(...evidenceCandidates)).toISOString() : "";
       const milestones = projectRoadmap.map((item) => `${item.milestone} [${item.state}] — ${item.next_step}`);
@@ -184,6 +207,9 @@ function statusPriority(status: string): number {
   if (/paused|snoozed|archived|stopped/.test(normalized)) return 0;
   return 1;
 }
+
+const isActiveGoal = (goal: GoalRecord): boolean =>
+  !["accepted", "cancelled", "archived", "failed"].includes(goal.state);
 
 function actionPriority(action: PortfolioReportResult["actions"][number]): number {
   const routePriority: Record<PortfolioReportResult["actions"][number]["route"], number> = {
