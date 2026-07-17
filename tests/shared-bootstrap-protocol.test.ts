@@ -1,9 +1,12 @@
-import { readFileSync } from "node:fs";
+import { existsSync, readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
 import { describe, expect, test } from "vitest";
 
-describe("Shared Agent Bridge bootstrap source protocol", () => {
+const protocolPath = fileURLToPath(new URL("../../shared/handoffs/SHARED_AGENT_BRIDGE_BOOTSTRAP_PROTOCOL.md", import.meta.url));
+
+describe.skipIf(!existsSync(protocolPath))("Shared Agent Bridge bootstrap source protocol", () => {
   test("documents runner-status fallback without pretending markdown exposes tools", () => {
-    const text = readFileSync("../shared/handoffs/SHARED_AGENT_BRIDGE_BOOTSTRAP_PROTOCOL.md", "utf8");
+    const text = readFileSync(protocolPath, "utf8");
 
     expect(text).toContain("repo_runner_status");
     expect(text).toContain("codex_run_and_wait");

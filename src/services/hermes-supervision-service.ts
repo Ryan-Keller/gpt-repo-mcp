@@ -1,6 +1,6 @@
 import { createHash, randomUUID } from "node:crypto";
 import { appendFile, mkdir, readFile, readdir, rename, stat, writeFile } from "node:fs/promises";
-import { basename, join, resolve } from "node:path";
+import { basename, join, resolve, sep } from "node:path";
 import type { HermesInterventionInput, HermesInterventionResult } from "../contracts/hermes-supervision.contract.js";
 import { redactSensitiveText } from "../runtime/result-envelope.js";
 
@@ -338,7 +338,7 @@ export class HermesSupervisionService {
 
   private transactionDir(id: string): string {
     const candidate = resolve(this.root, id);
-    if (!candidate.startsWith(`${this.root}\\`) && candidate !== this.root) {
+    if (!candidate.startsWith(`${this.root}${sep}`) && candidate !== this.root) {
       throw new Error("HERMES_TRANSACTION_PATH_ESCAPE");
     }
     return candidate;

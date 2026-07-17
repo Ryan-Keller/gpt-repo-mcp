@@ -1,7 +1,8 @@
+import { existsSync } from "node:fs";
 import { access, mkdtemp, readFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import { pathToFileURL } from "node:url";
+import { fileURLToPath, pathToFileURL } from "node:url";
 import { beforeAll, describe, expect, test } from "vitest";
 
 const TOWN_PORTAL_LAB_ROOT = process.env.TOWN_PORTAL_LAB_ROOT
@@ -36,6 +37,8 @@ const STRESS_HARNESS_MODULE = new URL(
   "shared/experiments/town-lab-2026-06-13/portal-stress-harness.mjs",
   TOWN_PORTAL_LAB_ROOT
 ).href;
+const LAB_FIXTURES_AVAILABLE = existsSync(fileURLToPath(LAB_ROUTE_MODULE)) &&
+  existsSync(fileURLToPath(STRESS_HARNESS_MODULE));
 
 type StressHarnessModule = {
   runPortalReturnStressHarness: (options?: { repoRoot?: string }) => Promise<{
@@ -55,7 +58,7 @@ async function loadStressHarness(): Promise<StressHarnessModule> {
   return import(STRESS_HARNESS_MODULE) as Promise<StressHarnessModule>;
 }
 
-describe("town portal return lab route", () => {
+describe.skipIf(!LAB_FIXTURES_AVAILABLE)("town portal return lab route", () => {
   beforeAll(async () => {
     await access(new URL(LAB_ROUTE_MODULE));
     await access(new URL(STRESS_HARNESS_MODULE));
