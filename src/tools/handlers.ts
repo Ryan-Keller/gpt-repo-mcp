@@ -25,6 +25,7 @@ import { ReadManyService } from "../services/read-many-service.js";
 import { ProjectBriefService } from "../services/project-brief-service.js";
 import { ProjectMemoryService } from "../services/project-memory-service.js";
 import { PortfolioReportService } from "../services/portfolio-report-service.js";
+import { generateAdvisorCardWithHermes, hydrateAdvisorBatchForProject } from "../services/portfolio-advisor-generation-service.js";
 import { PortfolioActionLedgerService } from "../services/portfolio-action-ledger-service.js";
 import { PortfolioExecutionService } from "../services/portfolio-execution-service.js";
 import { GoalRecordService } from "../services/goal-record-service.js";
@@ -60,6 +61,7 @@ import type { TreeOptions } from "../services/repo-tree-service.js";
 import type { ProjectBriefInput } from "../contracts/project.contract.js";
 import type { ProjectMemoryInput } from "../contracts/project-memory.contract.js";
 import type { PortfolioReportInput } from "../contracts/portfolio-report.contract.js";
+import type { PortfolioAdvisorGenerateInput } from "../contracts/portfolio-advisor.contract.js";
 import type { CodexFollowupReceipt, GoalReviewDecision, PortfolioActionCommandInput } from "../contracts/portfolio-action.contract.js";
 import type { GoalRecord } from "../contracts/goal-record.contract.js";
 import type { TaskInventoryInput } from "../contracts/task.contract.js";
@@ -716,11 +718,27 @@ export const portfolioReportHandler: ToolHandler = async (input, context) => saf
   const consoleState = await new PortfolioConsoleStateService(repo.root).read();
   const goals = await new GoalRecordService(repo.root).read();
   const ideas = args.repo_id === "shared-agent-bridge" ? await new IdeaInboxService(repo.root).latest() : [];
-  const result = new PortfolioReportService().build(args.repo_id, memory, {
+  const baseResult = new PortfolioReportService().build(args.repo_id, memory, {
     topics: args.topics, project_ids: args.project_ids, include_paused: args.include_paused, max_actions: args.max_actions, cursor: args.cursor
   }, ledger, consoleState, context.registry.list().map((item) => item.repo_id), goals, ideas);
+  const result = args.advisor_project_id
+    ? await hydrateAdvisorBatchForProject(baseResult, args.advisor_project_id)
+    : baseResult;
   audit({ tool: "repo_portfolio_report", repo_id: args.repo_id, counts: { projects: result.projects.length, actions: result.actions.length }, warnings: result.warnings });
   return createSuccessEnvelope(result, result.summary, { warnings: result.warnings });
+});
+
+export const portfolioAdvisorGenerateHandler: ToolHandler = async (input, context) => safeTool<PortfolioAdvisorGenerateInput>("repo_portfolio_advisor_generate", input, context, async (args) => {
+  const repo = context.registry.get(args.repo_id);
+  const memory = await new ProjectMemoryService(repo, new PathSandbox(repo.root)).dashboard({ include_archived: false });
+  const ledger = await new PortfolioActionLedgerService(repo.root).read();
+  const consoleState = await new PortfolioConsoleStateService(repo.root).read();
+  const goals = await new GoalRecordService(repo.root).read();
+  const ideas = args.repo_id === "shared-agent-bridge" ? await new IdeaInboxService(repo.root).latest() : [];
+  const report = new PortfolioReportService().build(args.repo_id, memory, { project_ids: [args.project_id], include_paused: true, max_actions: 30 }, ledger, consoleState, context.registry.list().map((item) => item.repo_id), goals, ideas);
+  const result = await generateAdvisorCardWithHermes(args, report);
+  audit({ tool: "repo_portfolio_advisor_generate", repo_id: args.repo_id, counts: { generated: 1 }, warnings: [] });
+  return createSuccessEnvelope(result, `Generated a replacement ${result.name} suggestion from the current evidence snapshot.`);
 });
 
 export const portfolioActionCommandHandler: ToolHandler = async (input, context) => safeTool<PortfolioActionCommandInput>("repo_portfolio_action_command", input, context, async (args) => {

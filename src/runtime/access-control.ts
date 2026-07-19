@@ -112,6 +112,7 @@ const TOOL_ACCESS_TIERS: Record<string, AccessTier> = {
   repo_project_context: "authenticated_read",
   repo_project_memory: "authenticated_read",
   repo_portfolio_report: "authenticated_read",
+  repo_portfolio_advisor_generate: "authenticated_read",
   repo_portfolio_action_command: "privileged_write",
   repo_task_inventory: "authenticated_read",
   repo_decision_memory: "authenticated_read",

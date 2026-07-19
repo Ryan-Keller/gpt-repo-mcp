@@ -19,9 +19,9 @@ Status: implemented H1/H2 backbone as of 2026-07-16
 
 ## Receipts
 
-Successful launch returns `execution_receipts` containing a stable goal ID plus the Hermes transaction, board, task, transaction path, operator status, and satisfaction gate. Field Console persists this receipt locally and calls `repo_hermes_watch` with the exact transaction identity and returned cursor.
+Successful launch returns `execution_receipts` containing a stable goal ID plus the Hermes transaction, board, task, transaction path, operator status, and satisfaction gate. Field Console persists this receipt locally and watches through its private app bridge path. ChatGPT must use the stable hub status route (`repo_runner_status` or `repo_list_roots` with `capability_id: "hermes_kanban"`) rather than the retired direct resident-watch MCP tool.
 
-The UI may claim active work only when a transaction receipt exists. It may claim accepted work only when the watch surface returns terminal acceptance.
+The UI may claim active work only when a transaction receipt exists. It may claim accepted work only when the bridge status or app watch surface returns terminal acceptance.
 
 ## Stop and archive
 

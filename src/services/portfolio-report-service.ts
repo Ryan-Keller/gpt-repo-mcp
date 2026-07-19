@@ -5,6 +5,7 @@ import type { PortfolioActionLedgerSnapshot } from "./portfolio-action-ledger-se
 import type { PortfolioConsoleState } from "../contracts/portfolio-console-state.contract.js";
 import type { GoalRecord } from "../contracts/goal-record.contract.js";
 import type { IdeaRecord } from "../contracts/portfolio-intake.contract.js";
+import { buildPortfolioAdvisorEvidenceStatePacket } from "./portfolio-advisor-state-service.js";
 
 type Options = Omit<PortfolioReportInput, "repo_id">;
 
@@ -155,6 +156,31 @@ export class PortfolioReportService {
         milestones, recent_results: recent, next_moves: nextMoves, watch_topics: watchTopics, artifacts: projectArtifacts, reentry_prompt: reentryPrompt
       };
     });
+    const advisorReports = projects.map((project) => {
+      const evidenceStatePacket = buildPortfolioAdvisorEvidenceStatePacket({
+        project,
+        sourceGeneratedAt: memory.generated_at,
+        roadmap: roadmap.filter((item) => item.project_id === project.id),
+        recentResults: results.filter((item) => item.project_id === project.id),
+        suggestedNextMoves: moves.filter((item) => item.project_id === project.id),
+        ledgerEntries: ledger.entries.filter((entry) => entry.project_id === project.id),
+        goals: goals.filter((goal) => goal.project_id === project.id),
+        ideas: ideas.filter((idea) => idea.related_projects.includes(project.id)),
+      });
+      const projectEvidence = {
+        project_id: project.id,
+        status: project.status,
+        phase: project.phase,
+        product_track: project.product_track,
+        summary: project.summary,
+        next_moves: moves.filter((item) => item.project_id === project.id).map((item) => item.move),
+        recent_results: results.filter((item) => item.project_id === project.id).map((item) => ({ date: item.date, summary: item.summary, source: item.source })),
+        ledger: ledger.entries.filter((entry) => entry.project_id === project.id).map((entry) => ({ action_id: entry.action_id, state: entry.state, updated_at: entry.updated_at })),
+        evidence_state_packet: evidenceStatePacket,
+      };
+      const evidenceFingerprint = createHash("sha256").update(JSON.stringify(projectEvidence)).digest("hex").slice(0, 16);
+      return buildAdvisorReport(project, latestEvidenceByProject.get(project.id) ?? 0, memory.generated_at, observed, evidenceFingerprint, evidenceStatePacket);
+    });
     return {
       ok: true, repo_id: repoId, report_id: `portfolio-${observed.replace(/\D/g, "").slice(0, 14)}`,
       generated_at: observed, source_generated_at: memory.generated_at, source_age_days: sourceAgeDays,
@@ -163,7 +189,7 @@ export class PortfolioReportService {
         .map(([path, project_count]) => ({ path, project_count })),
       freshness, title: "Portfolio action console",
       summary: `${projects.length} projects · ${actions.length} selectable actions · ${hiddenActionCount} handled · ${(memory.source_paths ?? [memory.memory_root]).length} registry sources · evidence ${freshness}`,
-      topics, projects, sections, project_workspaces: projectWorkspaces, console_state: consoleState, actions,
+      topics, projects, sections, project_workspaces: projectWorkspaces, advisor_reports: advisorReports, console_state: consoleState, actions,
       active_actions: ledger.entries.filter((entry) => entry.state === "routed" || entry.state === "working").sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
       history_actions: ledger.entries.filter((entry) => ["completed", "stopped", "snoozed", "archived"].includes(entry.state)).sort((a, b) => b.updated_at.localeCompare(a.updated_at)),
       recent_activity: ledger.activity.slice(0, 30), hidden_action_count: hiddenActionCount,
@@ -173,6 +199,64 @@ export class PortfolioReportService {
       next_action: "review_actions_select_several_then_send_one_decision_bundle_to_chatgpt"
     };
   }
+}
+
+function buildAdvisorReport(
+  project: { id: string; name: string; phase: string; product_track: string; summary: string; status: string },
+  evidenceTimestamp: number,
+  sourceGeneratedAt: string,
+  generatedAt: string,
+  evidenceFingerprint: string,
+  evidenceStatePacket: PortfolioReportResult["advisor_reports"][number]["evidence_state_packet"]
+): PortfolioReportResult["advisor_reports"][number] {
+  const evidenceObservedAt = evidenceTimestamp ? new Date(evidenceTimestamp).toISOString() : "";
+  const sourceTime = Date.parse(sourceGeneratedAt);
+  const ageHours = evidenceTimestamp && Number.isFinite(sourceTime) ? Math.max(0, (Date.parse(generatedAt) - evidenceTimestamp) / 3_600_000) : Number.NaN;
+  const freshness = !Number.isFinite(ageHours) ? "unknown" : ageHours <= 24 ? "fresh" : ageHours <= 72 ? "aging" : "stale";
+  const freshnessLabel = freshness === "fresh" ? "Evidence is fresh (under 24 hours old)" : freshness === "aging" ? `Evidence is ${Math.round(ageHours)} hours old; refresh before a consequential change` : freshness === "stale" ? `Evidence is ${Math.round(ageHours / 24)} days old; refresh before acting` : "Evidence age could not be verified";
+  const eligibleWork = [evidenceStatePacket.active, evidenceStatePacket.blocked, evidenceStatePacket.open]
+    .flat()
+    .find((item) => item.advisor_eligible);
+  const next = eligibleWork?.title || "the next verified field step";
+  const result = project.summary || "the latest recorded result";
+  const profiles = [
+    ["fan", "The Fan", "What people may love", "Turn the latest result into one clear proof moment.", `Use ${result} to create one short field check for ${project.name}.`, `Create one short proof moment using the latest result.`],
+    ["critic", "The Critic", "Weaknesses and likely disappointments", "Run the next move with a written pass/fail check.", `Before ${next}, write one pass condition and one stop condition beside the evidence.`, `Add a pass/fail check to the next field move.`],
+    ["futurist", "The Futurist", "Where this could go next", "Repeat the smallest successful workflow once.", `Test whether ${next} can repeat without special handling before adding breadth.`, `Repeat the smallest workflow and record its field recipe.`],
+    ["inventor", "The Inventor", "Unexpected possibilities", "Run one bounded variation using existing evidence.", `Change one input or presentation in ${next} while keeping the proof boundary fixed.`, `Run one bounded variation and compare the result.`],
+    ["publicist", "The Publicist", "How to explain it clearly", "Write the handoff sentence someone can act on.", `Turn ${result} into one sentence with what changed, who benefits, and what happens next.`, `Write a result-first handoff sentence beside the evidence.`],
+    ["money", "The Money Expert", "Worth, cost, and leverage", "Define the smallest proof that earns more time.", `For ${next}, name the single result that justifies another work slice.`, `Define one time-boxed proof that earns the next slice.`],
+    ["operations", "The Operations Expert", "What it takes to finish", "Choose one move, one stopping point, and one receipt.", `Run ${next} to a defined stopping point and capture the receipt before switching tasks.`, `Run one next move to a stopping point and capture its receipt.`],
+    ["trust", "The Trust and Safety Expert", "Privacy, safety, and trust", "Verify privacy, rollback, and evidence before sharing.", `Before ${next}, confirm the audience and rollback path; capture a receipt before external sharing.`, `Add a privacy and rollback check before the next sensitive action.`],
+    ["design", "The Design Expert", "Clarity, usability, and polish", "Put the recommendation, reason, and proof in one screen.", `For the ${project.product_track} workflow, show the action for ${next} first, reason second, proof third.`, `Put the next action, reason, and proof in that order.`],
+  ] as const;
+  const relationMap: Record<string, Array<{ advisor_id: string; type: "supports" | "depends_on" | "contradicts" | "supersedes"; label: string }>> = {
+    fan: [{ advisor_id: "critic", type: "contradicts", label: "expanding the experience can conflict with adding proof first" }],
+    critic: [{ advisor_id: "fan", type: "contradicts", label: "proof-first work can delay broader experience improvements" }, { advisor_id: "operations", type: "supports", label: "both reduce uncertainty before expansion" }],
+    futurist: [{ advisor_id: "operations", type: "contradicts", label: "repeatable expansion can conflict with one narrow stopping point" }],
+    inventor: [{ advisor_id: "trust", type: "depends_on", label: "a new variation depends on a safe, reversible test boundary" }],
+    publicist: [{ advisor_id: "design", type: "supports", label: "a result-first explanation supports a clearer next screen" }],
+    money: [{ advisor_id: "futurist", type: "depends_on", label: "more breadth depends on proving the next slice is worth the time" }],
+    operations: [{ advisor_id: "futurist", type: "contradicts", label: "a tight stopping point can conflict with expanding the workflow" }, { advisor_id: "critic", type: "supports", label: "both reduce uncertainty before expansion" }],
+    trust: [{ advisor_id: "inventor", type: "supports", label: "privacy and rollback checks make a bounded variation safer" }],
+    design: [{ advisor_id: "publicist", type: "supports", label: "a clearer screen reinforces a result-first handoff" }],
+  };
+  const snapshotId = `portfolio:${project.id}:${sourceGeneratedAt}:${evidenceObservedAt}:${evidenceFingerprint}`;
+  return {
+    project_id: project.id, snapshot_id: snapshotId, generated_at: generatedAt, evidence_observed_at: evidenceObservedAt, evidence_fingerprint: evidenceFingerprint,
+    freshness, freshness_label: freshnessLabel,
+    advisor_generation_source: "evidence_fallback",
+    advisor_generation_status: "not_requested",
+    advisor_generation_detail: "Deterministic evidence fallback; request this project explicitly to generate or reuse the GPT-5.4 High batch.",
+    evidence_state_packet: evidenceStatePacket,
+    cards: profiles.map(([advisor_id, name, focus, brief, full, idea_title]) => ({
+      advisor_id, name, focus, brief, full, idea_title,
+      kind: "actionable" as const,
+      control_mode: "yes_no" as const,
+      evidence_work_ids: evidenceStatePacket.eligible_work_ids,
+      relations: relationMap[advisor_id] || []
+    }))
+  };
 }
 
 function normalizeId(value: string): string {

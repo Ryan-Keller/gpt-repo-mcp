@@ -10,6 +10,7 @@ export const COMPACT_TOOL_NAMES = [
   "repo_hermes_cancel",
   "repo_hermes_kanban_command",
   "repo_portfolio_report",
+  "repo_portfolio_advisor_generate",
   "repo_portfolio_action_command",
   "repo_runner_status",
   "repo_last_write",

@@ -1,5 +1,11 @@
 import { describe, expect, test } from "vitest";
 import { PortfolioReportService } from "../src/services/portfolio-report-service.js";
+import {
+  clearAdvisorBatchCache,
+  generateAdvisorCard,
+  generateAdvisorCardWithHermes,
+  hydrateAdvisorBatchForProject,
+} from "../src/services/portfolio-advisor-generation-service.js";
 import type { ProjectMemoryDashboardResult } from "../src/contracts/project-memory.contract.js";
 
 const memory: ProjectMemoryDashboardResult = {
@@ -57,6 +63,134 @@ describe("PortfolioReportService", () => {
     expect(alphaActions.every((action) => action.target_repo_id === "alpha")).toBe(true);
     expect(alphaActions.filter((action) => action.risk === "read_only").every((action) => action.launch_ready)).toBe(true);
     expect(result.actions.filter((action) => action.project_id === "beta").every((action) => !action.launch_ready)).toBe(true);
+  });
+
+  test("builds project-scoped advisor reports with revision and contradiction edges", () => {
+    const result = new PortfolioReportService().build("shared-agent-bridge", memory, { project_ids: ["alpha"] });
+    const report = result.advisor_reports[0];
+    expect(report?.project_id).toBe("alpha");
+    expect(report?.snapshot_id).toContain("portfolio:alpha:");
+    expect(report?.cards).toHaveLength(9);
+    expect(report?.cards.find((card) => card.advisor_id === "critic")?.relations).toEqual(expect.arrayContaining([
+      expect.objectContaining({ advisor_id: "fan", type: "contradicts" })
+    ]));
+    expect(report?.freshness).toBe("stale");
+    expect(report?.evidence_fingerprint).toMatch(/^[a-f0-9]{16}$/);
+  });
+
+  test("attaches an explicit provenance-backed evidence-state packet to each advisor snapshot", () => {
+    const result = new PortfolioReportService().build("shared-agent-bridge", memory, { project_ids: ["alpha"] });
+    const packet = result.advisor_reports[0]?.evidence_state_packet;
+
+    expect(packet?.states_explicit).toBe(true);
+    expect(packet?.active.find((item) => item.title === "Finish the bounded slice")?.provenance[0]).toMatchObject({
+      source_kind: "roadmap",
+      source_path: "project_memory.roadmap",
+    });
+    expect(packet?.completed.find((item) => item.title === "Live route verified.")?.provenance[0]).toMatchObject({
+      source_kind: "recent_result",
+      source_path: "RESULT.md",
+    });
+    expect(packet?.eligible_work_ids.every((workId) =>
+      !packet.completed.some((item) => item.work_id === workId)
+      && !packet.superseded.some((item) => item.work_id === workId)
+      && !packet.unknown.some((item) => item.work_id === workId)
+    )).toBe(true);
+    expect(packet?.translation_boundary).toContain("Never dispatch");
+  });
+
+  test("changes the advisor evidence fingerprint when project ledger evidence changes", () => {
+    const before = new PortfolioReportService().build("shared-agent-bridge", memory, { project_ids: ["alpha"] });
+    const after = new PortfolioReportService().build("shared-agent-bridge", memory, { project_ids: ["alpha"] }, {
+      entries: [{ action_id: "alpha-slice", report_id: "report", project_id: "alpha", project_name: "Alpha", title: "Alpha slice", route: "continue_slice", risk: "approval_required", state: "working", attempt_count: 1, updated_at: "2026-07-17T00:00:00Z", reason: "Selected", receipt_summary: "", snooze_until: "" }],
+      activity: []
+    });
+    expect(after.advisor_reports[0]?.evidence_fingerprint).not.toBe(before.advisor_reports[0]?.evidence_fingerprint);
+    expect(after.advisor_reports[0]?.snapshot_id).not.toBe(before.advisor_reports[0]?.snapshot_id);
+  });
+
+  test("generates a replacement advisor card only for the current snapshot", () => {
+    const report = new PortfolioReportService().build("shared-agent-bridge", memory, { project_ids: ["alpha"] });
+    const source = report.advisor_reports[0]!;
+    const generated = generateAdvisorCard({ repo_id: "shared-agent-bridge", project_id: "alpha", advisor_id: "critic", snapshot_id: source.snapshot_id, decision: "declined", prior_idea_title: source.cards.find((card) => card.advisor_id === "critic")!.idea_title, excluded_titles: [] }, report);
+    expect(generated.generation_source).toBe("evidence_fallback");
+    expect(generated.idea_title).not.toBe(source.cards.find((card) => card.advisor_id === "critic")!.idea_title);
+    expect(generated.evidence_work_ids.length).toBeGreaterThan(0);
+    expect(generated.dispatch_allowed).toBe(false);
+    expect(generated.translation_boundary).toContain("translation-only");
+    expect(() => generateAdvisorCard({ repo_id: "shared-agent-bridge", project_id: "alpha", advisor_id: "critic", snapshot_id: "stale", decision: "accepted", prior_idea_title: generated.idea_title, excluded_titles: [] }, report)).toThrow("ADVISOR_GENERATION_STALE_SNAPSHOT");
+  });
+
+  test("maps a validated Hermes GPT-5.4 advisor replacement onto the current snapshot", async () => {
+    const report = new PortfolioReportService().build("shared-agent-bridge", memory, { project_ids: ["alpha"] });
+    const source = report.advisor_reports[0]!;
+    const prior = source.cards.find((card) => card.advisor_id === "critic")!;
+    let capturedPrompt = "";
+    const generated = await generateAdvisorCardWithHermes({
+      repo_id: "shared-agent-bridge",
+      project_id: "alpha",
+      advisor_id: "critic",
+      snapshot_id: source.snapshot_id,
+      decision: "declined",
+      prior_idea_title: prior.idea_title,
+      excluded_titles: [prior.idea_title],
+    }, report, async (prompt) => {
+      capturedPrompt = prompt;
+      return JSON.stringify({
+        status: "card",
+        idea_title: "Verify the active slice against one failure case",
+        quick_take: "Test one failure case before continuing",
+        description: "Run one bounded check against the active work and record whether it passes.",
+        evidence_work_ids: [source.evidence_state_packet.eligible_work_ids[0]],
+        relationships: [{ type: "supports", work_id: source.evidence_state_packet.eligible_work_ids[0] }],
+        abstention_reason: null,
+      });
+    });
+    expect(generated.generation_source).toBe("model");
+    expect(generated.dispatch_allowed).toBe(false);
+    expect(generated.evidence_work_ids).toEqual([source.evidence_state_packet.eligible_work_ids[0]]);
+    expect(generated.relations).toEqual([]);
+    expect(capturedPrompt).toContain("materially different angle");
+    expect(capturedPrompt).toContain(source.snapshot_id);
+    expect(capturedPrompt).toContain("Do not inspect files");
+    expect(capturedPrompt).toContain("Do not calculate or paraphrase evidence age");
+  });
+
+  test("rejects Hermes advisor output that cites ineligible work", async () => {
+    const report = new PortfolioReportService().build("shared-agent-bridge", memory, { project_ids: ["alpha"] });
+    const source = report.advisor_reports[0]!;
+    const prior = source.cards.find((card) => card.advisor_id === "critic")!;
+    await expect(generateAdvisorCardWithHermes({
+      repo_id: "shared-agent-bridge",
+      project_id: "alpha",
+      advisor_id: "critic",
+      snapshot_id: source.snapshot_id,
+      decision: "declined",
+      prior_idea_title: prior.idea_title,
+      excluded_titles: [],
+    }, report, async () => JSON.stringify({
+      status: "card",
+      idea_title: "Bad evidence",
+      quick_take: "Use unsupported evidence",
+      description: "This output should be rejected.",
+      evidence_work_ids: ["work_not_eligible"],
+      relationships: [],
+      abstention_reason: "",
+    }))).rejects.toThrow("ADVISOR_GENERATION_INVALID_EVIDENCE");
+  });
+
+  test("abstains from replacement generation when the packet has no eligible work", () => {
+    const completedOnly = {
+      ...memory,
+      roadmap: [], research_watchlist: [], suggested_next_moves: [], paused_ideas: [],
+      recent_results: [{ project_id: "alpha", project_name: "Alpha", date: "2026-07-18", summary: "The bounded Alpha slice completed and was accepted.", source: "RESULT.md" }],
+    };
+    const report = new PortfolioReportService().build("shared-agent-bridge", completedOnly, { project_ids: ["alpha"] });
+    const source = report.advisor_reports[0]!;
+
+    expect(source.evidence_state_packet.eligible_work_ids).toEqual([]);
+    expect(() => generateAdvisorCard({ repo_id: "shared-agent-bridge", project_id: "alpha", advisor_id: "critic", snapshot_id: source.snapshot_id, decision: "declined", prior_idea_title: source.cards[0]!.idea_title, excluded_titles: [] }, report))
+      .toThrow("ADVISOR_GENERATION_ABSTAINED");
   });
 
   test("ranks active execution first and distributes the action cap across projects", () => {
@@ -140,5 +274,96 @@ describe("PortfolioReportService", () => {
       .toBe("2026-07-16T21:00:00.000Z");
     expect(result.actions.filter((action) => action.project_id === "lead-and-follow").every((action) => !action.launch_ready))
       .toBe(true);
+  });
+
+  test("generates all nine advisors once and reuses the batch for an unchanged snapshot", async () => {
+    clearAdvisorBatchCache();
+    const report = new PortfolioReportService().build("shared-agent-bridge", memory, { project_ids: ["alpha"] });
+    const advisorReport = report.advisor_reports[0]!;
+    const evidenceWorkId = advisorReport.evidence_state_packet.eligible_work_ids[0]!;
+    let dispatchCount = 0;
+    const dispatch = async () => {
+      dispatchCount += 1;
+      return JSON.stringify({
+        project_id: "alpha",
+        snapshot_id: advisorReport.snapshot_id,
+        outcomes: advisorReport.cards.map((card, index) => ({
+          advisor_id: card.advisor_id,
+          kind: index === 7 ? "perspective" : index === 8 ? "abstain" : "actionable",
+          idea_title: index === 8 ? "" : `${card.name} move`,
+          quick_take: index === 8 ? "No evidence-backed recommendation" : `Advance ${card.focus.toLowerCase()}`,
+          description: index === 8 ? "" : `Use ${evidenceWorkId} to produce one bounded result with a visible receipt.`,
+          evidence_work_ids: index === 8 ? [] : [evidenceWorkId],
+          relationships: [],
+          abstention_reason: index === 8 ? "This advisor lacks distinct evidence for the current snapshot." : "",
+        })),
+      });
+    };
+
+    const generated = await hydrateAdvisorBatchForProject(report, "alpha", dispatch);
+    const cached = await hydrateAdvisorBatchForProject(report, "alpha", dispatch);
+
+    expect(dispatchCount).toBe(1);
+    expect(generated.advisor_reports[0]).toMatchObject({
+      advisor_generation_source: "model",
+      advisor_generation_status: "generated",
+    });
+    expect(cached.advisor_reports[0]?.advisor_generation_status).toBe("cached");
+    expect(generated.advisor_reports[0]?.cards).toHaveLength(9);
+    expect(generated.advisor_reports[0]?.cards.filter((card) => card.control_mode === "yes_no")).toHaveLength(7);
+    expect(generated.advisor_reports[0]?.cards.filter((card) => card.control_mode === "none")).toHaveLength(2);
+  });
+
+  test("generates a new batch after the project snapshot changes", async () => {
+    clearAdvisorBatchCache();
+    const first = new PortfolioReportService().build("shared-agent-bridge", memory, { project_ids: ["alpha"] });
+    const changedMemory = {
+      ...memory,
+      suggested_next_moves: [...memory.suggested_next_moves, { project_id: "alpha", move: "Verify the changed snapshot route" }],
+    };
+    const second = new PortfolioReportService().build("shared-agent-bridge", changedMemory, { project_ids: ["alpha"] });
+    let dispatchCount = 0;
+    const dispatchFor = (source: typeof first) => async () => {
+      dispatchCount += 1;
+      const advisorReport = source.advisor_reports[0]!;
+      const evidenceWorkId = advisorReport.evidence_state_packet.eligible_work_ids[0]!;
+      return JSON.stringify({
+        project_id: "alpha",
+        snapshot_id: advisorReport.snapshot_id,
+        outcomes: advisorReport.cards.map((card) => ({
+          advisor_id: card.advisor_id,
+          kind: "actionable",
+          idea_title: `${card.name} changed-snapshot move`,
+          quick_take: "Produce one bounded changed-snapshot result",
+          description: `Use ${evidenceWorkId} and preserve a visible receipt.`,
+          evidence_work_ids: [evidenceWorkId],
+          relationships: [],
+          abstention_reason: "",
+        })),
+      });
+    };
+
+    await hydrateAdvisorBatchForProject(first, "alpha", dispatchFor(first));
+    await hydrateAdvisorBatchForProject(second, "alpha", dispatchFor(second));
+
+    expect(first.advisor_reports[0]?.snapshot_id).not.toBe(second.advisor_reports[0]?.snapshot_id);
+    expect(dispatchCount).toBe(2);
+  });
+
+  test("keeps deterministic cards and does not cache an invalid Hermes batch", async () => {
+    clearAdvisorBatchCache();
+    const report = new PortfolioReportService().build("shared-agent-bridge", memory, { project_ids: ["alpha"] });
+    let dispatchCount = 0;
+    const invalidDispatch = async () => {
+      dispatchCount += 1;
+      return JSON.stringify({ project_id: "alpha", snapshot_id: report.advisor_reports[0]!.snapshot_id, outcomes: [] });
+    };
+
+    const first = await hydrateAdvisorBatchForProject(report, "alpha", invalidDispatch);
+    const second = await hydrateAdvisorBatchForProject(report, "alpha", invalidDispatch);
+
+    expect(first.advisor_reports[0]?.advisor_generation_status).toBe("fallback");
+    expect(second.advisor_reports[0]?.advisor_generation_status).toBe("fallback");
+    expect(dispatchCount).toBe(2);
   });
 });

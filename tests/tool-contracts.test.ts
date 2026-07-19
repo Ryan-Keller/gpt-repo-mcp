@@ -103,6 +103,7 @@ describe("tool catalog contracts", () => {
       "repo_hermes_cancel",
       "repo_hermes_kanban_command",
       "repo_portfolio_report",
+      "repo_portfolio_advisor_generate",
       "repo_portfolio_action_command",
       "agent_runner_status",
       "repo_runner_status",
@@ -171,6 +172,7 @@ describe("tool catalog contracts", () => {
       "repo_hermes_cancel",
       "repo_hermes_kanban_command",
       "repo_portfolio_report",
+      "repo_portfolio_advisor_generate",
       "repo_portfolio_action_command",
       "repo_runner_status",
       "repo_last_write",
@@ -186,8 +188,8 @@ describe("tool catalog contracts", () => {
       "repo_write_changes",
       "repo_write_handoff"
     ]);
-    expect(compactToolCatalog).toHaveLength(21);
-    expect(fullToolCatalog).toHaveLength(47);
+    expect(compactToolCatalog).toHaveLength(22);
+    expect(fullToolCatalog).toHaveLength(48);
     expect(compactToolCatalog.map((tool) => tool.name)).not.toContain("agent_runner_status");
     expect(compactToolCatalog.map((tool) => tool.name)).not.toContain("repo_run_live_tail");
     expect(compactToolCatalog.map((tool) => tool.name)).not.toContain("repo_lab_exec");
@@ -1035,7 +1037,7 @@ describe("tool catalog contracts", () => {
     const hermesIntake = surface.find((tool) => tool.name === "repo_hermes_intake");
     const hermesIntervene = surface.find((tool) => tool.name === "repo_hermes_intervene");
 
-    expect(names).toHaveLength(47);
+    expect(names).toHaveLength(48);
     expect(names).toContain("repo_bridge_concierge");
     expect(names.indexOf("repo_hermes_intake")).toBeLessThan(3);
     expect(names).toContain("repo_read");
@@ -1052,6 +1054,7 @@ describe("tool catalog contracts", () => {
     expect(names).toContain("repo_hermes_cancel");
     expect(names).toContain("repo_hermes_kanban_command");
     expect(names).not.toContain("repo_hermes_watch");
+    expect(names).toContain("repo_portfolio_advisor_generate");
     expect(names).toContain("repo_portfolio_action_command");
     expect(names).toContain("repo_town_portal_return");
     expect(names).toContain("agent_runner_status");

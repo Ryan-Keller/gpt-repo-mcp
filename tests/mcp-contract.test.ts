@@ -93,7 +93,7 @@ describe("MCP contract", () => {
       const repoProjectContext = surface.find((tool) => tool.name === "repo_project_context");
       const runnerStatus = surface.find((tool) => tool.name === "repo_runner_status");
 
-      expect(names).toHaveLength(21);
+      expect(names).toHaveLength(22);
       expect(names).toContain("repo_bridge_concierge");
       expect(names.indexOf("repo_hermes_intake")).toBeLessThan(3);
       expect(names).toContain("repo_runner_status");
@@ -105,6 +105,7 @@ describe("MCP contract", () => {
       expect(names).not.toContain("repo_hermes_watch");
       expect(names).toContain("repo_hermes_kanban_command");
       expect(names).toContain("repo_portfolio_report");
+      expect(names).toContain("repo_portfolio_advisor_generate");
       expect(names).toContain("repo_portfolio_action_command");
       expect(hermesIntervene?.inputKeys).toEqual(["expected_evidence", "instruction", "intervention_type", "reason", "repo_id", "transaction_id"]);
       expect(hermesKanbanCommand).toMatchObject({
@@ -238,7 +239,7 @@ describe("MCP contract", () => {
     try {
       const listed = await client.listTools();
       const names = listed.tools.map((tool) => tool.name);
-      expect(names).toHaveLength(47);
+      expect(names).toHaveLength(48);
       expect(new Set(names)).toEqual(new Set(fullToolCatalog.map((tool) => tool.name)));
       expect(names).toContain("agent_runner_status");
       expect(names).toContain("repo_read");

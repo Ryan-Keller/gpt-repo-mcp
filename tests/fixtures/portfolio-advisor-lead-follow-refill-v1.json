@@ -1,0 +1,790 @@
+{
+  "fixture_version": "portfolio-advisor-lead-follow-refill-v1",
+  "transaction_id": "offthread-abd0795154e76fcc",
+  "model_route": {
+    "requested": "5.4 High",
+    "installed_equivalent": "openai-codex/gpt-5.6-sol",
+    "reasoning_mode": "high",
+    "execution": "direct authorized worker; no additional worker or model dispatch"
+  },
+  "existing_work_audit": {
+    "source_transaction": "offthread-12ce9028ab482f96",
+    "classification": "partial_existing_system_extended",
+    "decision": "REUSE_AND_EXTEND",
+    "inspected": [
+      "shared/hermes-intake/bridge-field-project-advisors-v1/INTAKE.md",
+      "shared/hermes-intake/bridge-field-project-advisors-v1/manifest.json",
+      "shared/hermes-intake/bridge-field-project-advisors-v1/RESULT.md",
+      "shared/status/2026-07-17-work-mode-widget-retirement-and-hermes-intake-root-fix.md",
+      "gpt-repo-mcp/src/services/portfolio-advisor-state-service.ts",
+      "gpt-repo-mcp/src/services/portfolio-advisor-generation-service.ts",
+      "offthread-12ce9028ab482f96/portfolio-advisor-local-eval.json",
+      "offthread-12ce9028ab482f96/acceptance-receipt.json"
+    ],
+    "finding": "The promoted evidence-state service and existing nine-advisor route already own classification, eligibility, retirement, abstention, and no-dispatch translation. This fixture extends that system with refill freshness evidence; it creates no advisor architecture, route, prompt source, queue, or runtime state.",
+    "new_work_needed": "one non-production regression fixture only"
+  },
+  "freshness_receipt": {
+    "validated_at": "2026-07-19T02:50:25Z",
+    "state_source": "read-only Lead and Follow git status plus four packet source files",
+    "freshness_status": "fresh",
+    "confidence": "high",
+    "accepted_packet_source": "offthread-12ce9028ab482f96",
+    "repository": "/mnt/m/lead-and-follow",
+    "git_head": "1c7797a4502ab1ca52fc95433a4e78b469b611cf",
+    "git_status_sha256": "56f7eac9e2faa6ecc865c53df457d6e23069c10c246dd7a94f5c0f9ef14f5377",
+    "git_status_entry_count": 53,
+    "source_file_sha256": {
+      "docs/PROJECT_ONBOARDING.md": "2f6852a4686ce6621ef790bb7368c24eb372465fa824df532e37305f843588ab",
+      "docs/CURRENT_STATE.md": "a97f46d713a8c71b621e99bc0b078c00b37d3ba9c8a078d8ab0aa4decdc60fc2",
+      "docs/RUNTIME_INVENTORY.md": "6ea41e3e70f1fa62780025bdc491ff735b55b72e2b4f5437128027a0ee1adcba",
+      "docs/council/day1-reception-runtime-authored-pass-RESULT.md": "4308abcbf837a57db2a4d41e7a55c2ad9bafe0eea58a03cd7f0d6a66bad4a14c"
+    },
+    "reuse_basis": "HEAD, default porcelain-v2 status hash/count, and all four source hashes exactly match the accepted transaction; the exact accepted packet is reused."
+  },
+  "prompt_catalog": {
+    "version": "portfolio-advisor-prompt-catalog-v1",
+    "text": "PORTFOLIO ADVISOR PROMPT CATALOG v1\nCOMMON CONTRACT\nRead only the supplied version-1 evidence-state packet. Cite only advisor-eligible active, blocked, or open work IDs. Never revive completed or superseded work, resolve owner-dependent choices, infer unknown state, create generic process filler, dispatch work, or mutate state. Return exactly one outcome for this advisor: an actionable card, a perspective-only card, or an honest abstention. Actionable cards need YES/NO controls; perspective-only cards and abstentions have no controls. Prefer abstention to unsupported advice. Keep wording plain, field-readable, and semantically distinct from retired, pending-accepted, and unseen cards.\n\nADVISOR fan\nFind the smallest evidence-backed moment a user could genuinely value or want to repeat. Do not convert an active prototype into a completion claim.\n\nADVISOR critic\nIdentify the sharpest evidenced failure mode or acceptance risk and turn it into one bounded field check. Do not restate the blocker without a discriminating check.\n\nADVISOR futurist\nExplain the most important trajectory or sequencing implication supported by the evidence. Do not invent market, platform, or roadmap facts.\n\nADVISOR inventor\nPropose one bounded recombination or experiment using only evidenced active/open elements. It must be reversible and narrower than the whole open slice.\n\nADVISOR publicist\nGive one evidence-honest framing or communication action. Distinguish active prototype capability from verified completion and name material limitations when relevant.\n\nADVISOR money\nGive cost, leverage, pricing, or sustainability advice only when the packet contains a financial or resource basis; otherwise abstain plainly.\n\nADVISOR operations\nTurn evidenced work into one bounded sequence, stop condition, or reliability check. Do not create a generic planning task.\n\nADVISOR trust\nGive privacy, safety, accessibility, integrity, or trust advice only when the packet supports it; otherwise abstain plainly.\n\nADVISOR design\nTranslate evidenced interaction or presentation gaps into one observable design criterion. Do not merely repeat the desired feature list.",
+    "sha256": "88d4ab67ee8e7a0581ad4db2c97e4f8cafdc8f0badf4d02abf7c9cd896047b79",
+    "hash_basis": "SHA-256 of exact UTF-8 text bytes above"
+  },
+  "evidence_packet": {
+    "packet": {
+      "version": 1,
+      "project_id": "lead-and-follow",
+      "source_generated_at": "2026-07-19T02:12:13.122Z",
+      "states_explicit": true,
+      "completed": [
+        {
+          "work_id": "work_9e979c050b09",
+          "state": "completed",
+          "title": "Day 1 reception runtime authored pass completed and verified with checks, tests, Godot import/export, and phone-flow audits.",
+          "detail": "Recorded result from 2026-07-07",
+          "observed_at": "2026-07-07",
+          "advisor_eligible": false,
+          "exclusion_reason": "terminal_state",
+          "provenance": [
+            {
+              "source_kind": "recent_result",
+              "source_path": "docs/council/day1-reception-runtime-authored-pass-RESULT.md",
+              "source_id": "",
+              "observed_at": "2026-07-07",
+              "detail": "Day 1 reception runtime authored pass completed and verified with checks, tests, Godot import/export, and phone-flow audits."
+            }
+          ]
+        }
+      ],
+      "superseded": [
+        {
+          "work_id": "work_05fd655cd7bd",
+          "state": "superseded",
+          "title": "Superseded presentation work: the old lesson backdrop is hidden in active lesson mode.",
+          "detail": "Recorded result from 2026-07-07",
+          "observed_at": "2026-07-07",
+          "advisor_eligible": false,
+          "exclusion_reason": "terminal_state",
+          "provenance": [
+            {
+              "source_kind": "recent_result",
+              "source_path": "docs/CURRENT_STATE.md",
+              "source_id": "",
+              "observed_at": "2026-07-07",
+              "detail": "Superseded presentation work: the old lesson backdrop is hidden in active lesson mode."
+            }
+          ]
+        }
+      ],
+      "active": [
+        {
+          "work_id": "work_c3668982132b",
+          "state": "active",
+          "title": "Active prototype slice: phone-serving the first Godot prologue and dance checkpoint.",
+          "detail": "Recorded result from 2026-07-07",
+          "observed_at": "2026-07-07",
+          "advisor_eligible": true,
+          "exclusion_reason": "",
+          "provenance": [
+            {
+              "source_kind": "recent_result",
+              "source_path": "docs/PROJECT_ONBOARDING.md",
+              "source_id": "",
+              "observed_at": "2026-07-07",
+              "detail": "Active prototype slice: phone-serving the first Godot prologue and dance checkpoint."
+            }
+          ]
+        }
+      ],
+      "blocked": [
+        {
+          "work_id": "work_1983be83f35b",
+          "state": "blocked",
+          "title": "Blocked quality gap: character appeal, embodied partner chemistry, and partner mechanics remain below the 95% bar.",
+          "detail": "Recorded result from 2026-07-07",
+          "observed_at": "2026-07-07",
+          "advisor_eligible": true,
+          "exclusion_reason": "",
+          "provenance": [
+            {
+              "source_kind": "recent_result",
+              "source_path": "docs/CURRENT_STATE.md",
+              "source_id": "",
+              "observed_at": "2026-07-07",
+              "detail": "Blocked quality gap: character appeal, embodied partner chemistry, and partner mechanics remain below the 95% bar."
+            }
+          ]
+        }
+      ],
+      "open": [
+        {
+          "work_id": "work_eefdf9a31763",
+          "state": "open",
+          "title": "Open next slice: replace abstract partnering with actual arm/body contact, knee action, and later ankle/foot articulation.",
+          "detail": "Recorded result from 2026-07-07",
+          "observed_at": "2026-07-07",
+          "advisor_eligible": true,
+          "exclusion_reason": "",
+          "provenance": [
+            {
+              "source_kind": "recent_result",
+              "source_path": "docs/CURRENT_STATE.md",
+              "source_id": "",
+              "observed_at": "2026-07-07",
+              "detail": "Open next slice: replace abstract partnering with actual arm/body contact, knee action, and later ankle/foot articulation."
+            }
+          ]
+        },
+        {
+          "work_id": "work_c0a6d5257e72",
+          "state": "open",
+          "title": "Open owner-dependent decision: Ask Ryan to choose which Krea source frames become locked art seeds.",
+          "detail": "Recorded result from 2026-07-07",
+          "observed_at": "2026-07-07",
+          "advisor_eligible": false,
+          "exclusion_reason": "owner_dependent",
+          "provenance": [
+            {
+              "source_kind": "recent_result",
+              "source_path": "docs/CURRENT_STATE.md",
+              "source_id": "",
+              "observed_at": "2026-07-07",
+              "detail": "Open owner-dependent decision: Ask Ryan to choose which Krea source frames become locked art seeds."
+            }
+          ]
+        }
+      ],
+      "unknown": [
+        {
+          "work_id": "work_ce10f9bf6235",
+          "state": "unknown",
+          "title": "Unknown temporal state: current dirty runtime and evidence changes are newer than the last project-state update and require verification before claims.",
+          "detail": "Recorded result from 2026-07-19T02:12:13.122Z",
+          "observed_at": "2026-07-19T02:12:13.122Z",
+          "advisor_eligible": false,
+          "exclusion_reason": "insufficient_evidence",
+          "provenance": [
+            {
+              "source_kind": "recent_result",
+              "source_path": "git status --porcelain=v2",
+              "source_id": "",
+              "observed_at": "2026-07-19T02:12:13.122Z",
+              "detail": "Unknown temporal state: current dirty runtime and evidence changes are newer than the last project-state update and require verification before claims."
+            }
+          ]
+        }
+      ],
+      "counts": {
+        "completed": 1,
+        "superseded": 1,
+        "active": 1,
+        "blocked": 1,
+        "open": 2,
+        "unknown": 1
+      },
+      "eligible_work_ids": [
+        "work_c3668982132b",
+        "work_1983be83f35b",
+        "work_eefdf9a31763"
+      ],
+      "translation_boundary": "Translate only eligible active, blocked, or open evidence into project-specific advice. Never dispatch. Abstain rather than inventing a path, claim, owner decision, or generic process task."
+    },
+    "sha256": "4c39a7900d783941b90d5203eb10a8ad9a29e77f30ca7dd57a671a7947962402",
+    "hash_basis": "SHA-256 of UTF-8 JSON.stringify(packet) with no whitespace",
+    "canonical_json": "{\"version\":1,\"project_id\":\"lead-and-follow\",\"source_generated_at\":\"2026-07-19T02:12:13.122Z\",\"states_explicit\":true,\"completed\":[{\"work_id\":\"work_9e979c050b09\",\"state\":\"completed\",\"title\":\"Day 1 reception runtime authored pass completed and verified with checks, tests, Godot import/export, and phone-flow audits.\",\"detail\":\"Recorded result from 2026-07-07\",\"observed_at\":\"2026-07-07\",\"advisor_eligible\":false,\"exclusion_reason\":\"terminal_state\",\"provenance\":[{\"source_kind\":\"recent_result\",\"source_path\":\"docs/council/day1-reception-runtime-authored-pass-RESULT.md\",\"source_id\":\"\",\"observed_at\":\"2026-07-07\",\"detail\":\"Day 1 reception runtime authored pass completed and verified with checks, tests, Godot import/export, and phone-flow audits.\"}]}],\"superseded\":[{\"work_id\":\"work_05fd655cd7bd\",\"state\":\"superseded\",\"title\":\"Superseded presentation work: the old lesson backdrop is hidden in active lesson mode.\",\"detail\":\"Recorded result from 2026-07-07\",\"observed_at\":\"2026-07-07\",\"advisor_eligible\":false,\"exclusion_reason\":\"terminal_state\",\"provenance\":[{\"source_kind\":\"recent_result\",\"source_path\":\"docs/CURRENT_STATE.md\",\"source_id\":\"\",\"observed_at\":\"2026-07-07\",\"detail\":\"Superseded presentation work: the old lesson backdrop is hidden in active lesson mode.\"}]}],\"active\":[{\"work_id\":\"work_c3668982132b\",\"state\":\"active\",\"title\":\"Active prototype slice: phone-serving the first Godot prologue and dance checkpoint.\",\"detail\":\"Recorded result from 2026-07-07\",\"observed_at\":\"2026-07-07\",\"advisor_eligible\":true,\"exclusion_reason\":\"\",\"provenance\":[{\"source_kind\":\"recent_result\",\"source_path\":\"docs/PROJECT_ONBOARDING.md\",\"source_id\":\"\",\"observed_at\":\"2026-07-07\",\"detail\":\"Active prototype slice: phone-serving the first Godot prologue and dance checkpoint.\"}]}],\"blocked\":[{\"work_id\":\"work_1983be83f35b\",\"state\":\"blocked\",\"title\":\"Blocked quality gap: character appeal, embodied partner chemistry, and partner mechanics remain below the 95% bar.\",\"detail\":\"Recorded result from 2026-07-07\",\"observed_at\":\"2026-07-07\",\"advisor_eligible\":true,\"exclusion_reason\":\"\",\"provenance\":[{\"source_kind\":\"recent_result\",\"source_path\":\"docs/CURRENT_STATE.md\",\"source_id\":\"\",\"observed_at\":\"2026-07-07\",\"detail\":\"Blocked quality gap: character appeal, embodied partner chemistry, and partner mechanics remain below the 95% bar.\"}]}],\"open\":[{\"work_id\":\"work_eefdf9a31763\",\"state\":\"open\",\"title\":\"Open next slice: replace abstract partnering with actual arm/body contact, knee action, and later ankle/foot articulation.\",\"detail\":\"Recorded result from 2026-07-07\",\"observed_at\":\"2026-07-07\",\"advisor_eligible\":true,\"exclusion_reason\":\"\",\"provenance\":[{\"source_kind\":\"recent_result\",\"source_path\":\"docs/CURRENT_STATE.md\",\"source_id\":\"\",\"observed_at\":\"2026-07-07\",\"detail\":\"Open next slice: replace abstract partnering with actual arm/body contact, knee action, and later ankle/foot articulation.\"}]},{\"work_id\":\"work_c0a6d5257e72\",\"state\":\"open\",\"title\":\"Open owner-dependent decision: Ask Ryan to choose which Krea source frames become locked art seeds.\",\"detail\":\"Recorded result from 2026-07-07\",\"observed_at\":\"2026-07-07\",\"advisor_eligible\":false,\"exclusion_reason\":\"owner_dependent\",\"provenance\":[{\"source_kind\":\"recent_result\",\"source_path\":\"docs/CURRENT_STATE.md\",\"source_id\":\"\",\"observed_at\":\"2026-07-07\",\"detail\":\"Open owner-dependent decision: Ask Ryan to choose which Krea source frames become locked art seeds.\"}]}],\"unknown\":[{\"work_id\":\"work_ce10f9bf6235\",\"state\":\"unknown\",\"title\":\"Unknown temporal state: current dirty runtime and evidence changes are newer than the last project-state update and require verification before claims.\",\"detail\":\"Recorded result from 2026-07-19T02:12:13.122Z\",\"observed_at\":\"2026-07-19T02:12:13.122Z\",\"advisor_eligible\":false,\"exclusion_reason\":\"insufficient_evidence\",\"provenance\":[{\"source_kind\":\"recent_result\",\"source_path\":\"git status --porcelain=v2\",\"source_id\":\"\",\"observed_at\":\"2026-07-19T02:12:13.122Z\",\"detail\":\"Unknown temporal state: current dirty runtime and evidence changes are newer than the last project-state update and require verification before claims.\"}]}],\"counts\":{\"completed\":1,\"superseded\":1,\"active\":1,\"blocked\":1,\"open\":2,\"unknown\":1},\"eligible_work_ids\":[\"work_c3668982132b\",\"work_1983be83f35b\",\"work_eefdf9a31763\"],\"translation_boundary\":\"Translate only eligible active, blocked, or open evidence into project-specific advice. Never dispatch. Abstain rather than inventing a path, claim, owner decision, or generic process task.\"}"
+  },
+  "cycle_a": {
+    "cycle_id": "A",
+    "prompt_catalog_version": "portfolio-advisor-prompt-catalog-v1",
+    "prompt_catalog_sha256": "88d4ab67ee8e7a0581ad4db2c97e4f8cafdc8f0badf4d02abf7c9cd896047b79",
+    "evidence_packet_sha256": "4c39a7900d783941b90d5203eb10a8ad9a29e77f30ca7dd57a671a7947962402",
+    "outcomes": [
+      {
+        "card_id": "a-fan-01",
+        "advisor_id": "fan",
+        "outcome_kind": "actionable_card",
+        "title": "Test whether the first checkpoint earns a replay",
+        "body": "Show the phone-served prologue and first dance checkpoint without explanation, then ask one tester what moment they would choose to repeat. Keep the card only if they name a concrete moment rather than the idea of a dance game.",
+        "evidence_work_ids": [
+          "work_c3668982132b"
+        ],
+        "control_mode": "yes_no",
+        "control_rationale": "A bounded user-value check can be accepted or declined without dispatching work.",
+        "dispatch_allowed": false,
+        "grade": {
+          "scale": "1-5",
+          "evidence_grounding": 5,
+          "advisor_distinctness": 5,
+          "field_actionability": 5,
+          "non_repetition": 5,
+          "plain_language_clarity": 5,
+          "passed": true
+        }
+      },
+      {
+        "card_id": "a-critic-01",
+        "advisor_id": "critic",
+        "outcome_kind": "actionable_card",
+        "title": "Check the exact handoff where chemistry breaks",
+        "body": "Review the move from the first dance checkpoint into partnered motion and mark the first instant when the pair stops reading as two bodies responding to each other. Use that instant—not the broad 95% gap—as the next correction target.",
+        "evidence_work_ids": [
+          "work_c3668982132b",
+          "work_1983be83f35b"
+        ],
+        "control_mode": "yes_no",
+        "control_rationale": "It selects a concrete failure point and deserves an explicit decision.",
+        "dispatch_allowed": false,
+        "grade": {
+          "scale": "1-5",
+          "evidence_grounding": 5,
+          "advisor_distinctness": 5,
+          "field_actionability": 5,
+          "non_repetition": 5,
+          "plain_language_clarity": 5,
+          "passed": true
+        }
+      },
+      {
+        "card_id": "a-futurist-01",
+        "advisor_id": "futurist",
+        "outcome_kind": "perspective_only_card",
+        "title": "Treat embodiment as a staircase, not one leap",
+        "body": "The open direction already has a useful order: believable arm/body contact first, knee action second, and ankle/foot articulation later. That sequence protects the active phone checkpoint from being buried under a simultaneous full-body rewrite.",
+        "evidence_work_ids": [
+          "work_c3668982132b",
+          "work_eefdf9a31763"
+        ],
+        "control_mode": "perspective_only",
+        "control_rationale": "This is sequencing perspective, not a discrete accept/decline action.",
+        "dispatch_allowed": false,
+        "grade": {
+          "scale": "1-5",
+          "evidence_grounding": 5,
+          "advisor_distinctness": 5,
+          "perspective_value": 5,
+          "non_repetition": 5,
+          "plain_language_clarity": 5,
+          "passed": true
+        }
+      },
+      {
+        "card_id": "a-inventor-01",
+        "advisor_id": "inventor",
+        "outcome_kind": "actionable_card",
+        "title": "Prototype one contact-to-knee response",
+        "body": "In one bounded version of the existing checkpoint, let a single arm/body contact cue trigger one visible knee response. Leave ankle and foot articulation out of this experiment so it can reveal whether contact alone improves the sense of following.",
+        "evidence_work_ids": [
+          "work_1983be83f35b",
+          "work_eefdf9a31763"
+        ],
+        "control_mode": "yes_no",
+        "control_rationale": "It is a reversible, narrow experiment with a clear scope boundary.",
+        "dispatch_allowed": false,
+        "grade": {
+          "scale": "1-5",
+          "evidence_grounding": 5,
+          "advisor_distinctness": 5,
+          "field_actionability": 5,
+          "non_repetition": 5,
+          "plain_language_clarity": 5,
+          "passed": true
+        }
+      },
+      {
+        "card_id": "a-publicist-01",
+        "advisor_id": "publicist",
+        "outcome_kind": "actionable_card",
+        "title": "Name the prototype and the gap in one breath",
+        "body": "Describe Lead and Follow as a phone-served first prologue and dance checkpoint, then immediately say that partner chemistry and mechanics are still below the 95% bar. Do not present it as a finished dance simulation.",
+        "evidence_work_ids": [
+          "work_c3668982132b",
+          "work_1983be83f35b"
+        ],
+        "control_mode": "yes_no",
+        "control_rationale": "The framing is a concrete communication choice that can be accepted or declined.",
+        "dispatch_allowed": false,
+        "grade": {
+          "scale": "1-5",
+          "evidence_grounding": 5,
+          "advisor_distinctness": 5,
+          "field_actionability": 5,
+          "non_repetition": 5,
+          "plain_language_clarity": 5,
+          "passed": true
+        }
+      },
+      {
+        "card_id": "a-money-01",
+        "advisor_id": "money",
+        "outcome_kind": "honest_abstention",
+        "title": "No financial advice from this packet",
+        "body": "The packet has no cost, budget, time, pricing, revenue, or resource-allocation evidence. A money recommendation would be invented, so this advisor abstains.",
+        "evidence_work_ids": [],
+        "control_mode": "perspective_only",
+        "control_rationale": "Abstentions never receive YES/NO controls.",
+        "dispatch_allowed": false,
+        "grade": {
+          "scale": "1-5",
+          "evidence_grounding": 5,
+          "advisor_distinctness": 5,
+          "perspective_value": 5,
+          "non_repetition": 5,
+          "plain_language_clarity": 5,
+          "passed": true
+        }
+      },
+      {
+        "card_id": "a-operations-01",
+        "advisor_id": "operations",
+        "outcome_kind": "actionable_card",
+        "title": "Stage the open body-mechanics slice",
+        "body": "Keep the active phone checkpoint intact while testing the open work in dependency order: arm/body contact, then knee action, then later ankle/foot articulation. Stop after the first stage if it does not improve the blocked partner-chemistry gap.",
+        "evidence_work_ids": [
+          "work_c3668982132b",
+          "work_1983be83f35b",
+          "work_eefdf9a31763"
+        ],
+        "control_mode": "yes_no",
+        "control_rationale": "This is an operational sequence with an explicit stop condition.",
+        "dispatch_allowed": false,
+        "grade": {
+          "scale": "1-5",
+          "evidence_grounding": 5,
+          "advisor_distinctness": 5,
+          "field_actionability": 5,
+          "non_repetition": 5,
+          "plain_language_clarity": 5,
+          "passed": true
+        }
+      },
+      {
+        "card_id": "a-trust-01",
+        "advisor_id": "trust",
+        "outcome_kind": "honest_abstention",
+        "title": "No trust claim from this packet",
+        "body": "The packet contains no privacy, safety, accessibility, security, consent, or data-integrity evidence. The advisor cannot responsibly turn the quality gap into a trust recommendation.",
+        "evidence_work_ids": [],
+        "control_mode": "perspective_only",
+        "control_rationale": "Abstentions never receive YES/NO controls.",
+        "dispatch_allowed": false,
+        "grade": {
+          "scale": "1-5",
+          "evidence_grounding": 5,
+          "advisor_distinctness": 5,
+          "perspective_value": 5,
+          "non_repetition": 5,
+          "plain_language_clarity": 5,
+          "passed": true
+        }
+      },
+      {
+        "card_id": "a-design-01",
+        "advisor_id": "design",
+        "outcome_kind": "actionable_card",
+        "title": "Make following readable without a drawn connection",
+        "body": "For the next design check, require the pair’s arm/body contact and knee action to make the follow response legible on the phone without relying on an abstract connection line. Defer ankle/foot detail until that read works.",
+        "evidence_work_ids": [
+          "work_1983be83f35b",
+          "work_eefdf9a31763"
+        ],
+        "control_mode": "yes_no",
+        "control_rationale": "It defines an observable design criterion and deserves an explicit decision.",
+        "dispatch_allowed": false,
+        "grade": {
+          "scale": "1-5",
+          "evidence_grounding": 5,
+          "advisor_distinctness": 5,
+          "field_actionability": 5,
+          "non_repetition": 5,
+          "plain_language_clarity": 5,
+          "passed": true
+        }
+      }
+    ],
+    "decisionable_count": 6,
+    "usefulness_gate": {
+      "status": "passed",
+      "rule": "Apply three YES and three NO decisions only when six genuinely decisionable cards exist.",
+      "reason": "Exactly six actionable cards passed all grading dimensions; three outcomes are perspective-only or abstentions."
+    },
+    "transaction_local_decisions": [
+      {
+        "card_id": "a-fan-01",
+        "advisor_id": "fan",
+        "decision": "NO",
+        "reason": "This transaction prioritizes mechanics evidence over user interviewing."
+      },
+      {
+        "card_id": "a-critic-01",
+        "advisor_id": "critic",
+        "decision": "YES",
+        "reason": "It narrows the broad blocker to one observable failure instant."
+      },
+      {
+        "card_id": "a-inventor-01",
+        "advisor_id": "inventor",
+        "decision": "YES",
+        "reason": "It separates contact value from later articulation work."
+      },
+      {
+        "card_id": "a-publicist-01",
+        "advisor_id": "publicist",
+        "decision": "NO",
+        "reason": "Positioning is premature while embodiment remains unresolved."
+      },
+      {
+        "card_id": "a-operations-01",
+        "advisor_id": "operations",
+        "decision": "NO",
+        "reason": "The three-stage sequence is broader than the smallest proof."
+      },
+      {
+        "card_id": "a-design-01",
+        "advisor_id": "design",
+        "decision": "YES",
+        "reason": "It tests whether embodiment reads at phone scale."
+      }
+    ]
+  },
+  "cycle_b": {
+    "cycle_id": "B",
+    "prompt_catalog_version": "portfolio-advisor-prompt-catalog-v1",
+    "prompt_catalog_sha256": "88d4ab67ee8e7a0581ad4db2c97e4f8cafdc8f0badf4d02abf7c9cd896047b79",
+    "evidence_packet_sha256": "4c39a7900d783941b90d5203eb10a8ad9a29e77f30ca7dd57a671a7947962402",
+    "refill_policy": "Refill only decided Cycle A slots; retire decided cards before selection.",
+    "refilled_advisor_ids": [
+      "fan",
+      "critic",
+      "inventor",
+      "publicist",
+      "operations",
+      "design"
+    ],
+    "outcomes": [
+      {
+        "card_id": "b-fan-01",
+        "advisor_id": "fan",
+        "outcome_kind": "actionable_card",
+        "title": "Find the moment worth showing twice",
+        "body": "Instead of interviewing a tester, replay the existing phone checkpoint once at normal speed and once paused at the strongest embodied moment. If no frame makes the pair’s appeal obvious without explanation, record that as evidence for the blocked character-and-chemistry gap.",
+        "evidence_work_ids": [
+          "work_c3668982132b",
+          "work_1983be83f35b"
+        ],
+        "control_mode": "yes_no",
+        "control_rationale": "NO replacement: a frame-level replay proof, not a tester interview.",
+        "dispatch_allowed": false,
+        "grade": {
+          "scale": "1-5",
+          "evidence_grounding": 5,
+          "advisor_distinctness": 5,
+          "field_actionability": 5,
+          "non_repetition": 5,
+          "plain_language_clarity": 5,
+          "passed": true
+        }
+      },
+      {
+        "card_id": "b-critic-01",
+        "advisor_id": "critic",
+        "outcome_kind": "actionable_card",
+        "title": "Separate contact failure from timing failure",
+        "body": "The accepted handoff-break check is still pending. Without replacing it, label the observed break as either missing body contact or a late or unclear partner response; do not open a second correction until that distinction is recorded.",
+        "evidence_work_ids": [
+          "work_1983be83f35b",
+          "work_eefdf9a31763"
+        ],
+        "control_mode": "yes_no",
+        "control_rationale": "YES replacement acknowledges the pending item and adds a diagnostic distinction.",
+        "dispatch_allowed": false,
+        "grade": {
+          "scale": "1-5",
+          "evidence_grounding": 5,
+          "advisor_distinctness": 5,
+          "field_actionability": 5,
+          "non_repetition": 5,
+          "plain_language_clarity": 5,
+          "passed": true
+        }
+      },
+      {
+        "card_id": "b-inventor-01",
+        "advisor_id": "inventor",
+        "outcome_kind": "actionable_card",
+        "title": "Compare one contact cue with and without knee response",
+        "body": "The accepted contact-to-knee prototype remains pending. Preserve it, and use its two smallest states—contact alone versus contact plus one knee response—as the comparison; do not add ankle or foot work to either state.",
+        "evidence_work_ids": [
+          "work_1983be83f35b",
+          "work_eefdf9a31763"
+        ],
+        "control_mode": "yes_no",
+        "control_rationale": "YES replacement adds a comparison method inside the pending experiment.",
+        "dispatch_allowed": false,
+        "grade": {
+          "scale": "1-5",
+          "evidence_grounding": 5,
+          "advisor_distinctness": 5,
+          "field_actionability": 5,
+          "non_repetition": 5,
+          "plain_language_clarity": 5,
+          "passed": true
+        }
+      },
+      {
+        "card_id": "b-publicist-01",
+        "advisor_id": "publicist",
+        "outcome_kind": "actionable_card",
+        "title": "Caption evidence, not ambition",
+        "body": "Instead of rewriting the project pitch, attach one plain caption to the existing phone checkpoint: what is visibly running, what remains below the 95% bar, and that fuller body contact is the open next direction.",
+        "evidence_work_ids": [
+          "work_c3668982132b",
+          "work_1983be83f35b",
+          "work_eefdf9a31763"
+        ],
+        "control_mode": "yes_no",
+        "control_rationale": "NO replacement changes from positioning to evidence-caption discipline.",
+        "dispatch_allowed": false,
+        "grade": {
+          "scale": "1-5",
+          "evidence_grounding": 5,
+          "advisor_distinctness": 5,
+          "field_actionability": 5,
+          "non_repetition": 5,
+          "plain_language_clarity": 5,
+          "passed": true
+        }
+      },
+      {
+        "card_id": "b-operations-01",
+        "advisor_id": "operations",
+        "outcome_kind": "actionable_card",
+        "title": "Protect one comparison seam",
+        "body": "Instead of scheduling all three body-mechanics stages, preserve the current phone checkpoint as the baseline and compare it with only the first arm/body-contact change. Stop before knee or ankle work if the comparison does not improve the blocked partner-chemistry read.",
+        "evidence_work_ids": [
+          "work_c3668982132b",
+          "work_1983be83f35b",
+          "work_eefdf9a31763"
+        ],
+        "control_mode": "yes_no",
+        "control_rationale": "NO replacement changes to one baseline comparison and stop seam.",
+        "dispatch_allowed": false,
+        "grade": {
+          "scale": "1-5",
+          "evidence_grounding": 5,
+          "advisor_distinctness": 5,
+          "field_actionability": 5,
+          "non_repetition": 5,
+          "plain_language_clarity": 5,
+          "passed": true
+        }
+      },
+      {
+        "card_id": "b-design-01",
+        "advisor_id": "design",
+        "outcome_kind": "actionable_card",
+        "title": "Define the next phone-scale read after contact",
+        "body": "The accepted no-abstract-line contact criterion remains pending. Keep it unchanged; once it passes, check whether one knee bend or straighten is still readable at phone scale before considering later ankle or foot detail.",
+        "evidence_work_ids": [
+          "work_1983be83f35b",
+          "work_eefdf9a31763"
+        ],
+        "control_mode": "yes_no",
+        "control_rationale": "YES replacement defers a non-conflicting follow-on criterion until the pending item passes.",
+        "dispatch_allowed": false,
+        "grade": {
+          "scale": "1-5",
+          "evidence_grounding": 5,
+          "advisor_distinctness": 5,
+          "field_actionability": 5,
+          "non_repetition": 5,
+          "plain_language_clarity": 5,
+          "passed": true
+        }
+      }
+    ],
+    "unseen_cards": [
+      {
+        "advisor_id": "futurist",
+        "card_id": "a-futurist-01",
+        "stability": "byte-identical reference retained"
+      },
+      {
+        "advisor_id": "money",
+        "card_id": "a-money-01",
+        "stability": "byte-identical reference retained"
+      },
+      {
+        "advisor_id": "trust",
+        "card_id": "a-trust-01",
+        "stability": "byte-identical reference retained"
+      }
+    ]
+  },
+  "freshness_proofs": {
+    "catalog_identical_across_cycles": {
+      "passed": true,
+      "cycle_a_sha256": "88d4ab67ee8e7a0581ad4db2c97e4f8cafdc8f0badf4d02abf7c9cd896047b79",
+      "cycle_b_sha256": "88d4ab67ee8e7a0581ad4db2c97e4f8cafdc8f0badf4d02abf7c9cd896047b79",
+      "exact_text_source": "prompt_catalog.text"
+    },
+    "evidence_packet_reuse": {
+      "passed": true,
+      "cycle_a_sha256": "4c39a7900d783941b90d5203eb10a8ad9a29e77f30ca7dd57a671a7947962402",
+      "cycle_b_sha256": "4c39a7900d783941b90d5203eb10a8ad9a29e77f30ca7dd57a671a7947962402",
+      "reason": "Repository snapshot and packet sources were unchanged."
+    },
+    "retired_card_exclusion": {
+      "passed": true,
+      "retired_card_ids": [
+        "a-fan-01",
+        "a-critic-01",
+        "a-inventor-01",
+        "a-publicist-01",
+        "a-operations-01",
+        "a-design-01"
+      ],
+      "cycle_b_card_ids": [
+        "b-fan-01",
+        "b-critic-01",
+        "b-inventor-01",
+        "b-publicist-01",
+        "b-operations-01",
+        "b-design-01"
+      ],
+      "intersection": []
+    },
+    "no_replacements_materially_different": {
+      "passed": true,
+      "items": [
+        {
+          "advisor_id": "fan",
+          "from": "tester interview",
+          "to": "frame-level replay proof",
+          "difference": "Different actor and evidence method."
+        },
+        {
+          "advisor_id": "publicist",
+          "from": "positioning sentence",
+          "to": "evidence caption",
+          "difference": "Pitch framing becomes provenance-aware labeling."
+        },
+        {
+          "advisor_id": "operations",
+          "from": "three-stage sequence",
+          "to": "single baseline comparison",
+          "difference": "Drops the plan and protects one stop seam."
+        }
+      ]
+    },
+    "yes_replacements_pending_aware": {
+      "passed": true,
+      "items": [
+        {
+          "advisor_id": "critic",
+          "pending_card_id": "a-critic-01",
+          "acknowledgement": "The accepted handoff-break check is still pending.",
+          "non_conflict": "Classifies its observed break."
+        },
+        {
+          "advisor_id": "inventor",
+          "pending_card_id": "a-inventor-01",
+          "acknowledgement": "The accepted contact-to-knee prototype remains pending.",
+          "non_conflict": "Defines comparison states inside it."
+        },
+        {
+          "advisor_id": "design",
+          "pending_card_id": "a-design-01",
+          "acknowledgement": "The accepted no-abstract-line contact criterion remains pending.",
+          "non_conflict": "Defers a later knee criterion until it passes."
+        }
+      ]
+    },
+    "unseen_card_stability": {
+      "passed": true,
+      "stable_card_ids": [
+        "a-futurist-01",
+        "a-money-01",
+        "a-trust-01"
+      ],
+      "rule": "No Cycle B replacement exists for an undecided slot."
+    },
+    "semantic_near_duplicate_gate": {
+      "passed": true,
+      "method": "Reject when advisor intent, evidence target, operator action, and success test remain equivalent after normalization.",
+      "rejected_candidates": [
+        {
+          "candidate_id": "dup-critic-01",
+          "near_duplicate_of": "a-critic-01",
+          "candidate": "Find the first point where the couple no longer feels responsive and fix that point next.",
+          "reason": "Same failure instant and correction intent."
+        },
+        {
+          "candidate_id": "dup-inventor-01",
+          "near_duplicate_of": "a-inventor-01",
+          "candidate": "Try one body-contact signal that causes a visible knee bend before adding foot detail.",
+          "reason": "Same contact-to-knee experiment and deferral."
+        },
+        {
+          "candidate_id": "dup-design-01",
+          "near_duplicate_of": "a-design-01",
+          "candidate": "Make partner response readable on the phone through contact and knees, not connection graphics.",
+          "reason": "Same phone-scale embodied criterion."
+        }
+      ]
+    }
+  },
+  "cache_and_usage": {
+    "regression_cache_keys": {
+      "prompt_catalog": "advisor-prompt-catalog:portfolio-advisor-prompt-catalog-v1:88d4ab67ee8e7a0581ad4db2c97e4f8cafdc8f0badf4d02abf7c9cd896047b79",
+      "evidence_packet": "advisor-evidence:lead-and-follow:v1:4c39a7900d783941b90d5203eb10a8ad9a29e77f30ca7dd57a671a7947962402",
+      "cycle_a": "advisor-refill:lead-and-follow:A:88d4ab67ee8e7a0581ad4db2c97e4f8cafdc8f0badf4d02abf7c9cd896047b79:4c39a7900d783941b90d5203eb10a8ad9a29e77f30ca7dd57a671a7947962402",
+      "cycle_b": "advisor-refill:lead-and-follow:B:88d4ab67ee8e7a0581ad4db2c97e4f8cafdc8f0badf4d02abf7c9cd896047b79:4c39a7900d783941b90d5203eb10a8ad9a29e77f30ca7dd57a671a7947962402"
+    },
+    "provider_prompt_cache_telemetry": {
+      "status": "not_exposed",
+      "cache_hit": null,
+      "statement": "No provider prompt-cache hit is claimed."
+    },
+    "token_telemetry": {
+      "status": "not_exposed",
+      "input_tokens": null,
+      "output_tokens": null,
+      "cached_input_tokens": null
+    },
+    "paid_calls": 0
+  },
+  "dispatch_receipt": {
+    "cards_dispatched": 0,
+    "dispatch_attempts": 0,
+    "state_mutations": 0,
+    "statement": "Simulation only; no card was dispatched."
+  },
+  "field_read_30_seconds": "Lead and Follow still has one real playable anchor: a phone-served prologue and first dance checkpoint. The strongest next evidence is whether actual body contact and one knee response make the pair read as partners at phone scale. Three ideas were accepted locally: isolate the exact chemistry break, test one contact-to-knee prototype, and require the response to read without abstract connection lines. Three were declined and refilled from different angles. Finance and trust abstained because the packet does not support those claims. Nothing was dispatched.",
+  "scope": {
+    "allowed_repository_delta": [
+      "tests/fixtures/portfolio-advisor-lead-follow-refill-v1.json"
+    ],
+    "repo_fixture_expected_sha256": "87c2dec10985b3cc2ad7b45eec5a9be2d2a7690665462f462dfd684bd4e3ebf3",
+    "production_source_modified": false,
+    "lead_and_follow_modified": false,
+    "bridge_field_console_modified": false
+  }
+}

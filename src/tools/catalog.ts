@@ -32,6 +32,7 @@ import {
   projectBriefHandler,
   projectMemoryHandler,
   portfolioReportHandler,
+  portfolioAdvisorGenerateHandler,
   portfolioActionCommandHandler,
   readManyHandler,
   searchHandler,
@@ -125,6 +126,15 @@ export const fullToolCatalog: ToolDefinition[] = [
     outputSchema: toolContracts.repo_portfolio_report.output,
     annotations: readOnlyAnnotations,
     handler: portfolioReportHandler
+  },
+  {
+    name: "repo_portfolio_advisor_generate",
+    title: "Generate replacement advisor suggestion",
+    description: descriptions.repo_portfolio_advisor_generate,
+    inputSchema: toolContracts.repo_portfolio_advisor_generate.input,
+    outputSchema: toolContracts.repo_portfolio_advisor_generate.output,
+    annotations: readOnlyAnnotations,
+    handler: portfolioAdvisorGenerateHandler
   },
   {
     name: "repo_portfolio_action_command",

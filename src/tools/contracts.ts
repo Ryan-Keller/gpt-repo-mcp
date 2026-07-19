@@ -23,6 +23,7 @@ import { RepoProjectContextInputSchema, RepoProjectContextResultSchema } from ".
 import { ProjectBriefInputSchema, ProjectBriefResultSchema } from "../contracts/project.contract.js";
 import { ProjectMemoryDashboardResultSchema, ProjectMemoryInputSchema } from "../contracts/project-memory.contract.js";
 import { PortfolioReportInputSchema, PortfolioReportResultSchema } from "../contracts/portfolio-report.contract.js";
+import { PortfolioAdvisorGenerateInputSchema, PortfolioAdvisorGeneratedCardSchema } from "../contracts/portfolio-advisor.contract.js";
 import { PortfolioActionCommandInputSchema, PortfolioActionCommandResultSchema } from "../contracts/portfolio-action.contract.js";
 import { RepoReadInputSchema, RepoReadResultSchema } from "../contracts/read-hub.contract.js";
 import { RepoListInputSchema, RepoListReferenceResultSchema, RepoTreeInputSchema } from "../contracts/repo.contract.js";
@@ -65,6 +66,7 @@ export type ToolName =
   | "repo_project_brief"
   | "repo_project_memory"
   | "repo_portfolio_report"
+  | "repo_portfolio_advisor_generate"
   | "repo_portfolio_action_command"
   | "repo_task_inventory"
   | "repo_decision_memory"
@@ -216,6 +218,10 @@ export const toolContracts = {
   repo_portfolio_report: {
     input: PortfolioReportInputSchema,
     output: PortfolioReportResultSchema
+  },
+  repo_portfolio_advisor_generate: {
+    input: PortfolioAdvisorGenerateInputSchema,
+    output: PortfolioAdvisorGeneratedCardSchema
   },
   repo_portfolio_action_command: {
     input: PortfolioActionCommandInputSchema,
