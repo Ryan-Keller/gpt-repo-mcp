@@ -37,4 +37,28 @@ describe("GoalRecordService", () => {
     expect(goal).toMatchObject({ state: "working", hermes_transaction: "offthread-0123456789abcdef", hermes_board: "offthread-field-console" });
     expect((await service.findIdempotent(command.idempotency_key))?.hermes_transaction).toBe("offthread-0123456789abcdef");
   });
+
+  it("records Field Console review decisions as operator events", async () => {
+    const root = await mkdtemp(join(tmpdir(), "goal-record-"));
+    const service = new GoalRecordService(root, () => new Date("2026-07-16T20:00:00.000Z"));
+    const first = await service.upsert(command);
+    const reviewed = await service.recordReviewDecision(command, {
+      decision: "no",
+      instruction: "This review packet is too vague. Replace it with a smaller field-actionable slice.",
+      requested_by: "field_console"
+    });
+
+    expect(reviewed.goal_id).toBe(first.goal_id);
+    expect(reviewed).toMatchObject({
+      state: "reviewing",
+      provisional_completion: true,
+      retry_count: 1,
+      intervention: "This review packet is too vague. Replace it with a smaller field-actionable slice."
+    });
+    expect(reviewed.events.at(-1)).toMatchObject({
+      source: "operator",
+      event_type: "field_review_no"
+    });
+    expect(await service.read()).toHaveLength(1);
+  });
 });

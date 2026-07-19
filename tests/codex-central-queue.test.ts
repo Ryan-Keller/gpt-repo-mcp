@@ -5,12 +5,96 @@ import { dirname, join } from "node:path";
 import { promisify } from "node:util";
 import { describe, expect, test } from "vitest";
 import { RootRegistry } from "../src/services/root-registry.js";
-import { agentRunnerStatusHandler, codexReviewHandler, writeCodexTaskHandler } from "../src/tools/handlers.js";
+import { agentRunnerStatusHandler, codexReviewHandler, portfolioActionCommandHandler, writeCodexTaskHandler } from "../src/tools/handlers.js";
 import { createRepoFixture } from "./fixtures/repo-fixture.js";
 
 const execFileAsync = promisify(execFile);
 
 describe("central Codex queue routing", () => {
+  test("Field Console direct review decisions record operator intent and queue Codex follow-up", async () => {
+    const bridge = await createRepoFixture();
+    const target = await createRepoFixture();
+    const context = {
+      registry: await RootRegistry.fromConfig({
+        repos: [
+          {
+            repo_id: "shared-agent-bridge",
+            display_name: "Shared Agent Bridge",
+            root: bridge.root,
+            writes: { enabled: true, allowed_globs: [".chatgpt/**"] }
+          },
+          {
+            repo_id: "bridge-field-console",
+            display_name: "Bridge Field Console",
+            root: target.root,
+            writes: { enabled: true, allowed_globs: [".chatgpt/**"] },
+            operations: { enabled: true }
+          }
+        ],
+        limits: {}
+      })
+    };
+
+    const result = await portfolioActionCommandHandler({
+      repo_id: "shared-agent-bridge",
+      operation: "update_goal",
+      actions: [],
+      reason: "Field Console NO review decision.",
+      goal: {
+        goal_id: "goal-field-review-test",
+        idempotency_key: "field-console:goal-field-review-test",
+        project_id: "bridge-field-console",
+        project_name: "Bridge Field Console",
+        repository_id: "bridge-field-console",
+        action_id: "field-review-test",
+        objective: "Resolve an under-threshold direct Codex review packet.",
+        source_kind: "field_console",
+        source_reference: "field-console-test",
+        plan: ["Make the packet actionable."],
+        dependencies: [],
+        parallel_wave: 0,
+        serial_after: [],
+        executor: "codex",
+        routing_reason: "Direct Codex work needs a Field Console review route.",
+        execution_scope: ["App.tsx", "src/**"],
+        privacy_scope: "private_tailnet",
+        proof_boundary: "Typecheck and provide a clear RESULT.md.",
+        codex_arbiter: "Codex",
+        satisfaction_threshold: 95,
+        satisfaction_score: 76,
+        iteration: 2,
+        unmet_dimensions: ["The review packet does not say what to do next."],
+        evidence: [],
+        artifacts: [],
+        changed_files: []
+      },
+      goal_review: {
+        decision: "no",
+        instruction: "Replace this with one smaller field-actionable next move.",
+        requested_by: "field_console",
+        create_codex_followup: true
+      }
+    }, context);
+    const data = result.structuredContent as {
+      goal_records?: Array<{ events: Array<{ source: string; event_type: string }>; intervention: string }>;
+      codex_followup_receipts?: Array<{ queued: boolean; run_id: string; prompt_path: string; queue_repo_id: string; target_repo_id: string }>;
+      next_action: string;
+    };
+
+    expect(data.goal_records?.[0]?.events.at(-1)).toMatchObject({ source: "operator", event_type: "field_review_no" });
+    expect(data.goal_records?.[0]?.intervention).toBe("Replace this with one smaller field-actionable next move.");
+    expect(data.codex_followup_receipts?.[0]).toMatchObject({
+      queued: true,
+      queue_repo_id: "shared-agent-bridge",
+      target_repo_id: "bridge-field-console"
+    });
+    const prompt = await readFile(join(bridge.root, data.codex_followup_receipts![0]!.prompt_path), "utf8");
+    expect(prompt).toContain("Field Console review decision: NO.");
+    expect(prompt).toContain("Target repo_id: bridge-field-console");
+    await expect(readFile(join(target.root, data.codex_followup_receipts![0]!.prompt_path), "utf8")).rejects.toMatchObject({ code: "ENOENT" });
+    expect(data.next_action).toContain("codex_followup_queued");
+  });
+
   test("project Codex tasks are queued in shared-agent-bridge and reviewed against the target repo", async () => {
     const bridge = await createRepoFixture();
     const target = await createMinimalGitFixture();

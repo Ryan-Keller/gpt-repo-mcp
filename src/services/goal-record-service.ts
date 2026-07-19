@@ -2,7 +2,7 @@ import { createHash, randomUUID } from "node:crypto";
 import { mkdir, readFile, rename, writeFile } from "node:fs/promises";
 import { dirname, join } from "node:path";
 import type { GoalCommand, GoalRecord } from "../contracts/goal-record.contract.js";
-import type { PortfolioExecutionReceipt, PortfolioExecutionRequest } from "../contracts/portfolio-action.contract.js";
+import type { GoalReviewDecision, PortfolioExecutionReceipt, PortfolioExecutionRequest } from "../contracts/portfolio-action.contract.js";
 import type { HermesWatchResult } from "../contracts/hermes-supervision.contract.js";
 
 type Store = { version: 1; updated_at: string; goals: GoalRecord[] };
@@ -68,6 +68,41 @@ export class GoalRecordService {
     });
   }
 
+  async recordReviewDecision(command: GoalCommand, review: GoalReviewDecision): Promise<GoalRecord> {
+    return this.lock(async () => {
+      const goals = await this.read();
+      const now = this.now().toISOString();
+      const id = command.goal_id || this.goalId(command.idempotency_key);
+      const previous = goals.find((goal) => goal.goal_id === id || goal.idempotency_key === command.idempotency_key);
+      const nextState: GoalRecord["state"] = "reviewing";
+      const summary = review.decision === "yes"
+        ? "Field Console YES: operator approved continuing this review item."
+        : "Field Console NO: operator rejected this review item and requested a smaller replacement.";
+      const record: GoalRecord = normalize({
+        ...(previous ?? {}), version: 1, goal_id: previous?.goal_id ?? id, idempotency_key: command.idempotency_key,
+        project_id: command.project_id, project_name: command.project_name ?? previous?.project_name ?? command.project_id,
+        repository_id: command.repository_id, action_id: command.action_id ?? previous?.action_id ?? "", objective: command.objective,
+        source_kind: command.source_kind, source_reference: command.source_reference ?? previous?.source_reference ?? "",
+        plan: command.plan ?? previous?.plan ?? [], dependencies: command.dependencies ?? previous?.dependencies ?? [],
+        parallel_wave: command.parallel_wave ?? previous?.parallel_wave ?? 0, serial_after: command.serial_after ?? previous?.serial_after ?? [],
+        executor: command.executor, routing_reason: command.routing_reason, execution_scope: command.execution_scope ?? previous?.execution_scope ?? [],
+        privacy_scope: command.privacy_scope, proof_boundary: command.proof_boundary,
+        hermes_transaction: previous?.hermes_transaction ?? "", hermes_board: previous?.hermes_board ?? "", hermes_task: previous?.hermes_task ?? "", hermes_cursor: previous?.hermes_cursor ?? "",
+        codex_arbiter: command.codex_arbiter ?? previous?.codex_arbiter ?? "Codex", satisfaction_threshold: command.satisfaction_threshold,
+        satisfaction_score: command.satisfaction_score ?? previous?.satisfaction_score ?? 0, iteration: command.iteration ?? previous?.iteration ?? 0,
+        unmet_dimensions: command.unmet_dimensions ?? previous?.unmet_dimensions ?? [], evidence: command.evidence ?? previous?.evidence ?? [],
+        artifacts: command.artifacts ?? previous?.artifacts ?? [], changed_files: command.changed_files ?? previous?.changed_files ?? [],
+        state: nextState, provisional_completion: true, final_acceptance: false,
+        cancellation_reason: command.cancellation_reason ?? previous?.cancellation_reason ?? "",
+        intervention: review.instruction, retry_count: (previous?.retry_count ?? 0) + 1,
+        created_at: previous?.created_at ?? now, updated_at: now, heartbeat_at: command.heartbeat_at ?? now, terminal_at: "",
+        events: [...(previous?.events ?? []), event(now, "operator", `field_review_${review.decision}`, summary)].slice(-250)
+      });
+      const next = goals.filter((goal) => goal.goal_id !== record.goal_id && goal.idempotency_key !== record.idempotency_key);
+      next.push(record); await this.write(next); return record;
+    });
+  }
+
   async reconcileHermes(watch: HermesWatchResult): Promise<GoalRecord | undefined> {
     if (!watch.hermes_transaction) return undefined;
     return this.lock(async () => {
@@ -127,6 +162,6 @@ function normalize(value: Partial<GoalRecord>): GoalRecord {
 }
 function terminal(state: GoalRecord["state"]) { return ["accepted", "cancelled", "archived", "failed"].includes(state); }
 function event(at: string, source: string, type: string, summary: string): GoalRecord["events"][number] {
-  const eventSource: GoalRecord["events"][number]["source"] = source === "hermes" || source === "local" || source === "codex" ? source : "bridge";
+  const eventSource: GoalRecord["events"][number]["source"] = source === "hermes" || source === "local" || source === "codex" || source === "operator" ? source : "bridge";
   return { event_id: randomUUID(), cursor: `${at}:${randomUUID()}`, observed_at: at, event_type: type, source: eventSource, summary };
 }

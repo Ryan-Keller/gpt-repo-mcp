@@ -60,7 +60,8 @@ import type { TreeOptions } from "../services/repo-tree-service.js";
 import type { ProjectBriefInput } from "../contracts/project.contract.js";
 import type { ProjectMemoryInput } from "../contracts/project-memory.contract.js";
 import type { PortfolioReportInput } from "../contracts/portfolio-report.contract.js";
-import type { PortfolioActionCommandInput } from "../contracts/portfolio-action.contract.js";
+import type { CodexFollowupReceipt, GoalReviewDecision, PortfolioActionCommandInput } from "../contracts/portfolio-action.contract.js";
+import type { GoalRecord } from "../contracts/goal-record.contract.js";
 import type { TaskInventoryInput } from "../contracts/task.contract.js";
 import type { DecisionLogInput } from "../contracts/decision.contract.js";
 import type { ChangePlanInput } from "../contracts/change-plan.contract.js";
@@ -745,16 +746,37 @@ export const portfolioActionCommandHandler: ToolHandler = async (input, context)
     return createSuccessEnvelope(result, `Decision bundle ${bundle.bundle_id} is ${bundle.state}.`);
   }
   if (args.operation === "register_codex" || args.operation === "update_goal") {
-    const goal = await goalService.upsert(args.goal!);
+    const goal = args.goal_review
+      ? await goalService.recordReviewDecision(args.goal!, args.goal_review)
+      : await goalService.upsert(args.goal!);
+    const warnings: string[] = [];
+    const codexFollowups: CodexFollowupReceipt[] = [];
+    if (args.goal_review?.create_codex_followup) {
+      if (goal.executor !== "codex") {
+        warnings.push("GOAL_REVIEW_CODEX_FOLLOWUP_SKIPPED_NON_CODEX_EXECUTOR");
+      } else {
+        const followup = await queueGoalReviewCodexFollowup(context, goal, args.goal_review, args.reason);
+        codexFollowups.push(followup);
+        warnings.push(...followup.warnings);
+      }
+    }
     const observedAt = new Date().toISOString();
+    const nextAction = codexFollowups.length > 0
+      ? "review_decision_recorded_and_codex_followup_queued; inspect_repo_runner_status_on_shared_agent_bridge"
+      : args.goal_review
+        ? "review_decision_recorded; refresh_repo_portfolio_report_to_verify_goal_timeline"
+        : "refresh_repo_portfolio_report_to_verify_goal_timeline";
     const result = {
       ok: true, repo_id: args.repo_id, operation: args.operation, changed_count: 1, unchanged_count: 0,
       entries: [], recent_activity: [], observed_at: observedAt,
       ledger_path: ".chatgpt/portfolio-action-ledger.json", storage_path: ".chatgpt/goal-records-v1.json",
-      goal_records: [goal], warnings: [], next_action: "refresh_repo_portfolio_report_to_verify_goal_timeline"
+      goal_records: [goal], codex_followup_receipts: codexFollowups, warnings, next_action: nextAction
     };
-    audit({ tool: "repo_portfolio_action_command", repo_id: args.repo_id, counts: { changed: 1, unchanged: 0 }, warnings: [] });
-    return createSuccessEnvelope(result, `${goal.executor} goal ${goal.goal_id} registered as ${goal.state}.`);
+    audit({ tool: "repo_portfolio_action_command", repo_id: args.repo_id, counts: { changed: 1, unchanged: 0 }, warnings });
+    const summary = args.goal_review
+      ? `${goal.executor} goal ${goal.goal_id} recorded Field Console ${args.goal_review.decision.toUpperCase()}${codexFollowups.length > 0 ? ` and queued ${codexFollowups[0]!.run_id}` : ""}.`
+      : `${goal.executor} goal ${goal.goal_id} registered as ${goal.state}.`;
+    return createSuccessEnvelope(result, summary, { warnings });
   }
   if (args.operation === "sync_console") {
     const consoleState = await new PortfolioConsoleStateService(repo.root).update(args.console_patch ?? {});
@@ -1235,6 +1257,116 @@ function codexQueueForTarget(context: RuntimeContext, targetRepoId: string): {
       ]
     };
   }
+}
+
+async function queueGoalReviewCodexFollowup(
+  context: RuntimeContext,
+  goal: GoalRecord,
+  review: GoalReviewDecision,
+  reason?: string
+): Promise<CodexFollowupReceipt> {
+  const { queueRepo, warnings: queueWarnings } = codexQueueForTarget(context, goal.repository_id);
+  const service = new CodexTaskService(queueRepo.root, new PathSandbox(queueRepo.root), new WritePolicy(queueRepo.writes));
+  const headShaBefore = await readHeadSha(queueRepo.root);
+  const decisionLabel = review.decision === "yes" ? "continue" : "replace";
+  const title = `${goal.project_name || goal.project_id} field review ${decisionLabel}`;
+  const objective = review.decision === "yes"
+    ? [
+        `Continue the direct Codex goal from this Field Console approval: ${goal.objective}`,
+        "",
+        "Operator instruction:",
+        review.instruction,
+        "",
+        `Move the work toward the ${goal.satisfaction_threshold}% acceptance gate. Keep the slice bounded to the allowed paths and write RESULT.md with exact proof.`
+      ].join("\n")
+    : [
+        `Do not continue the rejected recommendation as-is for this direct Codex goal: ${goal.objective}`,
+        "",
+        "Operator instruction:",
+        review.instruction,
+        "",
+        "Produce a smaller or more actionable replacement work slice, then implement only that bounded replacement if it is safe within the allowed paths. Write RESULT.md with what changed, what was deferred, and exact proof."
+      ].join("\n");
+  const contextSummary = [
+    `Field Console review decision: ${review.decision.toUpperCase()}.`,
+    `Goal id: ${goal.goal_id}.`,
+    `Current state: ${goal.state}; current score: ${goal.satisfaction_score}/${goal.satisfaction_threshold}.`,
+    goal.unmet_dimensions.length > 0 ? `Unmet dimensions: ${goal.unmet_dimensions.join("; ")}` : "",
+    goal.intervention ? `Previous intervention: ${goal.intervention}` : ""
+  ].filter(Boolean).join("\n");
+  const inspectFirst = uniqueStrings([
+    "CURRENT_STATE.md",
+    "docs/ONBOARDING.md",
+    ...goal.evidence,
+    ...goal.artifacts,
+    ...goal.changed_files,
+    ...goal.execution_scope
+  ]).slice(0, 40);
+  const allowedPaths = uniqueStrings(goal.execution_scope.length > 0 ? goal.execution_scope : goal.changed_files).slice(0, 40);
+  const result = withCodexQueueMetadata(
+    await service.write({
+      repo_id: goal.repository_id,
+      title,
+      objective,
+      context_summary: contextSummary,
+      inspect_first: inspectFirst,
+      allowed_paths: allowedPaths,
+      forbidden_paths: [],
+      acceptance_criteria: [
+        `Respect the Field Console ${review.decision.toUpperCase()} decision.`,
+        goal.proof_boundary,
+        `Do not claim completion unless the result can satisfy ${goal.satisfaction_threshold}% acceptance or clearly reports the remaining blocker.`
+      ],
+      verification_commands: [],
+      goal_lane: {
+        enabled: true,
+        goal_id: goal.goal_id,
+        goal_title: goal.project_name || goal.project_id,
+        mode: "goal",
+        origin: "repo_write_codex_task",
+        status_policy: "compact"
+      },
+      reason: reason ?? `Field Console ${review.decision.toUpperCase()} review follow-up for ${goal.goal_id}.`
+    }),
+    queueRepo,
+    queueWarnings
+  );
+  if (!result.dry_run && result.written_paths.length > 0) {
+    const headShaAfter = await readHeadSha(queueRepo.root);
+    const receipt = await new OperationReceiptService(queueRepo.root).writeLastWrite({
+      tool: "repo_write_codex_task",
+      repo_id: queueRepo.repo_id,
+      ...(headShaBefore ? { head_sha_before: headShaBefore } : {}),
+      ...(headShaAfter ? { head_sha_after: headShaAfter } : {}),
+      touched_paths: result.written_paths,
+      changed_paths: result.written_paths,
+      created_paths: result.written_paths,
+      modified_paths: [],
+      counts: {
+        requested: result.written_paths.length,
+        changed: result.written_paths.length,
+        created: result.written_paths.length,
+        unchanged: 0
+      },
+      summary: `Queued Field Console ${review.decision.toUpperCase()} follow-up ${result.run_id} for target repo ${goal.repository_id}.`
+    });
+    result.warnings.push(...receipt.warnings);
+  }
+  return {
+    queued: result.queued_status === "queued",
+    run_id: result.run_id,
+    queue_repo_id: result.queue_repo_id,
+    target_repo_id: goal.repository_id,
+    prompt_path: result.prompt_path,
+    result_path: result.result_path,
+    manifest_path: result.manifest_path,
+    written_paths: result.written_paths,
+    warnings: result.warnings
+  };
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return [...new Set(values.map((value) => value.trim()).filter(Boolean))];
 }
 
 async function effectiveRunnerStatusForRepo(

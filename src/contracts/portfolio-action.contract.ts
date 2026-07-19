@@ -39,6 +39,31 @@ export const PortfolioExecutionRequestSchema = z.object({
   privacy_scope: z.enum(["private_local", "private_tailnet"]).optional()
 });
 
+export const GoalReviewDecisionSchema = z.object({
+  decision: z.enum(["yes", "no"])
+    .describe("Operator field decision for a direct goal review packet."),
+  instruction: z.string().min(3).max(4000)
+    .describe("Plain-language instruction captured from the field decision. YES continues/resumes; NO requests a smaller replacement."),
+  requested_by: z.enum(["field_console", "chatgpt", "codex", "bridge"]).optional()
+    .describe("Surface that captured the operator decision."),
+  create_codex_followup: z.boolean().optional()
+    .describe("When true for a direct Codex goal, queue a bounded central Codex follow-up packet from this review decision."),
+  idempotency_key: z.string().min(3).max(200).optional()
+    .describe("Stable key for the follow-up action/packet so retries do not create duplicate intent.")
+});
+
+export const CodexFollowupReceiptSchema = z.object({
+  queued: z.boolean(),
+  run_id: z.string(),
+  queue_repo_id: z.string(),
+  target_repo_id: z.string(),
+  prompt_path: z.string(),
+  result_path: z.string(),
+  manifest_path: z.string(),
+  written_paths: z.array(z.string()),
+  warnings: z.array(z.string())
+});
+
 export const PortfolioActionCommandInputSchema = RepoInputSchema.extend({
   operation: z.enum(["route", "working", "complete", "stop", "snooze", "archive", "restore", "sync_console", "register_codex", "update_goal", "capture_idea", "update_idea", "route_bundle", "cancel_bundle"])
     .describe("Batch lifecycle or console-state operation. Stop prevents further routing; it does not claim to terminate a Hermes process."),
@@ -51,12 +76,15 @@ export const PortfolioActionCommandInputSchema = RepoInputSchema.extend({
   execution: PortfolioExecutionRequestSchema.optional()
     .describe("Optional guarded off-thread launch. Valid only for one route action; omitted lifecycle calls remain ledger-only."),
   goal: GoalCommandSchema.optional().describe("Durable direct-Codex registration or goal heartbeat/update."),
+  goal_review: GoalReviewDecisionSchema.optional().describe("Optional field review decision for an update_goal command."),
   idea: IdeaCommandSchema.optional().describe("Capture or lifecycle update using the existing local Idea Inbox."),
   bundle: DecisionBundleCommandSchema.optional().describe("Durable server-side decision bundle for several operator choices.")
 }).superRefine((value, context) => {
   if (value.operation === "sync_console" && !value.console_patch) context.addIssue({ code: "custom", path: ["console_patch"], message: "console_patch is required for sync_console" });
   if (!["sync_console", "register_codex", "update_goal", "capture_idea", "update_idea", "cancel_bundle"].includes(value.operation) && value.actions.length === 0) context.addIssue({ code: "custom", path: ["actions"], message: "at least one action is required" });
   if (["register_codex", "update_goal"].includes(value.operation) && !value.goal) context.addIssue({ code: "custom", path: ["goal"], message: "goal is required" });
+  if (value.goal_review && value.operation !== "update_goal") context.addIssue({ code: "custom", path: ["goal_review"], message: "goal_review is valid only for update_goal" });
+  if (value.goal_review && !value.goal) context.addIssue({ code: "custom", path: ["goal"], message: "goal is required when goal_review is provided" });
   if (["capture_idea", "update_idea"].includes(value.operation) && !value.idea) context.addIssue({ code: "custom", path: ["idea"], message: "idea is required" });
   if (["route_bundle", "cancel_bundle"].includes(value.operation) && !value.bundle) context.addIssue({ code: "custom", path: ["bundle"], message: "bundle is required" });
   if (value.execution && value.operation !== "route") context.addIssue({ code: "custom", path: ["execution"], message: "execution is valid only for route" });
@@ -103,6 +131,7 @@ export const PortfolioActionCommandResultSchema = z.object({
   ledger_path: z.string(), storage_path: z.string(), console_state: PortfolioConsoleStateSchema.optional(),
   execution_receipts: z.array(PortfolioExecutionReceiptSchema).optional(),
   goal_records: z.array(GoalRecordSchema).optional(),
+  codex_followup_receipts: z.array(CodexFollowupReceiptSchema).optional(),
   idea_records: z.array(IdeaRecordSchema).optional(), decision_bundles: z.array(DecisionBundleRecordSchema).optional(),
   warnings: z.array(z.string()), next_action: z.string()
 });
@@ -114,3 +143,5 @@ export type PortfolioActionActivity = z.infer<typeof PortfolioActionActivitySche
 export type PortfolioActionCommandResult = z.infer<typeof PortfolioActionCommandResultSchema>;
 export type PortfolioExecutionRequest = z.infer<typeof PortfolioExecutionRequestSchema>;
 export type PortfolioExecutionReceipt = z.infer<typeof PortfolioExecutionReceiptSchema>;
+export type GoalReviewDecision = z.infer<typeof GoalReviewDecisionSchema>;
+export type CodexFollowupReceipt = z.infer<typeof CodexFollowupReceiptSchema>;
