@@ -1389,6 +1389,9 @@ async function queueGoalReviewCodexFollowup(
         enabled: true,
         goal_id: goal.goal_id,
         goal_title: goal.project_name || goal.project_id,
+        project_id: goal.project_id,
+        project_name: goal.project_name,
+        satisfaction_threshold: goal.satisfaction_threshold,
         mode: "goal",
         origin: "repo_write_codex_task",
         status_policy: "compact"

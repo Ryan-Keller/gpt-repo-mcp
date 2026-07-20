@@ -145,6 +145,54 @@ describe("Codex task services", () => {
     })).toThrow();
   });
 
+  test("enabled goal lane requires the complete Field Console identity packet", () => {
+    expect(() => CodexTaskInputSchema.parse({
+      repo_id: "demo",
+      title: "Task",
+      objective: "Do work.",
+      goal_lane: {
+        enabled: true,
+        goal_id: "goal-goblin-telecom-bootstrap"
+      }
+    })).toThrow(/project_id is required/);
+
+    expect(CodexTaskInputSchema.parse({
+      repo_id: "demo",
+      title: "Task",
+      objective: "Do work.",
+      goal_lane: {
+        enabled: true,
+        goal_id: "goal-goblin-telecom-bootstrap",
+        goal_title: "Goblin Telecom bootstrap",
+        project_id: "goblin-telecom",
+        project_name: "Goblin Telecom",
+        satisfaction_threshold: 95,
+        mode: "goal",
+        origin: "repo_write_codex_task",
+        status_policy: "compact"
+      }
+    }).goal_lane).toEqual({
+      enabled: true,
+      goal_id: "goal-goblin-telecom-bootstrap",
+      goal_title: "Goblin Telecom bootstrap",
+      project_id: "goblin-telecom",
+      project_name: "Goblin Telecom",
+      satisfaction_threshold: 95,
+      mode: "goal",
+      origin: "repo_write_codex_task",
+      status_policy: "compact"
+    });
+
+    expect(CodexTaskInputSchema.parse({
+      repo_id: "demo",
+      title: "Task",
+      objective: "Do work.",
+      goal_lane: {
+        enabled: false
+      }
+    }).goal_lane).toEqual({ enabled: false });
+  });
+
   test("write returns a compact receipt without echoing the generated prompt", async () => {
     const fixture = await createRepoFixture();
     const service = createTaskService(fixture.root);
@@ -298,6 +346,9 @@ describe("Codex task services", () => {
             enabled: true,
             goal_id: "goal-lane-batch",
             goal_title: "Batch goal lane",
+            project_id: "goal-lane-batch-project",
+            project_name: "Goal Lane Batch Project",
+            satisfaction_threshold: 95,
             mode: "goal",
             origin: "repo_write_codex_tasks_batch",
             status_policy: "compact"
@@ -314,6 +365,9 @@ describe("Codex task services", () => {
       enabled: true,
       goal_id: "goal-lane-batch",
       goal_title: "Batch goal lane",
+      project_id: "goal-lane-batch-project",
+      project_name: "Goal Lane Batch Project",
+      satisfaction_threshold: 95,
       mode: "goal",
       origin: "repo_write_codex_tasks_batch",
       status_policy: "compact"

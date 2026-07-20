@@ -493,6 +493,31 @@ Example:
 Writes a repo-local Codex task prompt under `.chatgpt/codex-runs/<run_id>/`. It writes `PROMPT.md`, `run.json`, and optional `inputs/**` files through the normal write policy. It refuses to overwrite an existing run id if any run artifact already exists, including `PROMPT.md`, `run.json`, `RESULT.md`, `RESULT.md.lock`, or `inputs/manifest.json`. It does not implement code, run Codex, stage, commit, push, or execute shell commands.
 
 Input: same task fields as `repo_prepare_codex_task`, plus optional `dry_run` and `reason`.
+For new project creation, repo bootstrap, queued off-thread Codex work, or any
+run that should appear in Bridge Field Console before normal project memory
+exists, include a complete `goal_lane` packet:
+
+```json
+{
+  "goal_lane": {
+    "enabled": true,
+    "goal_id": "goal-goblin-telecom-bootstrap",
+    "goal_title": "Goblin Telecom bootstrap",
+    "project_id": "goblin-telecom",
+    "project_name": "Goblin Telecom",
+    "satisfaction_threshold": 95,
+    "mode": "goal",
+    "origin": "repo_write_codex_task",
+    "status_policy": "compact"
+  }
+}
+```
+
+When `goal_lane.enabled` is `true`, all of those fields are required. Use
+`satisfaction_threshold: 95` for Bridge Field Console work unless the user
+explicitly chooses a lower 90-94 gate. If the project identity is ambiguous,
+ask the user before writing instead of omitting these fields.
+
 Output: compact receipt fields only: `run_id`, repo-local prompt/result/manifest
 paths, optional input asset metadata, `dry_run`, `written_paths[]`,
 `queued_status`, `receipt`, `next_steps[]`, warnings, and optional

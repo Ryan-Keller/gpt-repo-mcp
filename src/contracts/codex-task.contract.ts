@@ -30,33 +30,54 @@ const GoalLaneSchema = z.object({
     .max(120)
     .regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,119}$/)
     .optional()
-    .describe("Optional compact stable goal identifier. Do not include secrets, raw prompts, URLs, or payloads."),
+    .describe("Required when enabled=true. Compact stable goal identifier. Do not include secrets, raw prompts, URLs, or payloads."),
   goal_title: z.string()
     .min(1)
     .max(160)
     .optional()
-    .describe("Optional short human-readable goal label."),
+    .describe("Required when enabled=true. Short human-readable goal label."),
   project_id: z.string()
     .min(1)
     .max(120)
     .regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,119}$/)
     .optional()
-    .describe("Optional project id to surface in Bridge Field Console before normal project memory exists."),
+    .describe("Required when enabled=true. Project id to surface in Bridge Field Console before normal project memory exists."),
   project_name: z.string()
     .min(1)
     .max(180)
     .optional()
-    .describe("Optional project display name to surface in Bridge Field Console before normal project memory exists."),
+    .describe("Required when enabled=true. Project display name to surface in Bridge Field Console before normal project memory exists."),
   satisfaction_threshold: z.number()
     .int()
     .min(90)
     .max(95)
     .optional()
-    .describe("Goal acceptance threshold for the field-visible setup/progress record."),
-  mode: z.enum(["goal"]).optional().describe("Goal Lane mode. Currently only compact goal runs are accepted."),
-  origin: z.enum(["repo_write_codex_task", "repo_write_codex_tasks_batch"]).optional().describe("Tool route that created the Goal Lane metadata."),
-  status_policy: z.enum(["compact"]).optional().describe("Goal Lane status policy. Full payloads are not accepted here.")
-}).strict().describe("Bounded compact Goal Lane metadata preserved in run.json for runner pickup.");
+    .describe("Required when enabled=true. Goal acceptance threshold for the field-visible setup/progress record; Field Console expects 95 unless the user explicitly chooses 90-94."),
+  mode: z.enum(["goal"]).optional().describe("Required when enabled=true. Goal Lane mode. Currently only compact goal runs are accepted."),
+  origin: z.enum(["repo_write_codex_task", "repo_write_codex_tasks_batch"]).optional().describe("Required when enabled=true. Tool route that created the Goal Lane metadata."),
+  status_policy: z.enum(["compact"]).optional().describe("Required when enabled=true. Goal Lane status policy. Full payloads are not accepted here.")
+}).strict().superRefine((lane, ctx) => {
+  if (!lane.enabled) return;
+  const requiredFields = [
+    "goal_id",
+    "goal_title",
+    "project_id",
+    "project_name",
+    "satisfaction_threshold",
+    "mode",
+    "origin",
+    "status_policy"
+  ] as const;
+  for (const field of requiredFields) {
+    if (lane[field] === undefined) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        path: [field],
+        message: `goal_lane.${field} is required when goal_lane.enabled is true for Field Console visibility.`
+      });
+    }
+  }
+}).describe("Bounded compact Goal Lane metadata preserved in run.json for runner pickup. When enabled=true, provide the complete Field Console identity packet: goal_id, goal_title, project_id, project_name, satisfaction_threshold, mode=goal, origin, and status_policy=compact.");
 
 export const CodexTaskInputSchema = RepoInputSchema.extend({
   title: NonEmptyStringSchema.describe("Short human-readable task title used in the prompt and generated run id."),
@@ -72,7 +93,7 @@ export const CodexTaskInputSchema = RepoInputSchema.extend({
   input_assets: z.array(InputAssetSchema).default([]).describe("Repo-local input assets to write under this run's inputs folder."),
   acceptance_criteria: z.array(z.string().min(1)).default([]).describe("Criteria Codex should satisfy before finishing."),
   verification_commands: z.array(z.string().min(1)).default([]).describe("Commands Codex should run when feasible and report in RESULT.md."),
-  goal_lane: GoalLaneSchema.optional().describe("Optional bounded Codex Goal Lane metadata stored in run.json for runner pickup."),
+  goal_lane: GoalLaneSchema.optional().describe("Optional bounded Codex Goal Lane metadata stored in run.json for runner pickup. Required for new project/bootstrap/off-thread Codex packets that should appear in Bridge Field Console before normal project memory exists."),
   run_id: CodexRunIdSchema.optional()
 });
 
