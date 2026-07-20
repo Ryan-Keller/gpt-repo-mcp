@@ -1051,10 +1051,16 @@ export const writeCodexTaskHandler: ToolHandler = async (input, context) => safe
       warnings: [...result.warnings, ...receipt.warnings],
       ...(receipt.operation_receipt ? { operation_receipt: receipt.operation_receipt } : {})
     };
+    const goal = args.goal_lane?.enabled
+      ? await recordCodexTaskGoal(queueRepo.root, args, resultWithReceipt.run_id)
+      : undefined;
+    if (goal) {
+      resultWithReceipt.warnings.push("GOAL_LANE_REGISTERED_FOR_FIELD_CONSOLE");
+    }
     audit({ tool: "repo_write_codex_task", repo_id: args.repo_id, paths: resultWithReceipt.written_paths, warnings: resultWithReceipt.warnings });
     return createSuccessEnvelope(
       resultWithReceipt,
-      `Queued Codex task ${resultWithReceipt.run_id} for ${args.repo_id} in ${queueRepo.repo_id}.`,
+      `Queued Codex task ${resultWithReceipt.run_id} for ${args.repo_id} in ${queueRepo.repo_id}${goal ? ` and registered goal ${goal.goal_id}` : ""}.`,
       { warnings: resultWithReceipt.warnings }
     );
   }
@@ -1113,6 +1119,49 @@ export const writeCodexTasksBatchHandler: ToolHandler = async (input, context) =
       : `Wrote ${result.created_run_ids.length} Codex task seeds.`;
   return createSuccessEnvelope(result, summary, { warnings: result.warnings });
 });
+
+async function recordCodexTaskGoal(
+  queueRoot: string,
+  args: CodexTaskWriteInput,
+  runId: string
+): Promise<GoalRecord | undefined> {
+  if (!args.goal_lane?.enabled) return undefined;
+  const lane = args.goal_lane;
+  const acceptanceCriteria = args.acceptance_criteria ?? [];
+  const projectId = lane.project_id || lane.goal_id || args.repo_id;
+  const projectName = lane.project_name || lane.goal_title || args.title;
+  return new GoalRecordService(queueRoot).upsert({
+    goal_id: lane.goal_id,
+    idempotency_key: `codex-task:${runId}`,
+    project_id: projectId,
+    project_name: projectName,
+    repository_id: args.repo_id,
+    action_id: runId,
+    objective: args.objective,
+    source_kind: "chatgpt",
+    source_reference: `.chatgpt/codex-runs/${runId}/PROMPT.md`,
+    plan: args.implementation_scope?.include?.length ? args.implementation_scope.include : acceptanceCriteria,
+    dependencies: [],
+    parallel_wave: 0,
+    serial_after: [],
+    executor: "codex",
+    routing_reason: "ChatGPT queued a Codex off-thread packet with goal_lane metadata for Field Console visibility.",
+    execution_scope: args.allowed_paths,
+    privacy_scope: "private_tailnet",
+    proof_boundary: acceptanceCriteria.length
+      ? acceptanceCriteria.join("\n")
+      : "Return RESULT.md with exact implementation proof and a 95% acceptance recommendation.",
+    codex_arbiter: "Codex",
+    satisfaction_threshold: lane.satisfaction_threshold ?? 95,
+    satisfaction_score: 0,
+    iteration: 0,
+    unmet_dimensions: ["Waiting for Codex result and satisfaction determination."],
+    evidence: [`.chatgpt/codex-runs/${runId}/PROMPT.md`, `.chatgpt/codex-runs/${runId}/run.json`],
+    artifacts: [],
+    changed_files: [],
+    state: "working"
+  });
+}
 
 export const codexReviewHandler: ToolHandler = async (input, context) => safeTool<CodexReviewInput>("repo_codex_review", input, context, async (args) => {
   const { targetRepo, queueRepo, warnings: queueWarnings } = codexQueueForTarget(context, args.repo_id);

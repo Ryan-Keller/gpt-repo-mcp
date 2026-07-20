@@ -173,6 +173,57 @@ describe("central Codex queue routing", () => {
     expect(reviewData.git_review?.changed_paths.map((entry) => entry.path)).toContain("src/app.ts");
   });
 
+  test("goal lane Codex tasks register a Field Console-visible setup goal", async () => {
+    const bridge = await createRepoFixture();
+    const context = {
+      registry: await RootRegistry.fromConfig({
+        repos: [
+          {
+            repo_id: "shared-agent-bridge",
+            display_name: "Shared Agent Bridge",
+            root: bridge.root,
+            writes: { enabled: true, allowed_globs: [".chatgpt/**"] }
+          }
+        ],
+        limits: {}
+      })
+    };
+
+    const writeResult = await writeCodexTaskHandler({
+      repo_id: "shared-agent-bridge",
+      title: "Create Goblin Telecom repo",
+      objective: "Create the Goblin Telecom repo, onboarding, bridge fixture, first playable slice, and acceptance receipt.",
+      allowed_paths: ["shared/**", "projects/**"],
+      acceptance_criteria: ["Repo exists and onboarding is present.", "Satisfaction gate is 95%."],
+      run_id: "2026-07-19T210000Z-create-goblin-telecom",
+      goal_lane: {
+        enabled: true,
+        goal_id: "goal-goblin-telecom-bootstrap",
+        goal_title: "Goblin Telecom bootstrap",
+        project_id: "goblin-telecom",
+        project_name: "Goblin Telecom",
+        satisfaction_threshold: 95,
+        mode: "goal",
+        origin: "repo_write_codex_task",
+        status_policy: "compact"
+      }
+    }, context);
+    const data = writeResult.structuredContent as { warnings: string[] };
+    expect(data.warnings).toContain("GOAL_LANE_REGISTERED_FOR_FIELD_CONSOLE");
+
+    const store = JSON.parse(await readFile(join(bridge.root, ".chatgpt", "goal-records-v1.json"), "utf8")) as {
+      goals: Array<{ goal_id: string; project_id: string; project_name: string; state: string; satisfaction_threshold: number; unmet_dimensions: string[] }>;
+    };
+    expect(store.goals[0]).toMatchObject({
+      goal_id: "goal-goblin-telecom-bootstrap",
+      project_id: "goblin-telecom",
+      project_name: "Goblin Telecom",
+      state: "working",
+      satisfaction_threshold: 95
+    });
+    expect(store.goals[0]?.unmet_dimensions).toContain("Waiting for Codex result and satisfaction determination.");
+  });
+
   test("project runner status reports central queue coverage instead of requiring a per-project runner", async () => {
     const bridge = await createRepoFixture();
     const target = await createRepoFixture();

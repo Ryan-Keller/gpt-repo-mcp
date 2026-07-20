@@ -36,6 +36,23 @@ const GoalLaneSchema = z.object({
     .max(160)
     .optional()
     .describe("Optional short human-readable goal label."),
+  project_id: z.string()
+    .min(1)
+    .max(120)
+    .regex(/^[A-Za-z0-9][A-Za-z0-9_.:-]{0,119}$/)
+    .optional()
+    .describe("Optional project id to surface in Bridge Field Console before normal project memory exists."),
+  project_name: z.string()
+    .min(1)
+    .max(180)
+    .optional()
+    .describe("Optional project display name to surface in Bridge Field Console before normal project memory exists."),
+  satisfaction_threshold: z.number()
+    .int()
+    .min(90)
+    .max(95)
+    .optional()
+    .describe("Goal acceptance threshold for the field-visible setup/progress record."),
   mode: z.enum(["goal"]).optional().describe("Goal Lane mode. Currently only compact goal runs are accepted."),
   origin: z.enum(["repo_write_codex_task", "repo_write_codex_tasks_batch"]).optional().describe("Tool route that created the Goal Lane metadata."),
   status_policy: z.enum(["compact"]).optional().describe("Goal Lane status policy. Full payloads are not accepted here.")

@@ -95,6 +95,9 @@ describe("Codex task services", () => {
         enabled: true,
         goal_id: "goal-lane-v0",
         goal_title: "Keep goal lane metadata compact",
+        project_id: "goblin-telecom",
+        project_name: "Goblin Telecom",
+        satisfaction_threshold: 95,
         mode: "goal",
         origin: "repo_write_codex_task",
         status_policy: "compact"
@@ -109,6 +112,9 @@ describe("Codex task services", () => {
       enabled: true,
       goal_id: "goal-lane-v0",
       goal_title: "Keep goal lane metadata compact",
+      project_id: "goblin-telecom",
+      project_name: "Goblin Telecom",
+      satisfaction_threshold: 95,
       mode: "goal",
       origin: "repo_write_codex_task",
       status_policy: "compact"
